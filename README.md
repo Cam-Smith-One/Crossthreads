@@ -17,6 +17,7 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 - [`docs/PRD.md`](docs/PRD.md) — Product Requirements Document (vision, users, scope, GTM)
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — Detailed functional & non-functional requirements
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Reference architecture & tech decisions
+- [`docs/AGENT_API.md`](docs/AGENT_API.md) — Agent-facing API & interface spec (CLI/JSON, MCP, HTTP)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phased delivery plan
 
 ## Principles
