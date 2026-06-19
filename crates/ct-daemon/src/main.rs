@@ -66,12 +66,26 @@ fn run() -> Result<()> {
     let embedder = ct_embed::default_embedder();
     let daemon = Daemon::new(store, embedder);
 
-    eprintln!("crossthreadsd: index {}", db_path.display());
-    let report = daemon.reindex().context("initial index")?;
+    // Index in the BACKGROUND so the UI/API are reachable immediately. A large
+    // first index (hundreds of sessions + embeddings) can take a while; the
+    // server should come up right away and fill in as indexing progresses.
     eprintln!(
-        "crossthreadsd: initial index — {} new, {} present, {} embedded",
-        report.inserted, report.duplicate, report.embedded
+        "crossthreadsd: index {} (initial index running…)",
+        db_path.display()
     );
+    {
+        let d = daemon.clone();
+        std::thread::Builder::new()
+            .name("ct-initial-index".into())
+            .spawn(move || match d.reindex() {
+                Ok(r) => eprintln!(
+                    "crossthreadsd: initial index complete — {} new, {} present, {} embedded",
+                    r.inserted, r.duplicate, r.embedded
+                ),
+                Err(e) => eprintln!("crossthreadsd: initial index failed: {e:#}"),
+            })
+            .context("starting initial index")?;
+    }
 
     if watch {
         daemon.spawn_watcher().context("starting watcher")?;

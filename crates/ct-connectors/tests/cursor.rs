@@ -103,6 +103,52 @@ fn parses_composer_when_values_are_stored_as_text() {
 }
 
 #[test]
+fn parses_newer_composer_with_empty_inline_text_via_bubble_rows() {
+    // Real-world (Cursor ~2025): the inline `conversation` array carries the
+    // turn type + bubbleId but an EMPTY text; the real text is in a separate
+    // `bubbleId:<composer>:<bubble>` row.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("state.vscdb");
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB);")
+        .unwrap();
+    let comp = r#"{"composerId":"n1","conversation":[
+        {"bubbleId":"u","type":1,"text":""},
+        {"bubbleId":"a","type":2,"text":""}
+    ]}"#;
+    put(&conn, "cursorDiskKV", "composerData:n1", comp);
+    put(
+        &conn,
+        "cursorDiskKV",
+        "bubbleId:n1:u",
+        r#"{"type":1,"text":"how do I debounce a resize handler?"}"#,
+    );
+    put(
+        &conn,
+        "cursorDiskKV",
+        "bubbleId:n1:a",
+        r#"{"type":2,"text":"wrap it in requestAnimationFrame"}"#,
+    );
+
+    let convo = parse_in_db(&db_path, "diskkv/n1").unwrap();
+    assert_eq!(
+        convo
+            .messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "how do I debounce a resize handler?",
+            "wrap it in requestAnimationFrame"
+        ]
+    );
+    assert_eq!(
+        convo.messages.iter().map(|m| m.role).collect::<Vec<_>>(),
+        vec![Role::User, Role::Assistant]
+    );
+}
+
+#[test]
 fn discovers_all_three_conversations() {
     let (_dir, db) = make_db();
     let mut locators: Vec<String> = discover_in_db(&db)

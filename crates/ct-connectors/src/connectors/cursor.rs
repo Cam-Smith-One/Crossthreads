@@ -272,48 +272,57 @@ pub fn tab_to_conversation(
 }
 
 /// Build a conversation from a composer entry. `fetch_bubble` resolves a
-/// `bubbleId` to its stored JSON for the headers-only layout.
+/// `bubbleId` to its stored JSON.
+///
+/// Cursor's layouts (across versions):
+/// - older: inline `conversation[]` with the text in each turn's `text`;
+/// - newer: inline `conversation[]` where each turn has a `bubbleId` and an
+///   *empty* `text` — the real text lives in a separate `bubbleId:…` row;
+/// - some: `fullConversationHeadersOnly[]` referencing bubble rows.
+///
+/// We handle all three by always following the `bubbleId` when `text` is empty.
 pub fn composer_to_conversation(
     composer: &serde_json::Value,
     fetch_bubble: impl Fn(&str) -> Option<serde_json::Value>,
     path: &Path,
     project: Option<String>,
 ) -> Option<Conversation> {
+    let turns = composer
+        .get("conversation")
+        .and_then(|v| v.as_array())
+        .or_else(|| {
+            composer
+                .get("fullConversationHeadersOnly")
+                .and_then(|v| v.as_array())
+        })?;
+
     let mut messages = Vec::new();
-
-    // Inline conversation array (older composer builds).
-    if let Some(turns) = composer.get("conversation").and_then(|v| v.as_array()) {
-        for (idx, turn) in turns.iter().enumerate() {
-            if let Some(msg) = composer_turn_message(idx, turn) {
-                messages.push(msg);
-            }
-        }
-    }
-
-    // Headers-only: resolve each bubble row separately.
-    if messages.is_empty() {
-        if let Some(headers) = composer
-            .get("fullConversationHeadersOnly")
-            .and_then(|v| v.as_array())
-        {
-            for (idx, header) in headers.iter().enumerate() {
-                let Some(bubble_id) = header.get("bubbleId").and_then(|v| v.as_str()) else {
-                    continue;
-                };
-                let Some(bubble) = fetch_bubble(bubble_id) else {
-                    continue;
-                };
-                // Header carries the type; bubble row carries the text.
-                let mut merged = bubble;
-                if merged.get("type").is_none() {
-                    if let Some(t) = header.get("type") {
-                        merged["type"] = t.clone();
+    for (idx, turn) in turns.iter().enumerate() {
+        let mut role = role_from_type(turn.get("type"));
+        // Text inline if present, else fetched from the referenced bubble row.
+        let mut text = turn
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            if let Some(bubble_id) = turn.get("bubbleId").and_then(|v| v.as_str()) {
+                if let Some(bubble) = fetch_bubble(bubble_id) {
+                    text = bubble
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if turn.get("type").is_none() {
+                        role = role_from_type(bubble.get("type"));
                     }
                 }
-                if let Some(msg) = composer_turn_message(idx, &merged) {
-                    messages.push(msg);
-                }
             }
+        }
+        if !text.is_empty() {
+            messages.push(make_message(idx, role, &text));
         }
     }
 
@@ -329,18 +338,29 @@ pub fn composer_to_conversation(
     Some(finish(messages, project, started_at, path))
 }
 
-/// A composer turn uses numeric `type`: 1 = user, 2 = assistant.
-fn composer_turn_message(idx: usize, turn: &serde_json::Value) -> Option<Message> {
-    let role = match turn.get("type").and_then(|v| v.as_i64()) {
-        Some(1) => Role::User,
+/// Cursor turn/bubble `type`: 1 = user, 2 = assistant. Default to user for
+/// anything unexpected rather than dropping the turn.
+fn role_from_type(t: Option<&serde_json::Value>) -> Role {
+    match t.and_then(|v| v.as_i64()) {
         Some(2) => Role::Assistant,
-        _ => return None,
-    };
-    bubble_text_message(idx, turn, role)
+        _ => Role::User,
+    }
 }
 
-/// Shared: pull `text` out of a bubble/turn and make a [`Message`], skipping
-/// empties (tool-only bubbles often have no text).
+fn make_message(idx: usize, role: Role, text: &str) -> Message {
+    Message {
+        id: format!("ms_{idx}"),
+        role,
+        content: text.to_string(),
+        timestamp: None,
+        code_snippets: crate::text::extract_code_snippets(text),
+        tool_calls: vec![],
+        metadata: serde_json::Value::Null,
+    }
+}
+
+/// Shared: pull `text` out of a legacy tab bubble and make a [`Message`],
+/// skipping empties (tool-only bubbles often have no text).
 fn bubble_text_message(idx: usize, node: &serde_json::Value, role: Role) -> Option<Message> {
     let text = node
         .get("text")
@@ -350,20 +370,7 @@ fn bubble_text_message(idx: usize, node: &serde_json::Value, role: Role) -> Opti
     if text.is_empty() {
         return None;
     }
-    let id = node
-        .get("bubbleId")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("ms_{idx}"));
-    Some(Message {
-        id,
-        role,
-        content: text.to_string(),
-        timestamp: None,
-        code_snippets: crate::text::extract_code_snippets(text),
-        tool_calls: vec![],
-        metadata: serde_json::Value::Null,
-    })
+    Some(make_message(idx, role, text))
 }
 
 fn finish(

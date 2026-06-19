@@ -40,10 +40,50 @@ impl Daemon {
         }
     }
 
-    /// Run one indexing pass (single-writer: holds the store lock throughout).
+    /// Run one indexing pass. The store lock is taken only briefly (per upsert
+    /// batch and per embed batch) and released during the slow embedding step,
+    /// so search stays responsive even during a large initial index.
     pub fn reindex(&self) -> Result<ct_index::IndexReport> {
-        let mut store = self.store.lock().expect("store mutex poisoned");
-        ct_index::index_once(&mut store, &*self.embedder, None)
+        let (conversations, unparseable) = ct_index::collect(None);
+        let mut report = ct_index::IndexReport {
+            parsed: conversations.len(),
+            unparseable,
+            ..Default::default()
+        };
+
+        // Persist (fast) under a single short-lived lock.
+        {
+            let mut store = self.store.lock().expect("store mutex poisoned");
+            for convo in &conversations {
+                match store.upsert_conversation(convo)? {
+                    ct_store::Upsert::Inserted => report.inserted += 1,
+                    ct_store::Upsert::Duplicate => report.duplicate += 1,
+                }
+            }
+        }
+
+        // Embed in small batches, holding the lock only to read pending rows and
+        // to write vectors back — never during the (slow) embedding compute.
+        loop {
+            let batch = {
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.pending_embeddings(128)?
+            };
+            if batch.is_empty() {
+                break;
+            }
+            let texts: Vec<String> = batch.iter().map(|(_, c)| c.clone()).collect();
+            let vecs = self.embedder.embed(&texts)?;
+            let rows: Vec<(i64, Vec<f32>)> =
+                batch.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
+            {
+                let mut store = self.store.lock().expect("store mutex poisoned");
+                store.store_embeddings(self.embedder.id(), &rows)?;
+            }
+            report.embedded += rows.len();
+        }
+
+        Ok(report)
     }
 
     /// Spawn the file-watcher: re-index (debounced) whenever a connector root
