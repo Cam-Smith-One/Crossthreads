@@ -1,0 +1,16 @@
+[package]
+name = "ct-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core schema, connector trait, and normalization for Crossthreads."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }

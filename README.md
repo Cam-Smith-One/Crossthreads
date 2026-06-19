@@ -12,7 +12,20 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-📋 **Planning.** This repository currently contains product documentation. See:
+🛠️ **Phase 0 (prototype).** Product docs are complete and the Rust workspace is scaffolded. The `detect → discover → parse → normalize` pipeline runs end-to-end for the **Claude Code** connector via the CLI; the daemon, storage, and remaining connectors (Cursor, Aider) are next.
+
+```
+crates/
+  ct-core         # normalized schema + Connector trait + content hashing
+  ct-connectors   # source-tool parsers (Claude Code implemented)
+  ct-cli          # `crossthreads` CLI (Phase 0: `index` dry-run)
+  ct-daemon       # `crossthreadsd` background daemon (scaffold)
+  ct-mcp          # MCP server (scaffold)
+```
+
+Try it: `cargo run -p ct-cli -- index` (reads `~/.claude/projects/`).
+
+### Documentation
 
 - [`docs/PRD.md`](docs/PRD.md) — Product Requirements Document (vision, users, scope, GTM)
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — Detailed functional & non-functional requirements

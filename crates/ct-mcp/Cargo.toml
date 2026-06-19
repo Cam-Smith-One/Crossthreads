@@ -1,0 +1,16 @@
+[package]
+name = "ct-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Crossthreads MCP server: exposes search/recall to MCP-capable agents."
+
+[[bin]]
+name = "ct-mcp"
+path = "src/main.rs"
+
+[dependencies]
+ct-core = { workspace = true }
+anyhow = { workspace = true }

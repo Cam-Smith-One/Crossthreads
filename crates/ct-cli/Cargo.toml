@@ -1,0 +1,19 @@
+[package]
+name = "ct-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Crossthreads command-line interface."
+
+[[bin]]
+name = "crossthreads"
+path = "src/main.rs"
+
+[dependencies]
+ct-core = { workspace = true }
+ct-connectors = { path = "../ct-connectors" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
