@@ -7,7 +7,7 @@
 pub mod connectors;
 pub mod text;
 
-pub use connectors::{AiderConnector, ClaudeCodeConnector, CursorConnector};
+pub use connectors::{AiderConnector, ClaudeCodeConnector, CodexConnector, CursorConnector};
 
 use ct_core::connector::Connector;
 
@@ -18,5 +18,6 @@ pub fn builtin() -> Vec<Box<dyn Connector>> {
         Box::new(ClaudeCodeConnector::new()),
         Box::new(CursorConnector::new()),
         Box::new(AiderConnector::new()),
+        Box::new(CodexConnector::new()),
     ]
 }

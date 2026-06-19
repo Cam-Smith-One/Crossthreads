@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"01J9","timestamp":"2026-05-18T08:00:00Z","cwd":"/home/dev/acme-api","cli_version":"0.2.0","model":"gpt-5-codex","instructions":"be concise"}}
+{"type":"response_item","timestamp":"2026-05-18T08:00:05Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"refactor the retry logic to use exponential backoff"}]}}
+{"type":"response_item","timestamp":"2026-05-18T08:00:20Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here's the refactor:\n\n```python\nfor i in range(5):\n    sleep(2 ** i)\n```"}]}}
+{"type":"response_item","timestamp":"2026-05-18T08:00:21Z","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":\"pytest -q\"}"}}
+{"type":"response_item","timestamp":"2026-05-18T08:00:25Z","payload":{"type":"function_call_output","output":"5 passed in 0.3s"}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking..."}]}}
