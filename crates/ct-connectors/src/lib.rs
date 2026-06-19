@@ -7,12 +7,15 @@
 pub mod connectors;
 pub mod text;
 
-pub use connectors::ClaudeCodeConnector;
+pub use connectors::{ClaudeCodeConnector, CursorConnector};
 
 use ct_core::connector::Connector;
 
 /// All built-in connectors. The daemon iterates these to detect and index
 /// whatever is present on the machine.
 pub fn builtin() -> Vec<Box<dyn Connector>> {
-    vec![Box::new(ClaudeCodeConnector::new())]
+    vec![
+        Box::new(ClaudeCodeConnector::new()),
+        Box::new(CursorConnector::new()),
+    ]
 }

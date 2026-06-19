@@ -12,12 +12,12 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-🛠️ **Phase 0 (prototype).** Product docs are complete and the Rust workspace is scaffolded. The `detect → discover → parse → normalize` pipeline runs end-to-end for the **Claude Code** connector via the CLI; the daemon, storage, and remaining connectors (Cursor, Aider) are next.
+🛠️ **Phase 0 (prototype).** Product docs are complete and the Rust workspace is scaffolded. The `detect → discover → parse → normalize` pipeline runs end-to-end via the CLI for **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite — legacy chat + both composer layouts). Aider, the daemon, and storage are next.
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # source-tool parsers (Claude Code implemented)
+  ct-connectors   # source-tool parsers (Claude Code + Cursor implemented)
   ct-cli          # `crossthreads` CLI (Phase 0: `index` dry-run)
   ct-daemon       # `crossthreadsd` background daemon (scaffold)
   ct-mcp          # MCP server (scaffold)
