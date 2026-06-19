@@ -73,6 +73,55 @@ pub struct ContextBlock {
     pub token_estimate: usize,
 }
 
+/// Optional result filters (FR-SRCH-02). Empty fields impose no constraint.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Filters {
+    /// Exact tool slug, e.g. `claude-code`.
+    pub tool: Option<String>,
+    /// Substring match against the project path.
+    pub project: Option<String>,
+    /// Inclusive lower bound on the start date (ISO `YYYY-MM-DD`).
+    pub since: Option<String>,
+    /// Inclusive upper bound on the start date (ISO `YYYY-MM-DD`).
+    pub until: Option<String>,
+}
+
+impl Filters {
+    pub fn is_empty(&self) -> bool {
+        self.tool.is_none() && self.project.is_none() && self.since.is_none() && self.until.is_none()
+    }
+
+    /// Does a hit satisfy every set constraint?
+    fn passes(&self, hit: &SearchHit) -> bool {
+        if let Some(t) = &self.tool {
+            if &hit.tool != t {
+                return false;
+            }
+        }
+        if let Some(p) = &self.project {
+            if !hit.project.as_deref().unwrap_or("").contains(p.as_str()) {
+                return false;
+            }
+        }
+        if self.since.is_some() || self.until.is_some() {
+            // Compare on the date prefix so a date-only bound is day-inclusive.
+            let date = hit.started_at.as_deref().map(|s| &s[..s.len().min(10)]);
+            let Some(date) = date else { return false };
+            if let Some(since) = &self.since {
+                if date < since.as_str() {
+                    return false;
+                }
+            }
+            if let Some(until) = &self.until {
+                if date > until.as_str() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
 /// Handle to the index database.
 pub struct Store {
     conn: Connection,
@@ -325,6 +374,74 @@ impl Store {
             }
         }
         Ok(out)
+    }
+
+    // ---- Filtered search (FR-SRCH-02) -------------------------------------
+    //
+    // Filters are applied by over-fetching an unfiltered candidate pool and
+    // keeping those that pass — simple and correct for the target corpus.
+
+    /// Over-fetch size for a target `limit` when filtering.
+    fn pool(limit: usize) -> usize {
+        (limit * 10).max(50)
+    }
+
+    pub fn search_filtered(&self, query: &str, limit: usize, f: &Filters) -> Result<Vec<SearchHit>> {
+        if f.is_empty() {
+            return self.search(query, limit);
+        }
+        Ok(self
+            .search(query, Self::pool(limit))?
+            .into_iter()
+            .filter(|h| f.passes(h))
+            .take(limit)
+            .collect())
+    }
+
+    pub fn search_semantic_filtered(
+        &self,
+        query: &[f32],
+        limit: usize,
+        f: &Filters,
+    ) -> Result<Vec<SearchHit>> {
+        if f.is_empty() {
+            return self.search_semantic(query, limit);
+        }
+        Ok(self
+            .search_semantic(query, Self::pool(limit))?
+            .into_iter()
+            .filter(|h| f.passes(h))
+            .take(limit)
+            .collect())
+    }
+
+    pub fn search_hybrid_filtered(
+        &self,
+        query: &str,
+        query_vec: &[f32],
+        limit: usize,
+        f: &Filters,
+    ) -> Result<Vec<SearchHit>> {
+        if f.is_empty() {
+            return self.search_hybrid(query, query_vec, limit);
+        }
+        Ok(self
+            .search_hybrid(query, query_vec, Self::pool(limit))?
+            .into_iter()
+            .filter(|h| f.passes(h))
+            .take(limit)
+            .collect())
+    }
+
+    /// Distinct tools present in the index (for filter UIs).
+    pub fn facets_tools(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT tool FROM conversations ORDER BY tool")?;
+        let tools = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(tools)
     }
 
     // ---- Retrieval of full conversations / context ------------------------

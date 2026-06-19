@@ -11,7 +11,7 @@
 
 use serde_json::{json, Value};
 
-use ct_daemon::{Client, Mode, Request, Response};
+use ct_daemon::{Client, Filters, Mode, Request, Response};
 
 /// MCP protocol version we implement (echoed if the client offers one).
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -90,6 +90,14 @@ impl Server {
                             "limit": {
                                 "type": "integer",
                                 "description": "Max results (default: 5)."
+                            },
+                            "tool": {
+                                "type": "string",
+                                "description": "Filter to one tool, e.g. claude-code, cursor, aider, codex."
+                            },
+                            "project": {
+                                "type": "string",
+                                "description": "Filter to projects whose path contains this substring."
                             }
                         },
                         "required": ["query"]
@@ -162,7 +170,7 @@ impl Server {
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
 
-        match self.client.search(query, mode, limit) {
+        match self.client.search(query, mode, limit, filters_from(args)) {
             Ok(hits) => tool_text(format_hits(query, &hits)),
             Err(e) => tool_error(format!(
                 "search failed ({e:#}). Is crossthreadsd running?"
@@ -175,7 +183,7 @@ impl Server {
             return tool_error("missing required argument: question");
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
-        match self.client.search(question, Mode::Hybrid, limit) {
+        match self.client.search(question, Mode::Hybrid, limit, filters_from(args)) {
             Ok(hits) if hits.is_empty() => {
                 tool_text(format!("No past sessions found about \"{question}\"."))
             }
@@ -212,7 +220,7 @@ impl Server {
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(3) as usize;
         let max_chars = args.get("max_chars").and_then(|l| l.as_u64()).unwrap_or(6000) as usize;
 
-        match self.client.build_context(query, mode, limit, max_chars) {
+        match self.client.build_context(query, mode, limit, max_chars, filters_from(args)) {
             Ok((markdown, sources)) if sources.is_empty() => {
                 tool_text(format!("No prior context found for \"{query}\".\n{markdown}"))
             }
@@ -231,6 +239,17 @@ impl Server {
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("status failed ({e:#}). Is crossthreadsd running?")),
         }
+    }
+}
+
+/// Optional `tool` / `project` filter args, shared by the search-style tools.
+fn filters_from(args: &Value) -> Filters {
+    let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+    Filters {
+        tool: s("tool"),
+        project: s("project"),
+        since: s("since"),
+        until: s("until"),
     }
 }
 

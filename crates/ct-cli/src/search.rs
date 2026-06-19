@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Result};
 use ct_daemon::Mode;
-use ct_store::{SearchHit, Store};
+use ct_store::{Filters, SearchHit, Store};
 
 pub fn run(args: &[String]) -> Result<ExitCode> {
     let mut as_json = false;
@@ -14,6 +14,7 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let mut mode = Mode::Hybrid;
     let mut remote = false;
     let mut addr: Option<String> = None;
+    let mut filters = Filters::default();
     let mut terms: Vec<String> = Vec::new();
 
     let mut it = args.iter();
@@ -33,6 +34,10 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
                 addr = Some(it.next().ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?.clone());
                 remote = true;
             }
+            "--tool" => filters.tool = Some(it.next().ok_or_else(|| anyhow::anyhow!("--tool needs a value"))?.clone()),
+            "--project" => filters.project = Some(it.next().ok_or_else(|| anyhow::anyhow!("--project needs a value"))?.clone()),
+            "--since" => filters.since = Some(it.next().ok_or_else(|| anyhow::anyhow!("--since needs a value"))?.clone()),
+            "--until" => filters.until = Some(it.next().ok_or_else(|| anyhow::anyhow!("--until needs a value"))?.clone()),
             "--mode" => {
                 let v = it.next().ok_or_else(|| anyhow::anyhow!("--mode needs a value"))?;
                 mode = match v.as_str() {
@@ -48,7 +53,7 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     }
 
     if terms.is_empty() {
-        bail!("usage: crossthreads search <QUERY> [--mode lexical|semantic|hybrid] [--remote]");
+        bail!("usage: crossthreads search <QUERY> [--mode …] [--tool …] [--project …] [--since …] [--until …] [--remote]");
     }
     let query = terms.join(" ");
 
@@ -58,19 +63,19 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             Some(a) => ct_daemon::Client::new(a),
             None => ct_daemon::Client::from_env(),
         };
-        client.search(&query, mode, limit)?
+        client.search(&query, mode, limit, filters)?
     } else {
         let db_path = crate::resolve_db(db)?;
         let store = Store::open(&db_path)?;
         match mode {
-            Mode::Lexical => store.search(&query, limit)?,
+            Mode::Lexical => store.search_filtered(&query, limit, &filters)?,
             Mode::Semantic => {
                 let q = embed_query(&query)?;
-                store.search_semantic(&q, limit)?
+                store.search_semantic_filtered(&q, limit, &filters)?
             }
             Mode::Hybrid => {
                 let q = embed_query(&query)?;
-                store.search_hybrid(&query, &q, limit)?
+                store.search_hybrid_filtered(&query, &q, limit, &filters)?
             }
         }
     };

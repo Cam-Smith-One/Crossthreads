@@ -70,12 +70,12 @@ fn ping_status_and_search_over_the_wire() {
     }
 
     // Hybrid search returns the relevant conversation.
-    let hits = client.search("retry backoff", Mode::Hybrid, 10).unwrap();
+    let hits = client.search("retry backoff", Mode::Hybrid, 10, Default::default()).unwrap();
     assert!(!hits.is_empty());
     assert_eq!(hits[0].project.as_deref(), Some("/acme-api"));
 
     // Lexical search for the other one.
-    let hits = client.search("navbar", Mode::Lexical, 10).unwrap();
+    let hits = client.search("navbar", Mode::Lexical, 10, Default::default()).unwrap();
     assert!(hits.iter().any(|h| h.tool == "cursor"));
 }
 
@@ -87,7 +87,7 @@ fn multiple_clients_are_served() {
         let addr = addr.clone();
         handles.push(thread::spawn(move || {
             let client = Client::new(addr);
-            client.search("retry", Mode::Hybrid, 5).unwrap().len()
+            client.search("retry", Mode::Hybrid, 5, Default::default()).unwrap().len()
         }));
     }
     for h in handles {

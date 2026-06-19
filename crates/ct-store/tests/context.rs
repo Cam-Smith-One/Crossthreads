@@ -91,6 +91,37 @@ fn render_context_builds_markdown_with_sources() {
 }
 
 #[test]
+fn filters_narrow_results_by_tool_and_project() {
+    use ct_store::Filters;
+    let mut store = Store::open_in_memory().unwrap();
+    store.upsert_conversation(&convo(Tool::ClaudeCode, "/acme-api", vec![msg(Role::User, "retry with backoff")])).unwrap();
+    store.upsert_conversation(&convo(Tool::Cursor, "/acme-web", vec![msg(Role::User, "retry the request")])).unwrap();
+
+    let all = store.search_filtered("retry", 10, &Filters::default()).unwrap();
+    assert_eq!(all.len(), 2);
+
+    let only_cursor = store
+        .search_filtered("retry", 10, &Filters { tool: Some("cursor".into()), ..Default::default() })
+        .unwrap();
+    assert_eq!(only_cursor.len(), 1);
+    assert_eq!(only_cursor[0].tool, "cursor");
+
+    let only_api = store
+        .search_filtered("retry", 10, &Filters { project: Some("acme-api".into()), ..Default::default() })
+        .unwrap();
+    assert_eq!(only_api.len(), 1);
+    assert_eq!(only_api[0].project.as_deref(), Some("/acme-api"));
+
+    // Date floor in the future excludes everything (fixtures are 2026-05-14).
+    let none = store
+        .search_filtered("retry", 10, &Filters { since: Some("2027-01-01".into()), ..Default::default() })
+        .unwrap();
+    assert!(none.is_empty());
+
+    assert_eq!(store.facets_tools().unwrap(), vec!["claude-code", "cursor"]);
+}
+
+#[test]
 fn render_context_respects_char_budget() {
     let (store, _, id) = seed();
     // Tiny budget: still includes the first conversation (always at least one),

@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use ct_store::{SearchHit, StoredConversation};
+use ct_store::{Filters, SearchHit, StoredConversation};
 
 /// Default loopback address. Override with `CROSSTHREADS_ADDR`.
 pub const DEFAULT_ADDR: &str = "127.0.0.1:47100";
@@ -28,6 +28,8 @@ pub enum Request {
     Ping,
     /// Index health and counts.
     Status,
+    /// Distinct tools present (for filter UIs).
+    Facets,
     /// Force a re-index pass.
     Reindex,
     /// Search the index.
@@ -37,6 +39,8 @@ pub enum Request {
         mode: Mode,
         #[serde(default = "default_limit")]
         limit: usize,
+        #[serde(default)]
+        filters: Filters,
     },
     /// Fetch a full conversation by id.
     GetConversation { id: String },
@@ -49,6 +53,8 @@ pub enum Request {
         limit: usize,
         #[serde(default = "default_max_chars")]
         max_chars: usize,
+        #[serde(default)]
+        filters: Filters,
     },
 }
 
@@ -74,6 +80,9 @@ pub enum Response {
         conversations: i64,
         embeddings: i64,
         embedder: String,
+    },
+    Facets {
+        tools: Vec<String>,
     },
     Reindexed {
         inserted: usize,

@@ -50,7 +50,7 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             Some(a) => ct_daemon::Client::new(a),
             None => ct_daemon::Client::from_env(),
         };
-        client.build_context(&query, mode, limit, max_chars)?.0
+        client.build_context(&query, mode, limit, max_chars, Default::default())?.0
     } else {
         let store = Store::open(crate::resolve_db(db)?)?;
         let hits = match mode {

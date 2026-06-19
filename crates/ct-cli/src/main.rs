@@ -39,6 +39,10 @@ COMMON OPTIONS:
 `search` OPTIONS:
     --mode <M>        lexical | semantic | hybrid (default: hybrid)
     --limit <N>       Max results (default: 10)
+    --tool <SLUG>     Filter to one tool (claude-code, cursor, aider, codex)
+    --project <STR>   Filter to projects whose path contains STR
+    --since <DATE>    Only sessions on/after DATE (YYYY-MM-DD)
+    --until <DATE>    Only sessions on/before DATE (YYYY-MM-DD)
     --remote          Query a running daemon (crossthreadsd) instead of the
                       local DB; --addr <ADDR> sets the address
     --json            Emit results as JSON

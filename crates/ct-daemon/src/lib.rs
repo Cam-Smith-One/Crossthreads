@@ -18,7 +18,7 @@ use ct_store::Store;
 
 mod http;
 pub mod protocol;
-pub use ct_store::SearchHit;
+pub use ct_store::{Filters, SearchHit};
 pub use protocol::{Mode, Request, Response, DEFAULT_ADDR};
 
 /// How long to wait for the filesystem to settle before re-indexing.
@@ -150,6 +150,7 @@ impl Daemon {
         match req {
             Request::Ping => Response::Pong,
             Request::Status => self.status().unwrap_or_else(err),
+            Request::Facets => self.facets().unwrap_or_else(err),
             Request::Reindex => self
                 .reindex()
                 .map(|r| Response::Reindexed {
@@ -158,14 +159,19 @@ impl Daemon {
                     embedded: r.embedded,
                 })
                 .unwrap_or_else(err),
-            Request::Search { query, mode, limit } => {
-                self.search(&query, mode, limit).unwrap_or_else(err)
+            Request::Search { query, mode, limit, filters } => {
+                self.search(&query, mode, limit, &filters).unwrap_or_else(err)
             }
             Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
-            Request::Context { query, mode, limit, max_chars } => {
-                self.context(&query, mode, limit, max_chars).unwrap_or_else(err)
+            Request::Context { query, mode, limit, max_chars, filters } => {
+                self.context(&query, mode, limit, max_chars, &filters).unwrap_or_else(err)
             }
         }
+    }
+
+    fn facets(&self) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        Ok(Response::Facets { tools: store.facets_tools()? })
     }
 
     fn status(&self) -> Result<Response> {
@@ -177,24 +183,24 @@ impl Daemon {
         })
     }
 
-    fn search(&self, query: &str, mode: Mode, limit: usize) -> Result<Response> {
+    fn search(&self, query: &str, mode: Mode, limit: usize, f: &Filters) -> Result<Response> {
         let hits: Vec<SearchHit> = {
             // Embed outside the store lock where possible; keep it simple and
             // correct by embedding first, then locking for the query.
             match mode {
                 Mode::Lexical => {
                     let store = self.store.lock().expect("store mutex poisoned");
-                    store.search(query, limit)?
+                    store.search_filtered(query, limit, f)?
                 }
                 Mode::Semantic => {
                     let q = self.embedder.embed_one(query)?;
                     let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_semantic(&q, limit)?
+                    store.search_semantic_filtered(&q, limit, f)?
                 }
                 Mode::Hybrid => {
                     let q = self.embedder.embed_one(query)?;
                     let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_hybrid(query, &q, limit)?
+                    store.search_hybrid_filtered(query, &q, limit, f)?
                 }
             }
         };
@@ -210,17 +216,24 @@ impl Daemon {
 
     /// Search for the top matches and render them into a paste-ready context
     /// block (AGENT_API §5). Embedding happens before the store lock.
-    fn context(&self, query: &str, mode: Mode, limit: usize, max_chars: usize) -> Result<Response> {
+    fn context(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        max_chars: usize,
+        f: &Filters,
+    ) -> Result<Response> {
         let qv = match mode {
             Mode::Lexical => None,
             _ => Some(self.embedder.embed_one(query)?),
         };
         let store = self.store.lock().expect("store mutex poisoned");
         let hits = match (mode, &qv) {
-            (Mode::Lexical, _) => store.search(query, limit)?,
-            (Mode::Semantic, Some(q)) => store.search_semantic(q, limit)?,
-            (_, Some(q)) => store.search_hybrid(query, q, limit)?,
-            (_, None) => store.search(query, limit)?,
+            (Mode::Lexical, _) => store.search_filtered(query, limit, f)?,
+            (Mode::Semantic, Some(q)) => store.search_semantic_filtered(q, limit, f)?,
+            (_, Some(q)) => store.search_hybrid_filtered(query, q, limit, f)?,
+            (_, None) => store.search_filtered(query, limit, f)?,
         };
         let ids: Vec<String> = hits.into_iter().map(|h| h.conversation_id).collect();
         let block = store.render_context(&ids, max_chars)?;
@@ -269,11 +282,18 @@ impl Client {
         Ok(serde_json::from_str(&line)?)
     }
 
-    pub fn search(&self, query: &str, mode: Mode, limit: usize) -> Result<Vec<SearchHit>> {
+    pub fn search(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        filters: Filters,
+    ) -> Result<Vec<SearchHit>> {
         match self.call(&Request::Search {
             query: query.into(),
             mode,
             limit,
+            filters,
         })? {
             Response::Hits { hits } => Ok(hits),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
@@ -289,12 +309,14 @@ impl Client {
         mode: Mode,
         limit: usize,
         max_chars: usize,
+        filters: Filters,
     ) -> Result<(String, Vec<String>)> {
         match self.call(&Request::Context {
             query: query.into(),
             mode,
             limit,
             max_chars,
+            filters,
         })? {
             Response::Context { markdown, sources, .. } => Ok((markdown, sources)),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
