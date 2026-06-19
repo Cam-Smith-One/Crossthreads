@@ -4,26 +4,23 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{bail, Result};
+use ct_daemon::Mode;
 use ct_store::{SearchHit, Store};
-
-#[derive(Clone, Copy, PartialEq)]
-enum Mode {
-    Lexical,
-    Semantic,
-    Hybrid,
-}
 
 pub fn run(args: &[String]) -> Result<ExitCode> {
     let mut as_json = false;
     let mut limit: usize = 10;
     let mut db: Option<PathBuf> = None;
     let mut mode = Mode::Hybrid;
+    let mut remote = false;
+    let mut addr: Option<String> = None;
     let mut terms: Vec<String> = Vec::new();
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--json" => as_json = true,
+            "--remote" => remote = true,
             "--limit" => {
                 let v = it.next().ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?;
                 limit = v.parse()?;
@@ -31,6 +28,10 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             "--db" => {
                 let v = it.next().ok_or_else(|| anyhow::anyhow!("--db needs a value"))?;
                 db = Some(PathBuf::from(v));
+            }
+            "--addr" => {
+                addr = Some(it.next().ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?.clone());
+                remote = true;
             }
             "--mode" => {
                 let v = it.next().ok_or_else(|| anyhow::anyhow!("--mode needs a value"))?;
@@ -47,22 +48,30 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     }
 
     if terms.is_empty() {
-        bail!("usage: crossthreads search <QUERY> [--mode lexical|semantic|hybrid]");
+        bail!("usage: crossthreads search <QUERY> [--mode lexical|semantic|hybrid] [--remote]");
     }
     let query = terms.join(" ");
 
-    let db_path = crate::resolve_db(db)?;
-    let store = Store::open(&db_path)?;
-
-    let hits = match mode {
-        Mode::Lexical => store.search(&query, limit)?,
-        Mode::Semantic => {
-            let q = embed_query(&query)?;
-            store.search_semantic(&q, limit)?
-        }
-        Mode::Hybrid => {
-            let q = embed_query(&query)?;
-            store.search_hybrid(&query, &q, limit)?
+    // --remote: route through a running daemon (it owns the embedder + store).
+    let hits = if remote {
+        let client = match addr {
+            Some(a) => ct_daemon::Client::new(a),
+            None => ct_daemon::Client::from_env(),
+        };
+        client.search(&query, mode, limit)?
+    } else {
+        let db_path = crate::resolve_db(db)?;
+        let store = Store::open(&db_path)?;
+        match mode {
+            Mode::Lexical => store.search(&query, limit)?,
+            Mode::Semantic => {
+                let q = embed_query(&query)?;
+                store.search_semantic(&q, limit)?
+            }
+            Mode::Hybrid => {
+                let q = embed_query(&query)?;
+                store.search_hybrid(&query, &q, limit)?
+            }
         }
     };
 

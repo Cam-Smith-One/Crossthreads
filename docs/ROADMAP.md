@@ -19,7 +19,8 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 - ✅ Persist into a single SQLite index with content-hash dedup + FTS5 keyword search.
 - ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.
 - ✅ Resolve **ML-runtime placement** — pure-Rust ONNX via `fastembed`/`ort`, validated end-to-end.
-- ⬜ Stand up a Tauri shell wired to the core (proves the primary surface early).
+- ✅ Background daemon (`crossthreadsd`): single-writer index, file-watch auto-reindex, loopback search/status API; CLI `--remote` client (ADR-005).
+- ⬜ Stand up a Tauri shell wired to the daemon (proves the primary surface).
 
 **Exit:** ✅ parse 2 tools end-to-end into SQLite and run keyword **and hybrid** search (`crossthreads index` + `crossthreads search --mode hybrid`). ⬜ display results in the Tauri shell.
 

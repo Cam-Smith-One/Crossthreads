@@ -1,13 +1,95 @@
 //! `crossthreadsd` — the Crossthreads background daemon (ADR-005).
 //!
-//! The single writer to the index: owns connectors, file-watchers, the ONNX
-//! runtime, and the query engine, and serves desktop/CLI/MCP clients over a
-//! loopback API.
-//!
-//! Not yet implemented — scaffold only. Phase 0 exercises the pipeline through
-//! the `crossthreads` CLI; the daemon, storage (SQLite + sqlite-vec), and the
-//! loopback API land in Phase 1.
+//! Opens the single index, runs an initial index pass, starts file-watching,
+//! and serves search/status/reindex on a loopback socket. The desktop app,
+//! CLI, and MCP server connect as thin clients.
 
-fn main() {
-    eprintln!("crossthreadsd: not implemented yet (scaffold). See docs/ROADMAP.md.");
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::{Context, Result};
+use ct_daemon::{Daemon, DEFAULT_ADDR};
+
+const USAGE: &str = "\
+crossthreadsd — Crossthreads background daemon
+
+USAGE:
+    crossthreadsd [OPTIONS]
+
+OPTIONS:
+    --addr <ADDR>   Loopback listen address (default: 127.0.0.1:47100;
+                    override with CROSSTHREADS_ADDR)
+    --db <PATH>     Index database path (override with CROSSTHREADS_DB)
+    --no-watch      Don't start the filesystem watcher
+    --help          Show this help
+";
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("crossthreadsd: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
+    let mut addr =
+        std::env::var("CROSSTHREADS_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+    let mut db: Option<PathBuf> = None;
+    let mut watch = true;
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--addr" => addr = it.next().context("--addr needs a value")?.clone(),
+            "--db" => db = Some(PathBuf::from(it.next().context("--db needs a value")?)),
+            "--no-watch" => watch = false,
+            "--help" | "-h" => {
+                print!("{USAGE}");
+                return Ok(());
+            }
+            other => anyhow::bail!("unknown option: {other}"),
+        }
+    }
+
+    let db_path = resolve_db(db)?;
+    let store = ct_store::Store::open(&db_path)?;
+    let embedder = ct_embed::default_embedder();
+    let daemon = Daemon::new(store, embedder);
+
+    eprintln!("crossthreadsd: index {}", db_path.display());
+    let report = daemon.reindex().context("initial index")?;
+    eprintln!(
+        "crossthreadsd: initial index — {} new, {} present, {} embedded",
+        report.inserted, report.duplicate, report.embedded
+    );
+
+    if watch {
+        daemon.spawn_watcher().context("starting watcher")?;
+        eprintln!("crossthreadsd: watching for session changes");
+    }
+
+    let listener = TcpListener::bind(&addr).with_context(|| format!("binding {addr}"))?;
+    eprintln!("crossthreadsd: listening on {addr}");
+    daemon.serve(listener)
+}
+
+fn resolve_db(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    let path = explicit
+        .or_else(|| std::env::var_os("CROSSTHREADS_DB").map(PathBuf::from))
+        .unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("crossthreads")
+                .join("index.db")
+        });
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating index dir {}", parent.display()))?;
+    }
+    Ok(path)
 }

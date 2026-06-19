@@ -1,10 +1,10 @@
-//! `crossthreads index` — discover, parse, and persist sessions.
+//! `crossthreads index` — discover, parse, persist, and embed sessions.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{bail, Result};
-use ct_store::{Store, Upsert};
+use ct_store::Store;
 
 pub fn run(args: &[String]) -> Result<ExitCode> {
     let mut dry_run = false;
@@ -27,53 +27,47 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
         }
     }
 
-    let (conversations, parse_skipped) = crate::collect(limit);
-
-    if conversations.is_empty() {
-        println!("No sessions found on this machine.");
-        return Ok(ExitCode::SUCCESS);
-    }
-
     if dry_run {
+        let (conversations, unparseable) = ct_index::collect(limit);
+        if conversations.is_empty() {
+            println!("No sessions found on this machine.");
+            return Ok(ExitCode::SUCCESS);
+        }
         println!("Parsed {} conversation(s) (dry-run, not stored):\n", conversations.len());
         for c in &conversations {
             print_line(c);
         }
-        if parse_skipped > 0 {
-            println!("\n{parse_skipped} session(s) failed to parse — see warnings above.");
+        if unparseable > 0 {
+            println!("\n{unparseable} session(s) failed to parse — see warnings above.");
         }
         return Ok(ExitCode::SUCCESS);
     }
 
     let db_path = crate::resolve_db(db)?;
     let mut store = Store::open(&db_path)?;
+    let embedder = ct_embed::default_embedder();
 
-    let (mut inserted, mut duplicate) = (0usize, 0usize);
-    for c in &conversations {
-        match store.upsert_conversation(c)? {
-            Upsert::Inserted => inserted += 1,
-            Upsert::Duplicate => duplicate += 1,
-        }
+    let report = ct_index::index_once(&mut store, &*embedder, limit)?;
+
+    if report.parsed == 0 {
+        println!("No sessions found on this machine.");
+        return Ok(ExitCode::SUCCESS);
     }
 
     println!(
-        "Indexed {} conversation(s) into {}:\n  {inserted} new, {duplicate} already present{}.",
-        conversations.len(),
+        "Indexed into {}:\n  {} new, {} already present{}.",
         db_path.display(),
-        if parse_skipped > 0 {
-            format!(", {parse_skipped} unparseable")
+        report.inserted,
+        report.duplicate,
+        if report.unparseable > 0 {
+            format!(", {} unparseable", report.unparseable)
         } else {
             String::new()
         }
     );
-
-    // Compute embeddings for new messages so semantic/hybrid search works.
-    let embedder = ct_embed::default_embedder();
-    let embedded = crate::embed_pending(&mut store, &*embedder)?;
-    if embedded > 0 {
-        println!("Embedded {embedded} message(s) with {}.", embedder.id());
+    if report.embedded > 0 {
+        println!("Embedded {} message(s) with {}.", report.embedded, embedder.id());
     }
-
     println!("Total in index: {}", store.conversation_count()?);
     Ok(ExitCode::SUCCESS)
 }

@@ -1,0 +1,19 @@
+[package]
+name = "ct-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Indexing orchestration: connectors → store → embeddings, shared by the CLI and daemon."
+
+[features]
+default = []
+onnx = ["ct-embed/onnx"]
+
+[dependencies]
+ct-core = { workspace = true }
+ct-connectors = { path = "../ct-connectors" }
+ct-store = { path = "../ct-store" }
+ct-embed = { path = "../ct-embed" }
+anyhow = { workspace = true }

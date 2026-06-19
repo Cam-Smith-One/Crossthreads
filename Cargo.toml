@@ -5,6 +5,7 @@ members = [
     "crates/ct-connectors",
     "crates/ct-embed",
     "crates/ct-store",
+    "crates/ct-index",
     "crates/ct-daemon",
     "crates/ct-cli",
     "crates/ct-mcp",

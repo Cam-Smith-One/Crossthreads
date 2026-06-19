@@ -7,11 +7,28 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Crossthreads background daemon (crossthreadsd): single-writer indexer and query server."
 
+[lib]
+name = "ct_daemon"
+path = "src/lib.rs"
+
 [[bin]]
 name = "crossthreadsd"
 path = "src/main.rs"
 
+[features]
+default = []
+onnx = ["ct-embed/onnx", "ct-index/onnx"]
+
 [dependencies]
 ct-core = { workspace = true }
-ct-connectors = { path = "../ct-connectors" }
+ct-store = { path = "../ct-store" }
+ct-embed = { path = "../ct-embed" }
+ct-index = { path = "../ct-index" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
+dirs = { workspace = true }
+notify = "6"
+
+[dev-dependencies]
+ct-core = { workspace = true }

@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use ct_core::model::{Conversation, Role};
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 mod schema;
 
@@ -26,7 +26,7 @@ pub enum Upsert {
 
 /// A single keyword-search result, collapsed to the best-matching message of a
 /// conversation.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     pub conversation_id: String,
     pub tool: String,

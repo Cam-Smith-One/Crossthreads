@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use ct_core::model::Conversation;
 
 mod index;
 mod search;
+mod status;
 
 const USAGE: &str = "\
 crossthreads — search your AI coding sessions across tools
@@ -22,7 +22,8 @@ USAGE:
 
 COMMANDS:
     index             Discover, parse, and store local sessions
-    search <QUERY>    Keyword-search the index
+    search <QUERY>    Search the index (lexical / semantic / hybrid)
+    status            Show index health (local, or --remote for the daemon)
     help              Show this help
 
 COMMON OPTIONS:
@@ -36,6 +37,8 @@ COMMON OPTIONS:
 `search` OPTIONS:
     --mode <M>        lexical | semantic | hybrid (default: hybrid)
     --limit <N>       Max results (default: 10)
+    --remote          Query a running daemon (crossthreadsd) instead of the
+                      local DB; --addr <ADDR> sets the address
     --json            Emit results as JSON
 
 Build with `--features onnx` for real semantic embeddings (all-MiniLM);
@@ -57,6 +60,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
     match args.first().map(String::as_str) {
         Some("index") => index::run(&args[1..]),
         Some("search") => search::run(&args[1..]),
+        Some("status") => status::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -67,28 +71,6 @@ fn run(args: &[String]) -> Result<ExitCode> {
             Ok(ExitCode::FAILURE)
         }
     }
-}
-
-/// Embed all messages that don't yet have a vector, in batches. Returns the
-/// number embedded. Shared by `index` (and, later, the daemon).
-pub(crate) fn embed_pending(store: &mut ct_store::Store, embedder: &dyn ct_embed::Embedder) -> Result<usize> {
-    let mut total = 0;
-    loop {
-        let batch = store.pending_embeddings(256)?;
-        if batch.is_empty() {
-            break;
-        }
-        let texts: Vec<String> = batch.iter().map(|(_, c)| c.clone()).collect();
-        let vecs = embedder.embed(&texts)?;
-        let rows: Vec<(i64, Vec<f32>)> = batch
-            .iter()
-            .map(|(rowid, _)| *rowid)
-            .zip(vecs)
-            .collect();
-        store.store_embeddings(embedder.id(), &rows)?;
-        total += rows.len();
-    }
-    Ok(total)
 }
 
 /// Resolve the index DB path: explicit `--db`, else `CROSSTHREADS_DB`, else the
@@ -107,40 +89,4 @@ pub(crate) fn resolve_db(explicit: Option<PathBuf>) -> Result<PathBuf> {
             .with_context(|| format!("creating index dir {}", parent.display()))?;
     }
     Ok(path)
-}
-
-/// Detect-and-parse across the built-in connectors, isolating per-session
-/// failures so one bad file never aborts the run (FR-ING-07).
-pub(crate) fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
-    let mut conversations = Vec::new();
-    let mut skipped = 0usize;
-
-    for connector in ct_connectors::builtin() {
-        if !connector.detect() {
-            continue;
-        }
-        let sessions = match connector.discover() {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("warn: discovery failed for {}: {e}", connector.tool().slug());
-                continue;
-            }
-        };
-        for session in sessions {
-            if let Some(limit) = limit {
-                if conversations.len() >= limit {
-                    return (conversations, skipped);
-                }
-            }
-            match connector.parse(&session) {
-                Ok(convo) => conversations.push(convo),
-                Err(e) => {
-                    skipped += 1;
-                    eprintln!("warn: skipped {}: {e}", session.path.display());
-                }
-            }
-        }
-    }
-
-    (conversations, skipped)
 }

@@ -1,0 +1,113 @@
+//! Indexing orchestration shared by the CLI and the daemon.
+//!
+//! Ties the connectors, store, and embedder together: discover sessions, parse
+//! them, persist (deduped), then embed any new messages. Kept separate from
+//! `ct-store` (which stays embedder/connector-agnostic) and from the binaries
+//! (which shouldn't duplicate this loop).
+
+use anyhow::Result;
+use ct_core::model::Conversation;
+use ct_embed::Embedder;
+use ct_store::{Store, Upsert};
+
+/// Summary of one indexing pass.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IndexReport {
+    /// Conversations successfully parsed from sources.
+    pub parsed: usize,
+    /// Newly stored conversations.
+    pub inserted: usize,
+    /// Conversations already present (skipped by content-hash dedup).
+    pub duplicate: usize,
+    /// Sessions that failed to parse (isolated, logged).
+    pub unparseable: usize,
+    /// Messages embedded this pass.
+    pub embedded: usize,
+}
+
+/// Connector roots to watch for changes (used by the daemon's file watcher).
+pub fn watch_roots() -> Vec<std::path::PathBuf> {
+    ct_connectors::builtin()
+        .iter()
+        .flat_map(|c| c.roots())
+        .collect()
+}
+
+/// Detect-and-parse across the built-in connectors, isolating per-session
+/// failures so one bad file never aborts the run (FR-ING-07). `limit` caps the
+/// number of parsed conversations when set.
+pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
+    let mut conversations = Vec::new();
+    let mut unparseable = 0usize;
+
+    for connector in ct_connectors::builtin() {
+        if !connector.detect() {
+            continue;
+        }
+        let sessions = match connector.discover() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("warn: discovery failed for {}: {e}", connector.tool().slug());
+                continue;
+            }
+        };
+        for session in sessions {
+            if let Some(limit) = limit {
+                if conversations.len() >= limit {
+                    return (conversations, unparseable);
+                }
+            }
+            match connector.parse(&session) {
+                Ok(convo) => conversations.push(convo),
+                Err(e) => {
+                    unparseable += 1;
+                    eprintln!("warn: skipped {}: {e}", session.path.display());
+                }
+            }
+        }
+    }
+
+    (conversations, unparseable)
+}
+
+/// Embed all messages without a vector, in batches. Returns the count embedded.
+pub fn embed_pending(store: &mut Store, embedder: &dyn Embedder) -> Result<usize> {
+    let mut total = 0;
+    loop {
+        let batch = store.pending_embeddings(256)?;
+        if batch.is_empty() {
+            break;
+        }
+        let texts: Vec<String> = batch.iter().map(|(_, c)| c.clone()).collect();
+        let vecs = embedder.embed(&texts)?;
+        let rows: Vec<(i64, Vec<f32>)> =
+            batch.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
+        store.store_embeddings(embedder.id(), &rows)?;
+        total += rows.len();
+    }
+    Ok(total)
+}
+
+/// One full indexing pass: collect, persist (dedup), and embed new messages.
+pub fn index_once(
+    store: &mut Store,
+    embedder: &dyn Embedder,
+    limit: Option<usize>,
+) -> Result<IndexReport> {
+    let (conversations, unparseable) = collect(limit);
+    let mut report = IndexReport {
+        parsed: conversations.len(),
+        unparseable,
+        ..Default::default()
+    };
+
+    for convo in &conversations {
+        match store.upsert_conversation(convo)? {
+            Upsert::Inserted => report.inserted += 1,
+            Upsert::Duplicate => report.duplicate += 1,
+        }
+    }
+
+    report.embedded = embed_pending(store, embedder)?;
+    Ok(report)
+}

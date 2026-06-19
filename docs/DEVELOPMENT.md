@@ -55,6 +55,18 @@ crossthreads index && crossthreads search "..." --mode hybrid
 | `ct-connectors` | Source-tool parsers (Claude Code, Cursor) |
 | `ct-embed` | `Embedder` trait + hash (default) and ONNX (`onnx`) backends |
 | `ct-store` | Single SQLite index: FTS5 lexical + vector + RRF hybrid search |
-| `ct-cli` | `crossthreads` CLI (`index`, `search`) |
-| `ct-daemon` | `crossthreadsd` background daemon (scaffold) |
+| `ct-index` | Indexing orchestration (connectors → store → embeddings), shared by CLI + daemon |
+| `ct-daemon` | `crossthreadsd` single-writer daemon + loopback API + file watcher |
+| `ct-cli` | `crossthreads` CLI (`index`, `search`, `status`; `--remote`) |
 | `ct-mcp` | MCP server (scaffold) |
+
+## Running the daemon
+
+```sh
+cargo run -p ct-daemon --bin crossthreadsd     # indexes, watches, serves on 127.0.0.1:47100
+crossthreads status --remote                   # ask the daemon
+crossthreads search "..." --remote --mode hybrid
+```
+
+Override the address with `CROSSTHREADS_ADDR` (or `--addr`), the DB with
+`CROSSTHREADS_DB` (or `--db`), and disable watching with `--no-watch`.
