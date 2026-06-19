@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ct_core::connector::{Connector, ConnectorError, DiscoveredSession, Result};
 use ct_core::hash::{conversation_hash, conversation_id};
-use ct_core::model::{Conversation, GitContext, Message, Role, Source, Tool, ToolCall};
+use ct_core::model::{Conversation, GitContext, Kind, Message, Role, Source, Tool, ToolCall};
 
 use crate::text::extract_code_snippets;
 
@@ -152,6 +152,8 @@ pub fn parse_rollout(path: &Path, text: &str) -> Result<Conversation> {
     Ok(Conversation {
         id: conversation_id(&content_hash),
         tool: Tool::Codex,
+        kind: Kind::Thread,
+        title: None,
         project,
         model,
         started_at,

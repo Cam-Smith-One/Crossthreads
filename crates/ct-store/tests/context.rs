@@ -22,6 +22,8 @@ fn convo(tool: Tool, project: &str, msgs: Vec<Message>) -> Conversation {
     Conversation {
         id: conversation_id(&content_hash),
         tool,
+        kind: ct_core::model::Kind::Thread,
+        title: None,
         project: Some(project.into()),
         model: None,
         started_at: Some("2026-05-14T09:12:00Z".parse().unwrap()),

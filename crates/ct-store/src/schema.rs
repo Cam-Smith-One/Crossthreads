@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -16,6 +16,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS conversations (
     id                 TEXT PRIMARY KEY,
     tool               TEXT NOT NULL,
+    kind               TEXT NOT NULL DEFAULT 'thread',
     project            TEXT,
     model              TEXT,
     started_at         TEXT,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_tool    ON conversations(tool);
+CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project);
 
 CREATE TABLE IF NOT EXISTS messages (

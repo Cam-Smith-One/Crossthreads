@@ -91,12 +91,39 @@ pub struct Message {
     pub metadata: serde_json::Value,
 }
 
+/// What kind of artifact a record is. Threads are conversations; skills are
+/// reusable artifacts (Claude Code `SKILL.md`, Codex prompts, `AGENTS.md` /
+/// `CLAUDE.md` instruction files). One index, scoped by `kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Thread,
+    Skill,
+}
+
+impl Kind {
+    pub fn slug(&self) -> &'static str {
+        match self {
+            Kind::Thread => "thread",
+            Kind::Skill => "skill",
+        }
+    }
+}
+
 /// A normalized conversation — the unit of indexing and search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conversation {
     /// Stable, content-derived id (see [`crate::hash`]).
     pub id: String,
     pub tool: Tool,
+    /// Whether this is a conversation thread or a reusable artifact (skill).
+    #[serde(default)]
+    pub kind: Kind,
+    /// Explicit title, when the source has a natural name (e.g. a skill name).
+    /// Falls back to [`Conversation::derived_title`].
+    #[serde(default)]
+    pub title: Option<String>,
     /// Workspace / repository path the conversation belongs to, if known.
     pub project: Option<String>,
     /// Model name, when the source records it.
@@ -124,9 +151,14 @@ pub struct Source {
 }
 
 impl Conversation {
-    /// A short human title for result lists: first non-empty user message,
-    /// truncated. Falls back to the project or tool slug.
+    /// A short human title for result lists: the explicit `title` if set, else
+    /// the first non-empty user message, truncated. Falls back to project/tool.
     pub fn derived_title(&self) -> String {
+        if let Some(title) = &self.title {
+            if !title.trim().is_empty() {
+                return truncate(title.trim(), 80);
+            }
+        }
         if let Some(first) = self
             .messages
             .iter()
@@ -176,6 +208,8 @@ mod tests {
         let convo = Conversation {
             id: "x".into(),
             tool: Tool::ClaudeCode,
+            kind: Kind::Thread,
+            title: None,
             project: Some("/repo".into()),
             model: None,
             started_at: None,

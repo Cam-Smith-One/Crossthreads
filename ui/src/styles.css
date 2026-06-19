@@ -206,3 +206,15 @@ header h1 {
 .turn-user .content { color: var(--text); }
 .turn-assistant .content { color: #c7ccd6; }
 .turn-tool .content { color: #8fae8f; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+.badge-skill {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2a2440;
+  color: #c4b5fd;
+  border: 1px solid #4c3f7a;
+  white-space: nowrap;
+}

@@ -7,17 +7,23 @@
 pub mod connectors;
 pub mod text;
 
-pub use connectors::{AiderConnector, ClaudeCodeConnector, CodexConnector, CursorConnector};
+pub use connectors::{
+    AiderConnector, ClaudeCodeConnector, ClaudeSkillsConnector, CodexConnector,
+    CodexPromptsConnector, CursorConnector,
+};
 
 use ct_core::connector::Connector;
 
 /// All built-in connectors. The daemon iterates these to detect and index
-/// whatever is present on the machine.
+/// whatever is present on the machine — conversation threads *and* reusable
+/// skill/prompt artifacts.
 pub fn builtin() -> Vec<Box<dyn Connector>> {
     vec![
         Box::new(ClaudeCodeConnector::new()),
         Box::new(CursorConnector::new()),
         Box::new(AiderConnector::new()),
         Box::new(CodexConnector::new()),
+        Box::new(ClaudeSkillsConnector::new()),
+        Box::new(CodexPromptsConnector::new()),
     ]
 }

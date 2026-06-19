@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use ct_core::connector::{Connector, ConnectorError, DiscoveredSession, Result};
 use ct_core::hash::{conversation_hash, conversation_id};
-use ct_core::model::{Conversation, GitContext, Message, Role, Source, Tool};
+use ct_core::model::{Conversation, GitContext, Kind, Message, Role, Source, Tool};
 
 use crate::text::extract_code_snippets;
 
@@ -218,6 +218,8 @@ pub fn build_conversation(
     Some(Conversation {
         id: conversation_id(&content_hash),
         tool: Tool::Aider,
+        kind: Kind::Thread,
+        title: None,
         project,
         model,
         started_at: session.started_at,

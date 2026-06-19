@@ -254,6 +254,7 @@ fn filters_from(args: &Value) -> Filters {
     let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
     Filters {
         tool: s("tool"),
+        kind: s("kind"),
         project: s("project"),
         since: s("since"),
         until: s("until"),

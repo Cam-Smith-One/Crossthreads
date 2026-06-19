@@ -40,6 +40,7 @@ COMMON OPTIONS:
     --mode <M>        lexical | semantic | hybrid (default: hybrid)
     --limit <N>       Max results (default: 10)
     --tool <SLUG>     Filter to one tool (claude-code, cursor, aider, codex)
+    --kind <KIND>     Filter by record kind (thread | skill)
     --project <STR>   Filter to projects whose path contains STR
     --since <DATE>    Only sessions on/after DATE (YYYY-MM-DD)
     --until <DATE>    Only sessions on/before DATE (YYYY-MM-DD)

@@ -15,6 +15,7 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 
 - ✅ Study CASS/public-extractor source for connector *patterns* (no dependency — clean build is decided).
 - ✅ Connectors: Claude Code (JSONL), Cursor (`state.vscdb`), Aider (`.aider.chat.history.md`), and Codex (`~/.codex/sessions` rollouts), with a regression corpus guarding against format drift (FR-ING-08).
+- ✅ Reusable artifacts: a `kind` field (`thread`/`skill`) plus connectors for **Claude Code skills** (`SKILL.md`) and **Codex prompts** (`~/.codex/prompts`), searchable/filterable alongside threads across both tools.
 - ✅ Build a minimal connector + SQLite indexer behind a thin Rust core API (`ct-core` / `ct-connectors` / `ct-store` / `ct-cli`).
 - ✅ Persist into a single SQLite index with content-hash dedup + FTS5 keyword search.
 - ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.

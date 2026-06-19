@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 
 use ct_core::connector::{Connector, ConnectorError, DiscoveredSession, Result};
 use ct_core::hash::{conversation_hash, conversation_id};
-use ct_core::model::{Conversation, GitContext, Message, Role, Source, Tool};
+use ct_core::model::{Conversation, GitContext, Kind, Message, Role, Source, Tool};
 
 pub const FINGERPRINT: &str = "cursor/v1";
 
@@ -371,6 +371,8 @@ fn finish(
     Conversation {
         id: conversation_id(&content_hash),
         tool: Tool::Cursor,
+        kind: Kind::Thread,
+        title: None,
         project,
         model: None,
         started_at,

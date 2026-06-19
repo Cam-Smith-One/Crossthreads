@@ -49,6 +49,13 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
                         .clone(),
                 )
             }
+            "--kind" => {
+                filters.kind = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--kind needs a value (thread|skill)"))?
+                        .clone(),
+                )
+            }
             "--project" => {
                 filters.project = Some(
                     it.next()

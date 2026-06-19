@@ -25,6 +25,8 @@ fn convo(tool: Tool, project: &str, text: &str) -> Conversation {
     Conversation {
         id: conversation_id(&content_hash),
         tool,
+        kind: ct_core::model::Kind::Thread,
+        title: None,
         project: Some(project.into()),
         model: None,
         started_at: None,

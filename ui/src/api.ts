@@ -4,6 +4,7 @@ export type Mode = "lexical" | "semantic" | "hybrid";
 
 export interface Filters {
   tool?: string;
+  kind?: string;
   project?: string;
   since?: string;
   until?: string;
@@ -12,6 +13,7 @@ export interface Filters {
 export interface Hit {
   conversation_id: string;
   tool: string;
+  kind?: string;
   project?: string | null;
   title?: string | null;
   started_at?: string | null;
@@ -73,6 +75,7 @@ async function rpc<T>(body: unknown): Promise<T> {
 function clean(f: Filters): Filters {
   const out: Filters = {};
   if (f.tool) out.tool = f.tool;
+  if (f.kind) out.kind = f.kind;
   if (f.project) out.project = f.project;
   if (f.since) out.since = f.since;
   if (f.until) out.until = f.until;

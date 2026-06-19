@@ -137,6 +137,11 @@ export function App() {
       </form>
 
       <div className="filters">
+        <select value={filters.kind ?? ""} onChange={(e) => setF({ kind: e.target.value || undefined })}>
+          <option value="">threads + skills</option>
+          <option value="thread">threads</option>
+          <option value="skill">skills</option>
+        </select>
         <select value={filters.tool ?? ""} onChange={(e) => setF({ tool: e.target.value || undefined })}>
           <option value="">all tools</option>
           {tools.map((t) => (
@@ -184,6 +189,7 @@ export function App() {
             }}
           >
             <div className="hit-head">
+              {h.kind === "skill" && <span className="badge-skill">skill</span>}
               <span className={`tool tool-${h.tool}`}>{h.tool}</span>
               <span className="title">{h.title ?? "(untitled)"}</span>
               {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}

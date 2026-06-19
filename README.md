@@ -41,7 +41,8 @@ Add `--features onnx` for real semantic search (all-MiniLM via ONNX); without it
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # parsers: Claude Code, Cursor, Aider, Codex (+ regression corpus)
+  ct-connectors   # parsers: Claude Code, Cursor, Aider, Codex threads +
+                  #   skills/prompts (Claude SKILL.md, Codex prompts) — kind=skill
   ct-embed        # Embedder trait: hash (default) + ONNX/all-MiniLM (`onnx`)
   ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid + filters (ADR-007)
   ct-index        # indexing orchestration shared by CLI + daemon

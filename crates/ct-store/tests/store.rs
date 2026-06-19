@@ -21,6 +21,8 @@ fn convo(tool: Tool, project: &str, messages: Vec<Message>) -> Conversation {
     Conversation {
         id: conversation_id(&content_hash),
         tool,
+        kind: ct_core::model::Kind::Thread,
+        title: None,
         project: Some(project.into()),
         model: None,
         started_at: None,

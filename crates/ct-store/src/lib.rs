@@ -35,6 +35,9 @@ pub enum Upsert {
 pub struct SearchHit {
     pub conversation_id: String,
     pub tool: String,
+    /// `thread` or `skill`.
+    #[serde(default)]
+    pub kind: String,
     pub project: Option<String>,
     pub title: Option<String>,
     pub started_at: Option<String>,
@@ -57,6 +60,8 @@ pub struct StoredMessage {
 pub struct StoredConversation {
     pub id: String,
     pub tool: String,
+    #[serde(default)]
+    pub kind: String,
     pub project: Option<String>,
     pub title: Option<String>,
     pub started_at: Option<String>,
@@ -78,6 +83,8 @@ pub struct ContextBlock {
 pub struct Filters {
     /// Exact tool slug, e.g. `claude-code`.
     pub tool: Option<String>,
+    /// Record kind: `thread` or `skill`.
+    pub kind: Option<String>,
     /// Substring match against the project path.
     pub project: Option<String>,
     /// Inclusive lower bound on the start date (ISO `YYYY-MM-DD`).
@@ -89,6 +96,7 @@ pub struct Filters {
 impl Filters {
     pub fn is_empty(&self) -> bool {
         self.tool.is_none()
+            && self.kind.is_none()
             && self.project.is_none()
             && self.since.is_none()
             && self.until.is_none()
@@ -98,6 +106,11 @@ impl Filters {
     fn passes(&self, hit: &SearchHit) -> bool {
         if let Some(t) = &self.tool {
             if &hit.tool != t {
+                return false;
+            }
+        }
+        if let Some(k) = &self.kind {
+            if &hit.kind != k {
                 return false;
             }
         }
@@ -147,6 +160,13 @@ impl Store {
         conn.execute_batch(schema::SCHEMA_SQL)
             .context("applying schema")?;
 
+        // Forward migration for v2 DBs that predate the `kind` column. Ignored
+        // (errors) when the column already exists on a fresh schema.
+        let _ = conn.execute(
+            "ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'thread'",
+            [],
+        );
+
         // Persist/verify the schema version in the user_version pragma. The
         // schema is additive (CREATE … IF NOT EXISTS), so older DBs upgrade in
         // place; a newer-than-supported DB is refused.
@@ -180,13 +200,14 @@ impl Store {
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO conversations (
-                id, tool, project, model, started_at, ended_at,
+                id, tool, kind, project, model, started_at, ended_at,
                 git_branch, git_commit, source_path, source_offset,
                 source_fingerprint, content_hash, title, message_count, indexed_at
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
             params![
                 convo.id,
                 convo.tool.slug(),
+                convo.kind.slug(),
                 convo.project,
                 convo.model,
                 convo.started_at.map(|t| t.to_rfc3339()),
@@ -241,7 +262,7 @@ impl Store {
         // Over-fetch so collapsing per-conversation still fills `limit`.
         let fetch = (limit * 5).max(limit) as i64;
         let mut stmt = self.conn.prepare(
-            "SELECT c.id, c.tool, c.project, c.title, c.started_at, c.source_path,
+            "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
                     snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
                     bm25(messages_fts) AS score
              FROM messages_fts
@@ -256,12 +277,13 @@ impl Store {
             Ok(SearchHit {
                 conversation_id: row.get(0)?,
                 tool: row.get(1)?,
-                project: row.get(2)?,
-                title: row.get(3)?,
-                started_at: row.get(4)?,
-                source_path: row.get(5)?,
-                snippet: row.get(6)?,
-                score: row.get(7)?,
+                kind: row.get(2)?,
+                project: row.get(3)?,
+                title: row.get(4)?,
+                started_at: row.get(5)?,
+                source_path: row.get(6)?,
+                snippet: row.get(7)?,
+                score: row.get(8)?,
             })
         })?;
 
@@ -462,18 +484,19 @@ impl Store {
     /// Fetch a full stored conversation by id, with its messages in order.
     pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
         let meta = self.conn.query_row(
-            "SELECT tool, project, title, started_at FROM conversations WHERE id = ?1",
+            "SELECT tool, kind, project, title, started_at FROM conversations WHERE id = ?1",
             [id],
             |r| {
                 Ok((
                     r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(1)?,
                     r.get::<_, Option<String>>(2)?,
                     r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
                 ))
             },
         );
-        let (tool, project, title, started_at) = match meta {
+        let (tool, kind, project, title, started_at) = match meta {
             Ok(t) => t,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -494,6 +517,7 @@ impl Store {
         Ok(Some(StoredConversation {
             id: id.to_string(),
             tool,
+            kind,
             project,
             title,
             started_at,
@@ -559,7 +583,7 @@ impl Store {
     fn vector_scored(&self, query: &[f32]) -> Result<Vec<(f32, SearchHit)>> {
         let mut stmt = self.conn.prepare(
             "SELECT m.conversation_id, m.content, e.vec,
-                    c.tool, c.project, c.title, c.started_at, c.source_path
+                    c.tool, c.kind, c.project, c.title, c.started_at, c.source_path
              FROM embeddings e
              JOIN messages m      ON m.rowid = e.message_rowid
              JOIN conversations c ON c.id = m.conversation_id",
@@ -572,10 +596,11 @@ impl Store {
                 SearchHit {
                     conversation_id: row.get(0)?,
                     tool: row.get(3)?,
-                    project: row.get(4)?,
-                    title: row.get(5)?,
-                    started_at: row.get(6)?,
-                    source_path: row.get(7)?,
+                    kind: row.get(4)?,
+                    project: row.get(5)?,
+                    title: row.get(6)?,
+                    started_at: row.get(7)?,
+                    source_path: row.get(8)?,
                     snippet: snippet_of(&content, 160),
                     score: 0.0,
                 },
