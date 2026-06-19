@@ -92,3 +92,35 @@ crossthreads search "..." --remote --mode hybrid
 
 Override the address with `CROSSTHREADS_ADDR` (or `--addr`), the DB with
 `CROSSTHREADS_DB` (or `--db`), and disable watching with `--no-watch`.
+
+## Web UI / desktop frontend
+
+The UI (`ui/`) is a React + Vite app. It is the same frontend the native Tauri
+shell wraps; the daemon can also serve it directly over HTTP so it runs in a
+browser without the native toolchain.
+
+```sh
+cd ui && npm install && npm run build      # -> ui/dist
+# from the repo root:
+crossthreadsd --http 127.0.0.1:47101 --ui ui/dist
+# open http://127.0.0.1:47101
+```
+
+Dev mode with hot reload (proxies `/api` to a running daemon on :47101):
+
+```sh
+crossthreadsd --http 127.0.0.1:47101 &
+cd ui && npm run dev
+```
+
+The HTTP bridge exposes `POST /api/rpc` (body = a daemon `Request`, e.g.
+`{"op":"search","query":"…","mode":"hybrid"}`) and serves the built UI for all
+other paths (SPA fallback).
+
+### Native Tauri shell
+
+The native window (ADR-002) wraps `ui/` with a Rust backend that calls the same
+daemon. Building it needs a Node toolchain **and** platform webview libraries
+(e.g. `webkit2gtk` on Linux) plus a display — so it can't be built/run in a
+headless CI container. The web-served path above is the verifiable equivalent
+during development.

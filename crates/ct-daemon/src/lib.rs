@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use ct_embed::Embedder;
 use ct_store::Store;
 
+mod http;
 pub mod protocol;
 pub use ct_store::SearchHit;
 pub use protocol::{Mode, Request, Response, DEFAULT_ADDR};

@@ -4,6 +4,7 @@ Lightweight architecture decision records. Newest first. Each entry: the decisio
 
 | # | Decision | Status | Date |
 |---|---|---|---|
+| [ADR-009](#adr-009-frontenddaemon-transport--httpjson-bridge) | Frontend↔daemon transport = HTTP/JSON bridge | Accepted | 2026-06-19 |
 | [ADR-008](#adr-008-third-mvp-connector--aider) | 3rd MVP connector = Aider | Accepted | 2026-06-19 |
 | [ADR-007](#adr-007-vector-store--sqlite-vec-in-the-same-db) | Vector store = `sqlite-vec` (one DB) | Accepted | 2026-06-19 |
 | [ADR-006](#adr-006-ml-runtime--pure-rust-onnx) | ML runtime = pure-Rust ONNX | Accepted | 2026-06-19 |
@@ -98,6 +99,23 @@ on the `# aider chat started at` marker; `#### ` user lines, unprefixed
 assistant prose, `> ` notes skipped with a best-effort `Model:` sniff). Aider
 has no central history registry, so discovery scans bounded roots
 (`CROSSTHREADS_AIDER_ROOTS` overrides).
+
+## ADR-009 — Frontend↔daemon transport = HTTP/JSON bridge
+**Decision.** The UI talks to the daemon over an HTTP/JSON bridge (`POST
+/api/rpc` with a `Request` body), not Tauri command IPC. The daemon also serves
+the built static UI for all other paths.
+
+**Why.** One transport serves both the native Tauri shell and a plain browser,
+so the frontend is developable and verifiable without the native webview
+toolchain. It reuses the existing protocol `Request`/`Response` types, so there's
+one API for CLI, MCP, and UI. Resolves the open "transport" question.
+
+**Consequences.**
+- A lightweight HTTP server (`tiny_http`, no async runtime) lives in `ct-daemon`
+  alongside the raw TCP protocol; the two run on separate ports.
+- The Tauri wrapper becomes thin (point a webview at the local HTTP server, or
+  call the same JSON API from Rust commands).
+- CORS/auth stay trivial because it's loopback-only; revisit if ever exposed.
 
 ---
 

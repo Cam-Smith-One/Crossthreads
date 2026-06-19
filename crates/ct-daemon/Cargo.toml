@@ -29,6 +29,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 notify = "6"
+tiny_http = "0.12"
 
 [dev-dependencies]
 ct-core = { workspace = true }

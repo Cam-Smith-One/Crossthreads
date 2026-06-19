@@ -24,6 +24,8 @@ crates/
   ct-daemon       # `crossthreadsd` single-writer daemon + loopback API + watcher
   ct-cli          # `crossthreads` CLI (index / search / status; --remote)
   ct-mcp          # MCP server: agents query your history natively (FR-UI-04)
+ui/               # React + Vite frontend (the Tauri shell's content), served
+                  # by the daemon over an HTTP/JSON bridge
 ```
 
 Try it (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the `onnx` semantic build):

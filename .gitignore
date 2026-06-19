@@ -3,6 +3,10 @@
 **/*.rs.bk
 Cargo.lock.orig
 
+# Node / frontend
+node_modules/
+ui/dist/
+
 # OS / editor
 .DS_Store
 *.swp

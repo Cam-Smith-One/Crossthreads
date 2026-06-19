@@ -20,7 +20,7 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 - ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.
 - ✅ Resolve **ML-runtime placement** — pure-Rust ONNX via `fastembed`/`ort`, validated end-to-end.
 - ✅ Background daemon (`crossthreadsd`): single-writer index, file-watch auto-reindex, loopback search/status API; CLI `--remote` client (ADR-005).
-- ⬜ Stand up a Tauri shell wired to the daemon (proves the primary surface).
+- 🟡 Primary surface: React + Vite UI (`ui/`) served by the daemon over an HTTP/JSON bridge — search, hybrid mode, and context block, verified headlessly. The native Tauri wrapper around the same frontend is pending an environment with platform webview libs + a display.
 
 **Exit:** ✅ parse 2 tools end-to-end into SQLite and run keyword **and hybrid** search (`crossthreads index` + `crossthreads search --mode hybrid`). ⬜ display results in the Tauri shell.
 
