@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ct-core",
     "crates/ct-connectors",
+    "crates/ct-store",
     "crates/ct-daemon",
     "crates/ct-cli",
     "crates/ct-mcp",

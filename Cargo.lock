@@ -118,6 +118,8 @@ dependencies = [
  "anyhow",
  "ct-connectors",
  "ct-core",
+ "ct-store",
+ "dirs",
  "serde",
  "serde_json",
 ]
@@ -163,6 +165,19 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "ct-core",
+]
+
+[[package]]
+name = "ct-store"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ct-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

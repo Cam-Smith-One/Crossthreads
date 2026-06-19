@@ -12,18 +12,24 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-🛠️ **Phase 0 (prototype).** Product docs are complete and the Rust workspace is scaffolded. The `detect → discover → parse → normalize` pipeline runs end-to-end via the CLI for **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite — legacy chat + both composer layouts). Aider, the daemon, and storage are next.
+🛠️ **Phase 0 (prototype) — core loop working.** Sessions from **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite) are parsed, normalized, **persisted into one SQLite index** (deduplicated by content hash), and **searchable** via FTS5 keyword search across tools. Aider, semantic search, the daemon, and the desktop app are next.
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # source-tool parsers (Claude Code + Cursor implemented)
-  ct-cli          # `crossthreads` CLI (Phase 0: `index` dry-run)
+  ct-connectors   # source-tool parsers (Claude Code + Cursor)
+  ct-store        # single SQLite index + FTS5 keyword search (ADR-007)
+  ct-cli          # `crossthreads` CLI (index + search)
   ct-daemon       # `crossthreadsd` background daemon (scaffold)
   ct-mcp          # MCP server (scaffold)
 ```
 
-Try it: `cargo run -p ct-cli -- index` (reads `~/.claude/projects/`).
+Try it:
+
+```sh
+cargo run -p ct-cli -- index            # discover, parse, store local sessions
+cargo run -p ct-cli -- search "token refresh"
+```
 
 ### Documentation
 
