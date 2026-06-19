@@ -69,6 +69,26 @@ header h1 {
 }
 .searchbar button:disabled { opacity: 0.6; cursor: default; }
 
+.filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: -8px 0 22px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.filters select,
+.filters input {
+  padding: 7px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.filters label { display: inline-flex; align-items: center; gap: 6px; }
+
 .error {
   background: #2a1416;
   border: 1px solid #5c2327;
@@ -86,7 +106,10 @@ header h1 {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
+  cursor: pointer;
 }
+.hit:hover { border-color: #313a48; }
+.hit.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .hit-head { display: flex; align-items: center; gap: 10px; }
 .tool {
   font-size: 11px;
@@ -133,3 +156,53 @@ header h1 {
   max-height: 420px;
   overflow: auto;
 }
+
+/* Conversation modal */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+  z-index: 10;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: min(760px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.transcript { overflow: auto; padding: 8px 16px 16px; }
+.turn { padding: 10px 0; border-bottom: 1px solid #1d222b; }
+.turn .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.turn .content { white-space: pre-wrap; word-break: break-word; margin-top: 4px; font-size: 14px; }
+.turn-user .content { color: var(--text); }
+.turn-assistant .content { color: #c7ccd6; }
+.turn-tool .content { color: #8fae8f; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }

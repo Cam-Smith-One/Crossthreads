@@ -2,6 +2,13 @@
 
 export type Mode = "lexical" | "semantic" | "hybrid";
 
+export interface Filters {
+  tool?: string;
+  project?: string;
+  since?: string;
+  until?: string;
+}
+
 export interface Hit {
   conversation_id: string;
   tool: string;
@@ -25,6 +32,20 @@ export interface ContextBlock {
   token_estimate: number;
 }
 
+export interface StoredMessage {
+  role: string;
+  content: string;
+}
+
+export interface StoredConversation {
+  id: string;
+  tool: string;
+  project?: string | null;
+  title?: string | null;
+  started_at?: string | null;
+  messages: StoredMessage[];
+}
+
 async function rpc<T>(body: unknown): Promise<T> {
   const res = await fetch("/api/rpc", {
     method: "POST",
@@ -38,20 +59,62 @@ async function rpc<T>(body: unknown): Promise<T> {
   return data as T;
 }
 
+// Drop empty filter fields so the daemon's #[serde(default)] applies.
+function clean(f: Filters): Filters {
+  const out: Filters = {};
+  if (f.tool) out.tool = f.tool;
+  if (f.project) out.project = f.project;
+  if (f.since) out.since = f.since;
+  if (f.until) out.until = f.until;
+  return out;
+}
+
 export function getStatus(): Promise<Status> {
   return rpc<Status>({ op: "status" });
 }
 
-export async function search(query: string, mode: Mode, limit = 20): Promise<Hit[]> {
-  const data = await rpc<{ hits: Hit[] }>({ op: "search", query, mode, limit });
+export async function getFacets(): Promise<string[]> {
+  const data = await rpc<{ tools: string[] }>({ op: "facets" });
+  return data.tools;
+}
+
+export async function search(
+  query: string,
+  mode: Mode,
+  filters: Filters,
+  limit = 25,
+): Promise<Hit[]> {
+  const data = await rpc<{ hits: Hit[] }>({
+    op: "search",
+    query,
+    mode,
+    limit,
+    filters: clean(filters),
+  });
   return data.hits;
+}
+
+export async function getConversation(id: string): Promise<StoredConversation | null> {
+  const data = await rpc<{ conversation: StoredConversation | null }>({
+    op: "get_conversation",
+    id,
+  });
+  return data.conversation;
 }
 
 export function buildContext(
   query: string,
   mode: Mode,
+  filters: Filters,
   limit = 3,
   max_chars = 6000,
 ): Promise<ContextBlock> {
-  return rpc<ContextBlock>({ op: "context", query, mode, limit, max_chars });
+  return rpc<ContextBlock>({
+    op: "context",
+    query,
+    mode,
+    limit,
+    max_chars,
+    filters: clean(filters),
+  });
 }
