@@ -42,7 +42,7 @@ Covers all **Must / P1** requirements:
 **Goal:** polish + reach.
 
 - TUI surface over the same core (FR-UI-01).
-- MCP server (FR-UI-04).
+- ✅ MCP server (FR-UI-04) — `ct-mcp` exposes search/status to agents over stdio→daemon (landed early).
 - Timeline + analytics (FR-UI-06).
 - Resume/handoff action, HTML export (FR-ACT-04/05).
 - More connectors: Gemini CLI, Windsurf, Claude.ai web import (FR-ING-09/10).

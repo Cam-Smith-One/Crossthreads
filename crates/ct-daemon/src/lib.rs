@@ -14,9 +14,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ct_embed::Embedder;
-use ct_store::{SearchHit, Store};
+use ct_store::Store;
 
 pub mod protocol;
+pub use ct_store::SearchHit;
 pub use protocol::{Mode, Request, Response, DEFAULT_ADDR};
 
 /// How long to wait for the filesystem to settle before re-indexing.

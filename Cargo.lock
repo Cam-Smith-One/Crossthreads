@@ -526,6 +526,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "ct-core",
+ "ct-daemon",
+ "ct-embed",
+ "ct-index",
+ "ct-store",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

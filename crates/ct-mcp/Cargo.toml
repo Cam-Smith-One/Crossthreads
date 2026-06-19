@@ -5,12 +5,24 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Crossthreads MCP server: exposes search/recall to MCP-capable agents."
+description = "Crossthreads MCP server: exposes search/status to MCP-capable agents."
+
+[lib]
+name = "ct_mcp"
+path = "src/lib.rs"
 
 [[bin]]
 name = "ct-mcp"
 path = "src/main.rs"
 
 [dependencies]
-ct-core = { workspace = true }
+ct-daemon = { path = "../ct-daemon" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+ct-core = { workspace = true }
+ct-store = { path = "../ct-store" }
+ct-embed = { path = "../ct-embed" }
+ct-index = { path = "../ct-index" }

@@ -23,7 +23,7 @@ crates/
   ct-index        # indexing orchestration shared by CLI + daemon
   ct-daemon       # `crossthreadsd` single-writer daemon + loopback API + watcher
   ct-cli          # `crossthreads` CLI (index / search / status; --remote)
-  ct-mcp          # MCP server (scaffold)
+  ct-mcp          # MCP server: agents query your history natively (FR-UI-04)
 ```
 
 Try it (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the `onnx` semantic build):

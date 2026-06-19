@@ -58,7 +58,27 @@ crossthreads index && crossthreads search "..." --mode hybrid
 | `ct-index` | Indexing orchestration (connectors → store → embeddings), shared by CLI + daemon |
 | `ct-daemon` | `crossthreadsd` single-writer daemon + loopback API + file watcher |
 | `ct-cli` | `crossthreads` CLI (`index`, `search`, `status`; `--remote`) |
-| `ct-mcp` | MCP server (scaffold) |
+| `ct-index` orchestration is shared by both | |
+| `ct-mcp` | MCP server: exposes search/status to MCP-capable agents |
+
+## MCP server (agents)
+
+`ct-mcp` speaks JSON-RPC 2.0 over stdio and forwards tool calls to a running
+`crossthreadsd`. Register it with an MCP-capable agent (e.g. Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "crossthreads": {
+      "command": "/path/to/ct-mcp",
+      "env": { "CROSSTHREADS_ADDR": "127.0.0.1:47100" }
+    }
+  }
+}
+```
+
+Tools exposed: `crossthreads_search` (lexical/semantic/hybrid) and
+`crossthreads_status`. The daemon must be running. See `docs/AGENT_API.md` §7.
 
 ## Running the daemon
 
