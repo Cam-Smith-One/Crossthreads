@@ -87,10 +87,7 @@ impl Daemon {
                     while rx.recv_timeout(WATCH_DEBOUNCE).is_ok() {}
                     match self.reindex() {
                         Ok(r) if r.inserted > 0 || r.embedded > 0 => {
-                            eprintln!(
-                                "reindex: {} new, {} embedded",
-                                r.inserted, r.embedded
-                            );
+                            eprintln!("reindex: {} new, {} embedded", r.inserted, r.embedded);
                         }
                         Ok(_) => {}
                         Err(e) => eprintln!("reindex failed: {e:#}"),
@@ -159,19 +156,32 @@ impl Daemon {
                     embedded: r.embedded,
                 })
                 .unwrap_or_else(err),
-            Request::Search { query, mode, limit, filters } => {
-                self.search(&query, mode, limit, &filters).unwrap_or_else(err)
-            }
+            Request::Search {
+                query,
+                mode,
+                limit,
+                filters,
+            } => self
+                .search(&query, mode, limit, &filters)
+                .unwrap_or_else(err),
             Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
-            Request::Context { query, mode, limit, max_chars, filters } => {
-                self.context(&query, mode, limit, max_chars, &filters).unwrap_or_else(err)
-            }
+            Request::Context {
+                query,
+                mode,
+                limit,
+                max_chars,
+                filters,
+            } => self
+                .context(&query, mode, limit, max_chars, &filters)
+                .unwrap_or_else(err),
         }
     }
 
     fn facets(&self) -> Result<Response> {
         let store = self.store.lock().expect("store mutex poisoned");
-        Ok(Response::Facets { tools: store.facets_tools()? })
+        Ok(Response::Facets {
+            tools: store.facets_tools()?,
+        })
     }
 
     fn status(&self) -> Result<Response> {
@@ -318,7 +328,9 @@ impl Client {
             max_chars,
             filters,
         })? {
-            Response::Context { markdown, sources, .. } => Ok((markdown, sources)),
+            Response::Context {
+                markdown, sources, ..
+            } => Ok((markdown, sources)),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
             other => Err(anyhow::anyhow!("unexpected response: {other:?}")),
         }

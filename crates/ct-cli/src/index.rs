@@ -16,11 +16,15 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
         match arg.as_str() {
             "--dry-run" => dry_run = true,
             "--limit" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?;
                 limit = Some(v.parse()?);
             }
             "--db" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("--db needs a value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--db needs a value"))?;
                 db = Some(PathBuf::from(v));
             }
             other => bail!("unknown option for `index`: {other}"),
@@ -33,7 +37,10 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             println!("No sessions found on this machine.");
             return Ok(ExitCode::SUCCESS);
         }
-        println!("Parsed {} conversation(s) (dry-run, not stored):\n", conversations.len());
+        println!(
+            "Parsed {} conversation(s) (dry-run, not stored):\n",
+            conversations.len()
+        );
         for c in &conversations {
             print_line(c);
         }
@@ -66,7 +73,11 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
         }
     );
     if report.embedded > 0 {
-        println!("Embedded {} message(s) with {}.", report.embedded, embedder.id());
+        println!(
+            "Embedded {} message(s) with {}.",
+            report.embedded,
+            embedder.id()
+        );
     }
     println!("Total in index: {}", store.conversation_count()?);
     Ok(ExitCode::SUCCESS)

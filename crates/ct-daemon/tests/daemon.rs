@@ -29,7 +29,11 @@ fn convo(tool: Tool, project: &str, text: &str) -> Conversation {
         started_at: None,
         ended_at: None,
         git_context: GitContext::default(),
-        source: Source { path: "/x".into(), offset: None, fingerprint: "t/v1".into() },
+        source: Source {
+            path: "/x".into(),
+            offset: None,
+            fingerprint: "t/v1".into(),
+        },
         content_hash,
         messages,
     }
@@ -38,8 +42,20 @@ fn convo(tool: Tool, project: &str, text: &str) -> Conversation {
 /// Seed an in-memory store and start a daemon serving it on a random port.
 fn start() -> (String, thread::JoinHandle<()>) {
     let mut store = Store::open_in_memory().unwrap();
-    store.upsert_conversation(&convo(Tool::ClaudeCode, "/acme-api", "add retry logic with backoff")).unwrap();
-    store.upsert_conversation(&convo(Tool::Cursor, "/acme-web", "dark mode toggle for the navbar")).unwrap();
+    store
+        .upsert_conversation(&convo(
+            Tool::ClaudeCode,
+            "/acme-api",
+            "add retry logic with backoff",
+        ))
+        .unwrap();
+    store
+        .upsert_conversation(&convo(
+            Tool::Cursor,
+            "/acme-web",
+            "dark mode toggle for the navbar",
+        ))
+        .unwrap();
     ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
 
     let daemon = Daemon::new(store, Box::new(HashEmbedder::default()));
@@ -57,11 +73,18 @@ fn ping_status_and_search_over_the_wire() {
     let client = Client::new(addr);
 
     // Ping
-    assert!(matches!(client.call(&Request::Ping).unwrap(), Response::Pong));
+    assert!(matches!(
+        client.call(&Request::Ping).unwrap(),
+        Response::Pong
+    ));
 
     // Status reflects the seeded data.
     match client.call(&Request::Status).unwrap() {
-        Response::Status { conversations, embeddings, embedder } => {
+        Response::Status {
+            conversations,
+            embeddings,
+            embedder,
+        } => {
             assert_eq!(conversations, 2);
             assert_eq!(embeddings, 2);
             assert_eq!(embedder, "hash-bow-v1");
@@ -70,12 +93,16 @@ fn ping_status_and_search_over_the_wire() {
     }
 
     // Hybrid search returns the relevant conversation.
-    let hits = client.search("retry backoff", Mode::Hybrid, 10, Default::default()).unwrap();
+    let hits = client
+        .search("retry backoff", Mode::Hybrid, 10, Default::default())
+        .unwrap();
     assert!(!hits.is_empty());
     assert_eq!(hits[0].project.as_deref(), Some("/acme-api"));
 
     // Lexical search for the other one.
-    let hits = client.search("navbar", Mode::Lexical, 10, Default::default()).unwrap();
+    let hits = client
+        .search("navbar", Mode::Lexical, 10, Default::default())
+        .unwrap();
     assert!(hits.iter().any(|h| h.tool == "cursor"));
 }
 
@@ -87,7 +114,10 @@ fn multiple_clients_are_served() {
         let addr = addr.clone();
         handles.push(thread::spawn(move || {
             let client = Client::new(addr);
-            client.search("retry", Mode::Hybrid, 5, Default::default()).unwrap().len()
+            client
+                .search("retry", Mode::Hybrid, 5, Default::default())
+                .unwrap()
+                .len()
         }));
     }
     for h in handles {

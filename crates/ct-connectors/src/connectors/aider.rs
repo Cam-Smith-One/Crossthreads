@@ -71,10 +71,13 @@ impl Connector for AiderConnector {
     }
 
     fn parse(&self, session: &DiscoveredSession) -> Result<Conversation> {
-        let locator = session.locator.as_deref().ok_or_else(|| ConnectorError::Parse {
-            path: session.path.clone(),
-            reason: "aider sessions require a locator".into(),
-        })?;
+        let locator = session
+            .locator
+            .as_deref()
+            .ok_or_else(|| ConnectorError::Parse {
+                path: session.path.clone(),
+                reason: "aider sessions require a locator".into(),
+            })?;
         parse_in_file(&session.path, locator)
     }
 }
@@ -115,9 +118,7 @@ pub fn parse_in_file(path: &Path, locator: &str) -> Result<Conversation> {
         reason: format!("session {idx} not found"),
     })?;
 
-    let project = path
-        .parent()
-        .map(|p| p.to_string_lossy().into_owned());
+    let project = path.parent().map(|p| p.to_string_lossy().into_owned());
 
     build_conversation(session, path, project).ok_or_else(|| ConnectorError::Parse {
         path: path.to_path_buf(),
@@ -267,7 +268,9 @@ fn default_roots() -> Vec<PathBuf> {
         roots.push(cwd);
     }
     if let Some(home) = dirs::home_dir() {
-        for name in ["code", "Code", "projects", "Projects", "dev", "src", "repos", "work"] {
+        for name in [
+            "code", "Code", "projects", "Projects", "dev", "src", "repos", "work",
+        ] {
             roots.push(home.join(name));
         }
     }
@@ -278,7 +281,15 @@ fn default_roots() -> Vec<PathBuf> {
 fn is_ignored_dir(name: &str) -> bool {
     matches!(
         name,
-        ".git" | "node_modules" | "target" | ".venv" | "venv" | "dist" | "build" | ".cache" | "__pycache__"
+        ".git"
+            | "node_modules"
+            | "target"
+            | ".venv"
+            | "venv"
+            | "dist"
+            | "build"
+            | ".cache"
+            | "__pycache__"
     )
 }
 

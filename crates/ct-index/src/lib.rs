@@ -47,7 +47,10 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
         let sessions = match connector.discover() {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("warn: discovery failed for {}: {e}", connector.tool().slug());
+                eprintln!(
+                    "warn: discovery failed for {}: {e}",
+                    connector.tool().slug()
+                );
                 continue;
             }
         };
@@ -80,8 +83,7 @@ pub fn embed_pending(store: &mut Store, embedder: &dyn Embedder) -> Result<usize
         }
         let texts: Vec<String> = batch.iter().map(|(_, c)| c.clone()).collect();
         let vecs = embedder.embed(&texts)?;
-        let rows: Vec<(i64, Vec<f32>)> =
-            batch.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
+        let rows: Vec<(i64, Vec<f32>)> = batch.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
         store.store_embeddings(embedder.id(), &rows)?;
         total += rows.len();
     }

@@ -48,11 +48,7 @@ fn embed_all(store: &mut Store, embedder: &dyn Embedder) {
     let pending = store.pending_embeddings(10_000).unwrap();
     let texts: Vec<String> = pending.iter().map(|(_, c)| c.clone()).collect();
     let vecs = embedder.embed(&texts).unwrap();
-    let rows: Vec<(i64, Vec<f32>)> = pending
-        .iter()
-        .map(|(rowid, _)| *rowid)
-        .zip(vecs)
-        .collect();
+    let rows: Vec<(i64, Vec<f32>)> = pending.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
     store.store_embeddings(embedder.id(), &rows).unwrap();
 }
 
@@ -113,5 +109,7 @@ fn hybrid_finds_lexical_only_match_when_vectors_are_weak() {
     let (store, embedder) = seed();
     let q = embedder.embed_one("navbar").unwrap();
     let hits = store.search_hybrid("navbar", &q, 10).unwrap();
-    assert!(hits.iter().any(|h| h.project.as_deref() == Some("/acme-web")));
+    assert!(hits
+        .iter()
+        .any(|h| h.project.as_deref() == Some("/acme-web")));
 }

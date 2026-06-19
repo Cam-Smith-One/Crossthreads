@@ -38,8 +38,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<()> {
-    let mut addr =
-        std::env::var("CROSSTHREADS_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+    let mut addr = std::env::var("CROSSTHREADS_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     let mut http: Option<String> = std::env::var("CROSSTHREADS_HTTP").ok();
     let mut ui: Option<PathBuf> = std::env::var_os("CROSSTHREADS_UI").map(PathBuf::from);
     let mut db: Option<PathBuf> = None;

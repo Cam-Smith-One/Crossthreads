@@ -23,23 +23,57 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             "--json" => as_json = true,
             "--remote" => remote = true,
             "--limit" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?;
                 limit = v.parse()?;
             }
             "--db" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("--db needs a value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--db needs a value"))?;
                 db = Some(PathBuf::from(v));
             }
             "--addr" => {
-                addr = Some(it.next().ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?.clone());
+                addr = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?
+                        .clone(),
+                );
                 remote = true;
             }
-            "--tool" => filters.tool = Some(it.next().ok_or_else(|| anyhow::anyhow!("--tool needs a value"))?.clone()),
-            "--project" => filters.project = Some(it.next().ok_or_else(|| anyhow::anyhow!("--project needs a value"))?.clone()),
-            "--since" => filters.since = Some(it.next().ok_or_else(|| anyhow::anyhow!("--since needs a value"))?.clone()),
-            "--until" => filters.until = Some(it.next().ok_or_else(|| anyhow::anyhow!("--until needs a value"))?.clone()),
+            "--tool" => {
+                filters.tool = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--tool needs a value"))?
+                        .clone(),
+                )
+            }
+            "--project" => {
+                filters.project = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--project needs a value"))?
+                        .clone(),
+                )
+            }
+            "--since" => {
+                filters.since = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--since needs a value"))?
+                        .clone(),
+                )
+            }
+            "--until" => {
+                filters.until = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--until needs a value"))?
+                        .clone(),
+                )
+            }
             "--mode" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("--mode needs a value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--mode needs a value"))?;
                 mode = match v.as_str() {
                     "lexical" => Mode::Lexical,
                     "semantic" => Mode::Semantic,
@@ -108,7 +142,12 @@ fn print_hits(query: &str, mode: &str, hits: &[SearchHit]) {
     }
     println!("{} result(s) for \"{query}\" ({mode}):\n", hits.len());
     for h in hits {
-        let when = h.started_at.as_deref().unwrap_or("").get(..10).unwrap_or("");
+        let when = h
+            .started_at
+            .as_deref()
+            .unwrap_or("")
+            .get(..10)
+            .unwrap_or("");
         println!(
             "  {} · {}{}",
             h.tool,

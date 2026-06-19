@@ -88,7 +88,10 @@ pub struct Filters {
 
 impl Filters {
     pub fn is_empty(&self) -> bool {
-        self.tool.is_none() && self.project.is_none() && self.since.is_none() && self.until.is_none()
+        self.tool.is_none()
+            && self.project.is_none()
+            && self.since.is_none()
+            && self.until.is_none()
     }
 
     /// Does a hit satisfy every set constraint?
@@ -162,11 +165,14 @@ impl Store {
     /// Persist a conversation and its messages, skipping if an identical one
     /// (by content hash) is already stored.
     pub fn upsert_conversation(&mut self, convo: &Conversation) -> Result<Upsert> {
-        let exists: bool = self.conn.query_row(
-            "SELECT 1 FROM conversations WHERE content_hash = ?1",
-            [&convo.content_hash],
-            |_| Ok(true),
-        ).optional_bool()?;
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM conversations WHERE content_hash = ?1",
+                [&convo.content_hash],
+                |_| Ok(true),
+            )
+            .optional_bool()?;
         if exists {
             return Ok(Upsert::Duplicate);
         }
@@ -354,9 +360,11 @@ impl Store {
 
         // Map conversation id -> best representative hit (lexical wins for its
         // highlighted snippet).
-        let mut rep: std::collections::HashMap<String, SearchHit> = std::collections::HashMap::new();
+        let mut rep: std::collections::HashMap<String, SearchHit> =
+            std::collections::HashMap::new();
         for h in &semantic {
-            rep.entry(h.conversation_id.clone()).or_insert_with(|| h.clone());
+            rep.entry(h.conversation_id.clone())
+                .or_insert_with(|| h.clone());
         }
         for h in &lexical {
             rep.insert(h.conversation_id.clone(), h.clone());
@@ -386,7 +394,12 @@ impl Store {
         (limit * 10).max(50)
     }
 
-    pub fn search_filtered(&self, query: &str, limit: usize, f: &Filters) -> Result<Vec<SearchHit>> {
+    pub fn search_filtered(
+        &self,
+        query: &str,
+        limit: usize,
+        f: &Filters,
+    ) -> Result<Vec<SearchHit>> {
         if f.is_empty() {
             return self.search(query, limit);
         }
@@ -471,7 +484,10 @@ impl Store {
         )?;
         let messages = stmt
             .query_map([id], |r| {
-                Ok(StoredMessage { role: r.get(0)?, content: r.get(1)? })
+                Ok(StoredMessage {
+                    role: r.get(0)?,
+                    content: r.get(1)?,
+                })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -496,12 +512,20 @@ impl Store {
                 continue;
             };
             let mut section = String::new();
-            let when = convo.started_at.as_deref().and_then(|s| s.get(..10)).unwrap_or("");
+            let when = convo
+                .started_at
+                .as_deref()
+                .and_then(|s| s.get(..10))
+                .unwrap_or("");
             section.push_str(&format!(
                 "\n### {} — {}{}\n",
                 convo.title.as_deref().unwrap_or("(untitled)"),
                 convo.tool,
-                if when.is_empty() { String::new() } else { format!("  [{when}]") },
+                if when.is_empty() {
+                    String::new()
+                } else {
+                    format!("  [{when}]")
+                },
             ));
             if let Some(p) = &convo.project {
                 section.push_str(&format!("_{p}_\n\n"));

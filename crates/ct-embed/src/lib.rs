@@ -47,9 +47,9 @@ pub fn default_embedder() -> Box<dyn Embedder> {
     {
         match OnnxEmbedder::new() {
             Ok(e) => return Box::new(e),
-            Err(e) => eprintln!(
-                "warn: ONNX embedder unavailable ({e:#}); falling back to hash embedder"
-            ),
+            Err(e) => {
+                eprintln!("warn: ONNX embedder unavailable ({e:#}); falling back to hash embedder")
+            }
         }
     }
     Box::new(HashEmbedder::default())

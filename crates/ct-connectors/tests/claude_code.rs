@@ -6,8 +6,8 @@ use ct_connectors::connectors::claude_code::parse_jsonl;
 use ct_core::model::Role;
 
 fn fixture() -> (std::path::PathBuf, String) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/claude_code_session.jsonl");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude_code_session.jsonl");
     let text = std::fs::read_to_string(&path).expect("read fixture");
     (path, text)
 }

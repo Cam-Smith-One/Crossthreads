@@ -17,10 +17,19 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
         match arg.as_str() {
             "--remote" => remote = true,
             "--addr" => {
-                addr = Some(it.next().ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?.clone());
+                addr = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?
+                        .clone(),
+                );
                 remote = true;
             }
-            "--db" => db = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--db needs a value"))?)),
+            "--db" => {
+                db = Some(PathBuf::from(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--db needs a value"))?,
+                ))
+            }
             other => bail!("unknown option for `status`: {other}"),
         }
     }
@@ -31,7 +40,11 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             None => Client::from_env(),
         };
         match client.call(&Request::Status)? {
-            Response::Status { conversations, embeddings, embedder } => {
+            Response::Status {
+                conversations,
+                embeddings,
+                embedder,
+            } => {
                 println!("daemon: running");
                 println!("  conversations: {conversations}");
                 println!("  embeddings:    {embeddings} ({embedder})");

@@ -24,7 +24,10 @@ fn parses_rollout_into_conversation() {
 
     // user, assistant, tool(call), tool(output); reasoning + session_meta skipped.
     let roles: Vec<Role> = convo.messages.iter().map(|m| m.role).collect();
-    assert_eq!(roles, vec![Role::User, Role::Assistant, Role::Tool, Role::Tool]);
+    assert_eq!(
+        roles,
+        vec![Role::User, Role::Assistant, Role::Tool, Role::Tool]
+    );
 
     // Code fence extracted from the assistant turn.
     let snip = &convo.messages[1].code_snippets;

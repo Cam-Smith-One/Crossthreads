@@ -21,11 +21,30 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--remote" => remote = true,
-            "--limit" => limit = it.next().ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?.parse()?,
-            "--max-chars" => max_chars = it.next().ok_or_else(|| anyhow::anyhow!("--max-chars needs a value"))?.parse()?,
-            "--db" => db = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--db needs a value"))?)),
+            "--limit" => {
+                limit = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?
+                    .parse()?
+            }
+            "--max-chars" => {
+                max_chars = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--max-chars needs a value"))?
+                    .parse()?
+            }
+            "--db" => {
+                db = Some(PathBuf::from(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--db needs a value"))?,
+                ))
+            }
             "--addr" => {
-                addr = Some(it.next().ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?.clone());
+                addr = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow::anyhow!("--addr needs a value"))?
+                        .clone(),
+                );
                 remote = true;
             }
             "--mode" => {
@@ -50,7 +69,9 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             Some(a) => ct_daemon::Client::new(a),
             None => ct_daemon::Client::from_env(),
         };
-        client.build_context(&query, mode, limit, max_chars, Default::default())?.0
+        client
+            .build_context(&query, mode, limit, max_chars, Default::default())?
+            .0
     } else {
         let store = Store::open(crate::resolve_db(db)?)?;
         let hits = match mode {

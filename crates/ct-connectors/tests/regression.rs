@@ -24,7 +24,10 @@ fn read(rel: &str) -> (std::path::PathBuf, String) {
 fn assert_valid(convo: &Conversation, expect_fingerprint: &str) {
     assert!(convo.id.starts_with("cv_"), "id should be content-derived");
     assert!(!convo.content_hash.is_empty(), "content hash required");
-    assert_eq!(convo.source.fingerprint, expect_fingerprint, "fingerprint stamp");
+    assert_eq!(
+        convo.source.fingerprint, expect_fingerprint,
+        "fingerprint stamp"
+    );
     assert!(!convo.source.path.is_empty(), "provenance path required");
     assert!(!convo.messages.is_empty(), "a conversation needs messages");
 
@@ -53,7 +56,11 @@ fn claude_code_fixture_is_stable() {
     assert_valid(&convo, "claude-code/v1");
     // Golden: message count is part of the contract.
     assert_eq!(convo.messages.len(), 4);
-    assert_eq!(parse_jsonl(&path, &text).unwrap().id, convo.id, "deterministic");
+    assert_eq!(
+        parse_jsonl(&path, &text).unwrap().id,
+        convo.id,
+        "deterministic"
+    );
 }
 
 #[test]
@@ -62,7 +69,11 @@ fn aider_fixture_is_stable() {
     // Aider needs the canonical filename.
     let dir = tempfile::tempdir().unwrap();
     let dst = dir.path().join(".aider.chat.history.md");
-    std::fs::copy(fixtures().join("tests/fixtures/aider.chat.history.md"), &dst).unwrap();
+    std::fs::copy(
+        fixtures().join("tests/fixtures/aider.chat.history.md"),
+        &dst,
+    )
+    .unwrap();
 
     let s0 = parse_in_file(&dst, "session/0").unwrap();
     let s1 = parse_in_file(&dst, "session/1").unwrap();
@@ -88,7 +99,14 @@ fn every_builtin_connector_reports_a_versioned_fingerprint() {
     // versioned (FR-ING-08).
     for c in ct_connectors::builtin() {
         let fp = c.fingerprint();
-        assert!(fp.contains('/'), "{} fingerprint should be tool/vN: {fp}", c.tool().slug());
-        assert!(fp.ends_with(|ch: char| ch.is_ascii_digit()), "{fp} should end in a version");
+        assert!(
+            fp.contains('/'),
+            "{} fingerprint should be tool/vN: {fp}",
+            c.tool().slug()
+        );
+        assert!(
+            fp.ends_with(|ch: char| ch.is_ascii_digit()),
+            "{fp} should end in a version"
+        );
     }
 }

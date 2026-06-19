@@ -172,9 +172,7 @@ impl Server {
 
         match self.client.search(query, mode, limit, filters_from(args)) {
             Ok(hits) => tool_text(format_hits(query, &hits)),
-            Err(e) => tool_error(format!(
-                "search failed ({e:#}). Is crossthreadsd running?"
-            )),
+            Err(e) => tool_error(format!("search failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 
@@ -183,7 +181,10 @@ impl Server {
             return tool_error("missing required argument: question");
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
-        match self.client.search(question, Mode::Hybrid, limit, filters_from(args)) {
+        match self
+            .client
+            .search(question, Mode::Hybrid, limit, filters_from(args))
+        {
             Ok(hits) if hits.is_empty() => {
                 tool_text(format!("No past sessions found about \"{question}\"."))
             }
@@ -218,12 +219,18 @@ impl Server {
             _ => Mode::Hybrid,
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(3) as usize;
-        let max_chars = args.get("max_chars").and_then(|l| l.as_u64()).unwrap_or(6000) as usize;
+        let max_chars = args
+            .get("max_chars")
+            .and_then(|l| l.as_u64())
+            .unwrap_or(6000) as usize;
 
-        match self.client.build_context(query, mode, limit, max_chars, filters_from(args)) {
-            Ok((markdown, sources)) if sources.is_empty() => {
-                tool_text(format!("No prior context found for \"{query}\".\n{markdown}"))
-            }
+        match self
+            .client
+            .build_context(query, mode, limit, max_chars, filters_from(args))
+        {
+            Ok((markdown, sources)) if sources.is_empty() => tool_text(format!(
+                "No prior context found for \"{query}\".\n{markdown}"
+            )),
             Ok((markdown, _)) => tool_text(markdown),
             Err(e) => tool_error(format!(
                 "build_context failed ({e:#}). Is crossthreadsd running?"
@@ -270,13 +277,22 @@ fn format_hits(query: &str, hits: &[ct_daemon::SearchHit]) -> String {
     }
     let mut out = format!("{} result(s) for \"{query}\":\n", hits.len());
     for (i, h) in hits.iter().enumerate() {
-        let when = h.started_at.as_deref().unwrap_or("").get(..10).unwrap_or("");
+        let when = h
+            .started_at
+            .as_deref()
+            .unwrap_or("")
+            .get(..10)
+            .unwrap_or("");
         out.push_str(&format!(
             "\n{}. [{}] {}{}\n   {}\n   {}\n",
             i + 1,
             h.tool,
             h.title.as_deref().unwrap_or("(untitled)"),
-            if when.is_empty() { String::new() } else { format!("  {when}") },
+            if when.is_empty() {
+                String::new()
+            } else {
+                format!("  {when}")
+            },
             h.project.as_deref().unwrap_or("-"),
             h.snippet.replace('\n', " "),
         ));

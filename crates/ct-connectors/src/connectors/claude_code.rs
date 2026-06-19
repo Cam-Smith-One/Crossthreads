@@ -15,9 +15,7 @@ use std::path::{Path, PathBuf};
 
 use ct_core::connector::{Connector, ConnectorError, DiscoveredSession, Result};
 use ct_core::hash::{conversation_hash, conversation_id};
-use ct_core::model::{
-    Conversation, GitContext, Message, Role, Source, Tool, ToolCall,
-};
+use ct_core::model::{Conversation, GitContext, Message, Role, Source, Tool, ToolCall};
 
 use crate::text::extract_code_snippets;
 
@@ -42,10 +40,7 @@ impl Connector for ClaudeCodeConnector {
     }
 
     fn roots(&self) -> Vec<PathBuf> {
-        default_roots()
-            .into_iter()
-            .filter(|p| p.exists())
-            .collect()
+        default_roots().into_iter().filter(|p| p.exists()).collect()
     }
 
     fn discover(&self) -> Result<Vec<DiscoveredSession>> {
@@ -139,7 +134,8 @@ pub fn parse_jsonl(path: &Path, text: &str) -> Result<Conversation> {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc));
         if let Some(ts) = ts {
-            started_at = Some(started_at.map_or(ts, |cur: chrono::DateTime<chrono::Utc>| cur.min(ts)));
+            started_at =
+                Some(started_at.map_or(ts, |cur: chrono::DateTime<chrono::Utc>| cur.min(ts)));
             ended_at = Some(ended_at.map_or(ts, |cur: chrono::DateTime<chrono::Utc>| cur.max(ts)));
         }
 
@@ -190,9 +186,10 @@ fn event_to_message(
     msg: &serde_json::Value,
     ts: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Option<Message> {
-    let role_str = msg.get("role").and_then(|v| v.as_str()).unwrap_or_else(|| {
-        event.get("type").and_then(|v| v.as_str()).unwrap_or("")
-    });
+    let role_str = msg
+        .get("role")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| event.get("type").and_then(|v| v.as_str()).unwrap_or(""));
 
     let (content, tool_calls, only_tool_result) = extract_content(msg.get("content"));
     if content.trim().is_empty() && tool_calls.is_empty() {
@@ -258,7 +255,10 @@ fn extract_content(content: Option<&serde_json::Value>) -> (String, Vec<ToolCall
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        let args = block.get("input").cloned().unwrap_or(serde_json::Value::Null);
+                        let args = block
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
                         tool_calls.push(ToolCall {
                             name,
                             args,

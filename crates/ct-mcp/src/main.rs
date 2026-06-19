@@ -47,7 +47,10 @@ fn main() -> ExitCode {
         };
 
         if let Some(response) = server.handle(&msg) {
-            if writeln!(out, "{response}").and_then(|_| out.flush()).is_err() {
+            if writeln!(out, "{response}")
+                .and_then(|_| out.flush())
+                .is_err()
+            {
                 break; // stdout closed
             }
         }

@@ -82,12 +82,13 @@ mod tests {
     #[test]
     fn shared_words_are_more_similar_than_disjoint() {
         let e = HashEmbedder::default();
-        let v = e.embed(&[
-            "add retry logic with backoff".into(),
-            "retry with backoff please".into(),
-            "completely unrelated banana sentence".into(),
-        ])
-        .unwrap();
+        let v = e
+            .embed(&[
+                "add retry logic with backoff".into(),
+                "retry with backoff please".into(),
+                "completely unrelated banana sentence".into(),
+            ])
+            .unwrap();
         let near = cosine(&v[0], &v[1]);
         let far = cosine(&v[0], &v[2]);
         assert!(near > far, "near={near} far={far}");

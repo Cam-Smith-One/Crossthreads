@@ -33,7 +33,12 @@ fn make_db() -> (tempfile::TempDir, std::path::PathBuf) {
             {"type":"user","text":"how do I add retries?"},
             {"type":"ai","text":"Use exponential backoff:\n\n```rust\nbackoff();\n```"}
         ]}]}"#;
-    put(&conn, "ItemTable", "workbench.panel.aichat.view.aichat.chatdata", chatdata);
+    put(
+        &conn,
+        "ItemTable",
+        "workbench.panel.aichat.view.aichat.chatdata",
+        chatdata,
+    );
 
     // 2) Composer with inline conversation array.
     let comp1 = r#"{"composerId":"comp-1","name":"inline","createdAt":1747200000000,
@@ -50,8 +55,18 @@ fn make_db() -> (tempfile::TempDir, std::path::PathBuf) {
             {"bubbleId":"h2","type":2}
         ]}"#;
     put(&conn, "cursorDiskKV", "composerData:comp-2", comp2);
-    put(&conn, "cursorDiskKV", "bubbleId:comp-2:h1", r#"{"text":"headers user turn"}"#);
-    put(&conn, "cursorDiskKV", "bubbleId:comp-2:h2", r#"{"text":"headers assistant turn"}"#);
+    put(
+        &conn,
+        "cursorDiskKV",
+        "bubbleId:comp-2:h1",
+        r#"{"text":"headers user turn"}"#,
+    );
+    put(
+        &conn,
+        "cursorDiskKV",
+        "bubbleId:comp-2:h2",
+        r#"{"text":"headers assistant turn"}"#,
+    );
 
     (dir, db_path)
 }
@@ -112,7 +127,11 @@ fn parses_headers_only_composer_via_bubble_rows() {
     let (_dir, db) = make_db();
     let convo = parse_in_db(&db, "diskkv/comp-2").unwrap();
     assert_eq!(
-        convo.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>(),
+        convo
+            .messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
         vec!["headers user turn", "headers assistant turn"]
     );
     assert_eq!(

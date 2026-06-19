@@ -9,6 +9,4 @@ pub mod hash;
 pub mod model;
 
 pub use connector::{Connector, ConnectorError, DiscoveredSession};
-pub use model::{
-    CodeSnippet, Conversation, GitContext, Message, Role, Source, Tool, ToolCall,
-};
+pub use model::{CodeSnippet, Conversation, GitContext, Message, Role, Source, Tool, ToolCall};

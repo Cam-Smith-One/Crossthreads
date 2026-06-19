@@ -190,13 +190,20 @@ fn item_to_message(idx: usize, item: &serde_json::Value) -> Option<Message> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("tool")
                 .to_string();
-            let args = item.get("arguments").cloned().unwrap_or(serde_json::Value::Null);
+            let args = item
+                .get("arguments")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             let content = format!("{name}({})", value_to_text(&args));
             Some(make_message(
                 idx,
                 Role::Tool,
                 &content,
-                vec![ToolCall { name, args, result_ref: None }],
+                vec![ToolCall {
+                    name,
+                    args,
+                    result_ref: None,
+                }],
             ))
         }
         "function_call_output" | "local_shell_call_output" => {

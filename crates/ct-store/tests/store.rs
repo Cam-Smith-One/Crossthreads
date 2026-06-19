@@ -60,7 +60,10 @@ fn keyword_search_finds_and_ranks() {
             "/acme-api",
             vec![
                 msg(Role::User, "the OAuth token refresh is looping on 401"),
-                msg(Role::Assistant, "wrap the refresh in exponential backoff and retry"),
+                msg(
+                    Role::Assistant,
+                    "wrap the refresh in exponential backoff and retry",
+                ),
             ],
         ))
         .unwrap();
@@ -73,7 +76,11 @@ fn keyword_search_finds_and_ranks() {
         .unwrap();
 
     let hits = store.search("token refresh", 10).unwrap();
-    assert_eq!(hits.len(), 1, "only one conversation mentions token refresh");
+    assert_eq!(
+        hits.len(),
+        1,
+        "only one conversation mentions token refresh"
+    );
     assert_eq!(hits[0].project.as_deref(), Some("/acme-api"));
     assert!(hits[0].snippet.contains('['), "snippet should mark matches");
 
@@ -83,7 +90,10 @@ fn keyword_search_finds_and_ranks() {
     assert_eq!(hits[0].tool, "cursor");
 
     // No match -> empty.
-    assert!(store.search("kubernetes helm chart", 10).unwrap().is_empty());
+    assert!(store
+        .search("kubernetes helm chart", 10)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

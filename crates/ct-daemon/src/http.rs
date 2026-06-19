@@ -16,8 +16,7 @@ impl Daemon {
     /// Serve the HTTP API (+ optional static UI dir) on `addr` until stopped.
     /// Blocking; run on its own thread.
     pub fn serve_http(&self, addr: &str, ui_dir: Option<PathBuf>) -> Result<()> {
-        let server = Server::http(addr)
-            .map_err(|e| anyhow::anyhow!("binding http {addr}: {e}"))?;
+        let server = Server::http(addr).map_err(|e| anyhow::anyhow!("binding http {addr}: {e}"))?;
         for mut request in server.incoming_requests() {
             let response = self.route(&mut request, ui_dir.as_deref());
             if let Err(e) = request.respond(response) {
@@ -27,7 +26,11 @@ impl Daemon {
         Ok(())
     }
 
-    fn route(&self, request: &mut tiny_http::Request, ui_dir: Option<&Path>) -> Response<std::io::Cursor<Vec<u8>>> {
+    fn route(
+        &self,
+        request: &mut tiny_http::Request,
+        ui_dir: Option<&Path>,
+    ) -> Response<std::io::Cursor<Vec<u8>>> {
         let url = request.url().to_string();
         let path = url.split('?').next().unwrap_or("/");
 
@@ -45,7 +48,10 @@ impl Daemon {
     fn handle_rpc(&self, request: &mut tiny_http::Request) -> Response<std::io::Cursor<Vec<u8>>> {
         let mut body = String::new();
         if request.as_reader().read_to_string(&mut body).is_err() {
-            return json_response(400, &serde_json::json!({ "type": "error", "message": "unreadable body" }));
+            return json_response(
+                400,
+                &serde_json::json!({ "type": "error", "message": "unreadable body" }),
+            );
         }
         let req: Request = match serde_json::from_str(&body) {
             Ok(r) => r,
@@ -75,7 +81,9 @@ fn serve_static(path: &str, ui_dir: Option<&Path>) -> Response<std::io::Cursor<V
     match std::fs::read(&file) {
         Ok(bytes) => {
             let mut resp = Response::from_data(bytes).with_status_code(200);
-            if let Ok(h) = Header::from_bytes(b"Content-Type".as_ref(), content_type(&file).as_bytes()) {
+            if let Ok(h) =
+                Header::from_bytes(b"Content-Type".as_ref(), content_type(&file).as_bytes())
+            {
                 resp = resp.with_header(h);
             }
             resp
@@ -107,7 +115,10 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
-fn json_response<T: serde::Serialize>(status: u16, value: &T) -> Response<std::io::Cursor<Vec<u8>>> {
+fn json_response<T: serde::Serialize>(
+    status: u16,
+    value: &T,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = serde_json::to_vec(value).unwrap_or_default();
     let mut resp = Response::from_data(body).with_status_code(status);
     if let Ok(h) = Header::from_bytes(b"Content-Type".as_ref(), b"application/json".as_ref()) {

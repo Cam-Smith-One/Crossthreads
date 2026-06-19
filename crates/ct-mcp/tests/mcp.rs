@@ -30,7 +30,11 @@ fn convo(tool: Tool, project: &str, text: &str) -> Conversation {
         started_at: None,
         ended_at: None,
         git_context: GitContext::default(),
-        source: Source { path: "/x".into(), offset: None, fingerprint: "t/v1".into() },
+        source: Source {
+            path: "/x".into(),
+            offset: None,
+            fingerprint: "t/v1".into(),
+        },
         content_hash,
         messages,
     }
@@ -38,7 +42,13 @@ fn convo(tool: Tool, project: &str, text: &str) -> Conversation {
 
 fn server_with_daemon() -> Server {
     let mut store = Store::open_in_memory().unwrap();
-    store.upsert_conversation(&convo(Tool::ClaudeCode, "/acme-api", "add retry logic with backoff")).unwrap();
+    store
+        .upsert_conversation(&convo(
+            Tool::ClaudeCode,
+            "/acme-api",
+            "add retry logic with backoff",
+        ))
+        .unwrap();
     ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
     let daemon = Daemon::new(store, Box::new(HashEmbedder::default()));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

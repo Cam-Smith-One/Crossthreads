@@ -63,7 +63,10 @@ impl Connector for CursorConnector {
     }
 
     fn roots(&self) -> Vec<PathBuf> {
-        discover_db_files().into_iter().filter(|p| p.exists()).collect()
+        discover_db_files()
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect()
     }
 
     fn discover(&self) -> Result<Vec<DiscoveredSession>> {
@@ -78,10 +81,13 @@ impl Connector for CursorConnector {
     }
 
     fn parse(&self, session: &DiscoveredSession) -> Result<Conversation> {
-        let locator = session.locator.as_deref().ok_or_else(|| ConnectorError::Parse {
-            path: session.path.clone(),
-            reason: "cursor sessions require a locator".into(),
-        })?;
+        let locator = session
+            .locator
+            .as_deref()
+            .ok_or_else(|| ConnectorError::Parse {
+                path: session.path.clone(),
+                reason: "cursor sessions require a locator".into(),
+            })?;
         parse_in_db(&session.path, locator)
     }
 }
@@ -136,7 +142,12 @@ pub fn discover_in_db(path: &Path) -> Result<Vec<DiscoveredSession>> {
 
     if let Some(raw) = get_value(&conn, "ItemTable", LEGACY_CHATDATA_KEY) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-            for tab in value.get("tabs").and_then(|v| v.as_array()).into_iter().flatten() {
+            for tab in value
+                .get("tabs")
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+            {
                 if let Some(tab_id) = tab.get("tabId").and_then(|v| v.as_str()) {
                     out.push(DiscoveredSession {
                         path: path.to_path_buf(),
@@ -195,11 +206,15 @@ pub fn parse_in_db(path: &Path, locator: &str) -> Result<Conversation> {
     }
 
     if let Some(composer_id) = locator.strip_prefix("diskkv/") {
-        let raw = get_value(&conn, "cursorDiskKV", &format!("composerData:{composer_id}"))
-            .ok_or_else(|| ConnectorError::Parse {
-                path: path.to_path_buf(),
-                reason: format!("composerData:{composer_id} missing"),
-            })?;
+        let raw = get_value(
+            &conn,
+            "cursorDiskKV",
+            &format!("composerData:{composer_id}"),
+        )
+        .ok_or_else(|| ConnectorError::Parse {
+            path: path.to_path_buf(),
+            reason: format!("composerData:{composer_id} missing"),
+        })?;
         let composer: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| ConnectorError::Parse {
                 path: path.to_path_buf(),
@@ -207,15 +222,14 @@ pub fn parse_in_db(path: &Path, locator: &str) -> Result<Conversation> {
             })?;
         let fetch_bubble = |bubble_id: &str| -> Option<serde_json::Value> {
             let key = format!("bubbleId:{composer_id}:{bubble_id}");
-            get_value(&conn, "cursorDiskKV", &key)
-                .and_then(|s| serde_json::from_str(&s).ok())
+            get_value(&conn, "cursorDiskKV", &key).and_then(|s| serde_json::from_str(&s).ok())
         };
-        return composer_to_conversation(&composer, fetch_bubble, path, project).ok_or_else(
-            || ConnectorError::Parse {
+        return composer_to_conversation(&composer, fetch_bubble, path, project).ok_or_else(|| {
+            ConnectorError::Parse {
                 path: path.to_path_buf(),
                 reason: "composer had no usable messages".into(),
-            },
-        );
+            }
+        });
     }
 
     Err(ConnectorError::Parse {
@@ -323,7 +337,11 @@ fn composer_turn_message(idx: usize, turn: &serde_json::Value) -> Option<Message
 /// Shared: pull `text` out of a bubble/turn and make a [`Message`], skipping
 /// empties (tool-only bubbles often have no text).
 fn bubble_text_message(idx: usize, node: &serde_json::Value, role: Role) -> Option<Message> {
-    let text = node.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let text = node
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if text.is_empty() {
         return None;
     }

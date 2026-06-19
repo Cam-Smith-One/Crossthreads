@@ -21,7 +21,10 @@ fn splits_into_two_sessions() {
     assert_eq!(split_sessions(&text).len(), 2);
 
     let discovered = discover_in_file(&path).unwrap();
-    let locators: Vec<&str> = discovered.iter().filter_map(|s| s.locator.as_deref()).collect();
+    let locators: Vec<&str> = discovered
+        .iter()
+        .filter_map(|s| s.locator.as_deref())
+        .collect();
     assert_eq!(locators, vec!["session/0", "session/1"]);
 }
 
@@ -34,7 +37,10 @@ fn parses_first_session_with_roles_code_and_metadata() {
     assert_eq!(convo.tool.slug(), "aider");
     assert_eq!(convo.source.fingerprint, "aider/v1");
     // Project is the directory holding the history file.
-    assert_eq!(convo.project.as_deref(), Some(dir.path().to_string_lossy().as_ref()));
+    assert_eq!(
+        convo.project.as_deref(),
+        Some(dir.path().to_string_lossy().as_ref())
+    );
     // Timestamp parsed from the session header.
     assert_eq!(
         convo.started_at.unwrap().to_rfc3339(),
@@ -46,7 +52,9 @@ fn parses_first_session_with_roles_code_and_metadata() {
     // user then assistant; `>` notes excluded.
     let roles: Vec<Role> = convo.messages.iter().map(|m| m.role).collect();
     assert_eq!(roles, vec![Role::User, Role::Assistant]);
-    assert!(convo.messages[0].content.contains("token refresh keeps looping"));
+    assert!(convo.messages[0]
+        .content
+        .contains("token refresh keeps looping"));
 
     // Fenced code extracted from the assistant turn.
     let snip = &convo.messages[1].code_snippets;
