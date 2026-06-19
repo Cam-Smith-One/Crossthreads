@@ -5,7 +5,10 @@
 //! `ct-store` (which stays embedder/connector-agnostic) and from the binaries
 //! (which shouldn't duplicate this loop).
 
+use std::collections::BTreeMap;
+
 use anyhow::Result;
+use ct_core::connector::ConnectorError;
 use ct_core::model::Conversation;
 use ct_embed::Embedder;
 use ct_store::{Store, Upsert};
@@ -55,11 +58,11 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
             }
         };
 
-        // Aggregate per-connector parse failures into one line instead of
-        // flooding the log with a warning per session (a heavy Cursor user can
-        // have thousands of unparseable entries).
+        // Aggregate per-connector parse failures by reason instead of flooding
+        // the log with a warning per session (a heavy Cursor user can have
+        // thousands of empty tabs / unparseable entries).
         let mut skipped_here = 0usize;
-        let mut first_error: Option<String> = None;
+        let mut by_reason: BTreeMap<String, usize> = BTreeMap::new();
 
         for session in sessions {
             if let Some(limit) = limit {
@@ -72,23 +75,51 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
                 Err(e) => {
                     unparseable += 1;
                     skipped_here += 1;
-                    if first_error.is_none() {
-                        first_error = Some(e.to_string());
-                    }
+                    *by_reason.entry(reason_category(&e)).or_insert(0) += 1;
                 }
             }
         }
 
         if skipped_here > 0 {
+            // Show reasons by frequency, e.g. "147× tab had no usable messages, …".
+            let mut reasons: Vec<(String, usize)> = by_reason.into_iter().collect();
+            reasons.sort_by(|a, b| b.1.cmp(&a.1));
+            let breakdown = reasons
+                .iter()
+                .take(4)
+                .map(|(r, n)| format!("{n}× {r}"))
+                .collect::<Vec<_>>()
+                .join(", ");
             eprintln!(
-                "warn: {} — skipped {skipped_here} unparseable session(s) (e.g. {})",
+                "warn: {} — skipped {skipped_here} session(s): {breakdown}",
                 connector.tool().slug(),
-                first_error.unwrap_or_default(),
             );
         }
     }
 
     (conversations, unparseable)
+}
+
+/// A coarse, id-stripped category for a parse error, for grouping in the log.
+fn reason_category(e: &ConnectorError) -> String {
+    let reason = match e {
+        ConnectorError::Parse { reason, .. } | ConnectorError::UnknownFormat { reason, .. } => {
+            reason.clone()
+        }
+        other => other.to_string(),
+    };
+    // Replace id-like tokens (containing digits) so similar errors collapse.
+    reason
+        .split_whitespace()
+        .map(|w| {
+            if w.chars().any(|c| c.is_ascii_digit()) {
+                "<id>"
+            } else {
+                w
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Embed all messages without a vector, in batches. Returns the count embedded.
