@@ -93,6 +93,12 @@ linear scan becomes the bottleneck.
 - Codex and others move to the fast-follow connector set (FR-ING-09).
 - Revisit if Aider isn't in the maintainer's daily flow — swap target is cheap pre-implementation.
 
+**Update (impl).** Implemented. Parses `.aider.chat.history.md` (sessions split
+on the `# aider chat started at` marker; `#### ` user lines, unprefixed
+assistant prose, `> ` notes skipped with a best-effort `Model:` sniff). Aider
+has no central history registry, so discovery scans bounded roots
+(`CROSSTHREADS_AIDER_ROOTS` overrides).
+
 ---
 
 ## Still open

@@ -14,7 +14,7 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 **Goal:** de-risk parsing, the Tauri shell, and the ML-runtime placement.
 
 - ✅ Study CASS/public-extractor source for connector *patterns* (no dependency — clean build is decided).
-- ✅ Validate Cursor `state.vscdb` schema parsing and Claude Code JSONL parsing (schema reverse-engineered; see `ct-connectors`).
+- ✅ Connectors: Claude Code (JSONL), Cursor (`state.vscdb`), and Aider (`.aider.chat.history.md`) — the full MVP set (ADR-008).
 - ✅ Build a minimal connector + SQLite indexer behind a thin Rust core API (`ct-core` / `ct-connectors` / `ct-store` / `ct-cli`).
 - ✅ Persist into a single SQLite index with content-hash dedup + FTS5 keyword search.
 - ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.

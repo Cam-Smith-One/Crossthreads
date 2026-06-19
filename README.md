@@ -12,12 +12,12 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-🛠️ **Phase 0 (prototype) — daemon + hybrid search working.** Sessions from **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite) are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status over a loopback socket. Aider and the desktop app are next.
+🛠️ **Phase 0 (prototype) — full backend working.** Sessions from **Claude Code** (JSONL), **Cursor** (`state.vscdb` SQLite), and **Aider** (`.aider.chat.history.md`) — the MVP's three connectors — are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status over a loopback socket; an **MCP server** lets agents query it natively. The desktop shell is the remaining Phase-0 item.
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # source-tool parsers (Claude Code + Cursor)
+  ct-connectors   # source-tool parsers (Claude Code + Cursor + Aider)
   ct-embed        # Embedder trait: hash (default) + ONNX/all-MiniLM (`onnx`)
   ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid search (ADR-007)
   ct-index        # indexing orchestration shared by CLI + daemon
