@@ -1,0 +1,21 @@
+[package]
+name = "ct-desktop"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Crossthreads native desktop shell (Tauri) — wraps the ui/ frontend."
+# NOTE: excluded from the root workspace (see ../Cargo.toml). Builds on a machine
+# with the platform webview libraries + the Tauri CLI.
+
+[lib]
+name = "ct_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+# The same daemon client every other surface uses.
+ct-daemon = { path = "../crates/ct-daemon" }

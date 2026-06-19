@@ -47,12 +47,22 @@ export interface StoredConversation {
 }
 
 async function rpc<T>(body: unknown): Promise<T> {
-  const res = await fetch("/api/rpc", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
+  let data: any;
+  // In the native Tauri shell, forward through the `rpc` command (which talks
+  // to the daemon over the local protocol). In a browser, POST to the HTTP
+  // bridge. Same UI, both surfaces.
+  const tauri = (window as unknown as { __TAURI__?: any }).__TAURI__;
+  if (tauri?.core?.invoke) {
+    const text: string = await tauri.core.invoke("rpc", { request: JSON.stringify(body) });
+    data = JSON.parse(text);
+  } else {
+    const res = await fetch("/api/rpc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    data = await res.json();
+  }
   if (data && data.type === "error") {
     throw new Error(data.message ?? "daemon error");
   }

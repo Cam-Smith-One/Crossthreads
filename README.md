@@ -12,20 +12,20 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-🛠️ **Phase 0 (prototype) — full backend working.** Sessions from **Claude Code** (JSONL), **Cursor** (`state.vscdb` SQLite), and **Aider** (`.aider.chat.history.md`) — the MVP's three connectors — are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status over a loopback socket; an **MCP server** lets agents query it natively. The desktop shell is the remaining Phase-0 item.
+🛠️ **MVP backend complete.** Sessions from **Claude Code** (JSONL), **Cursor** (`state.vscdb` SQLite), **Aider** (`.aider.chat.history.md`), and **Codex** (`~/.codex/sessions` rollouts) are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion, with tool/project/date **filters**. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status/context over a loopback socket **and** an HTTP bridge. An **MCP server** lets agents search/recall/inject context natively, a **React+Vite UI** provides search + filters + a conversation viewer, and a **Tauri shell** wraps that UI (builds on a desktop machine).
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # source-tool parsers (Claude Code + Cursor + Aider)
+  ct-connectors   # parsers: Claude Code, Cursor, Aider, Codex (+ regression corpus)
   ct-embed        # Embedder trait: hash (default) + ONNX/all-MiniLM (`onnx`)
-  ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid search (ADR-007)
+  ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid + filters (ADR-007)
   ct-index        # indexing orchestration shared by CLI + daemon
-  ct-daemon       # `crossthreadsd` single-writer daemon + loopback API + watcher
-  ct-cli          # `crossthreads` CLI (index / search / status; --remote)
+  ct-daemon       # `crossthreadsd` single-writer daemon + loopback/HTTP API + watcher
+  ct-cli          # `crossthreads` CLI (index / search / context / status; --remote)
   ct-mcp          # MCP server: agents query your history natively (FR-UI-04)
-ui/               # React + Vite frontend (the Tauri shell's content), served
-                  # by the daemon over an HTTP/JSON bridge
+ui/               # React + Vite frontend (web + Tauri), talks to the daemon
+src-tauri/        # native desktop shell (Tauri; excluded from the CI workspace)
 ```
 
 Try it (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the `onnx` semantic build):

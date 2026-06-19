@@ -7,6 +7,13 @@ Cargo.lock.orig
 node_modules/
 ui/dist/
 
+# Tauri (native shell, excluded from the workspace)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/*.png
+src-tauri/icons/*.ico
+src-tauri/icons/*.icns
+
 # OS / editor
 .DS_Store
 *.swp

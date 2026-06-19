@@ -10,8 +10,11 @@ members = [
     "crates/ct-cli",
     "crates/ct-mcp",
 ]
-# ct-desktop (Tauri) is intentionally not scaffolded yet — it needs a Node
-# toolchain and isn't on the Phase 0 critical path (parsers + pipeline first).
+# The native Tauri shell lives in `src-tauri/` and is intentionally EXCLUDED
+# from the workspace: it needs platform webview libs (e.g. webkit2gtk) that
+# aren't present in headless CI, so building it here would fail. It builds on a
+# real dev machine with `cargo tauri build`. See src-tauri/README.md.
+exclude = ["src-tauri"]
 
 [workspace.package]
 version = "0.0.0"

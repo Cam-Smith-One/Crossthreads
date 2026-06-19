@@ -14,13 +14,13 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 **Goal:** de-risk parsing, the Tauri shell, and the ML-runtime placement.
 
 - ✅ Study CASS/public-extractor source for connector *patterns* (no dependency — clean build is decided).
-- ✅ Connectors: Claude Code (JSONL), Cursor (`state.vscdb`), and Aider (`.aider.chat.history.md`) — the full MVP set (ADR-008).
+- ✅ Connectors: Claude Code (JSONL), Cursor (`state.vscdb`), Aider (`.aider.chat.history.md`), and Codex (`~/.codex/sessions` rollouts), with a regression corpus guarding against format drift (FR-ING-08).
 - ✅ Build a minimal connector + SQLite indexer behind a thin Rust core API (`ct-core` / `ct-connectors` / `ct-store` / `ct-cli`).
 - ✅ Persist into a single SQLite index with content-hash dedup + FTS5 keyword search.
 - ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.
 - ✅ Resolve **ML-runtime placement** — pure-Rust ONNX via `fastembed`/`ort`, validated end-to-end.
 - ✅ Background daemon (`crossthreadsd`): single-writer index, file-watch auto-reindex, loopback search/status API; CLI `--remote` client (ADR-005).
-- 🟡 Primary surface: React + Vite UI (`ui/`) served by the daemon over an HTTP/JSON bridge — search, hybrid mode, and context block, verified headlessly. The native Tauri wrapper around the same frontend is pending an environment with platform webview libs + a display.
+- 🟡 Primary surface: React + Vite UI (`ui/`) — search, filters, hybrid mode, conversation viewer, context block — served by the daemon over an HTTP/JSON bridge (verified headlessly). The native Tauri shell (`src-tauri/`) wraps the same frontend via an `rpc` command; it's scaffolded but builds only on a machine with platform webview libs + a display (excluded from CI).
 
 **Exit:** ✅ parse 2 tools end-to-end into SQLite and run keyword **and hybrid** search (`crossthreads index` + `crossthreads search --mode hybrid`). ⬜ display results in the Tauri shell.
 

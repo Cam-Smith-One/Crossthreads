@@ -31,8 +31,15 @@ Lightweight architecture decision records. Newest first. Each entry: the decisio
 **Why.** A polished GUI is the adoption wedge and supports later paid tiers; the underlying core is exercised by all surfaces equally.
 
 **Consequences.**
-- Need a frontend stack (React + Vite + shadcn/ui) and desktop concerns earlier: file-access permissions UX, code signing/notarization (deferred to launch), optional auto-update (off by default to honor no-telemetry).
+- Need a frontend stack (React + Vite) and desktop concerns earlier: file-access permissions UX, code signing/notarization (deferred to launch), optional auto-update (off by default to honor no-telemetry).
 - The engine must be headless and client-agnostic from day one (see ADR-005).
+
+**Update (impl).** The frontend (`ui/`) is built and runs as a web app served by
+the daemon's HTTP bridge. The native shell (`src-tauri/`) is scaffolded and
+wraps the same UI via an `rpc` Tauri command (ADR-009), but is **excluded from
+the Rust workspace** because Tauri needs platform webview libs + a display and
+can't build headlessly — so it's intentionally unverified in CI and built on a
+real dev machine.
 
 ## ADR-003 — Default embeddings = bundled ONNX, Ollama optional
 **Decision.** Ship a zero-dependency local embedding model (all-MiniLM-class, ONNX). Ollama is an opt-in upgrade for richer models / `recall` synthesis.
