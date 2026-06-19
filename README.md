@@ -1,14 +1,38 @@
 # Crossthreads
 
-**One place to search, recall, and resume every AI coding conversation — across Claude Code, Codex, Cursor, Aider, Gemini CLI, and more.**
+[![CI](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml/badge.svg)](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Local-first](https://img.shields.io/badge/local--first-no%20telemetry-2ea44f.svg)](#principles)
 
-Crossthreads is a local-first session indexer and memory layer for AI coding tools. It auto-discovers conversation history wherever your agents store it, normalizes everything into a common schema, and gives you fast hybrid search (keyword + semantic + natural language) over the whole corpus — plus actionable outputs like "resume this thread," "export context," and "inject into a new agent prompt."
+**One place to search, recall, and resume every AI coding conversation — across Claude Code, Codex, Cursor, Aider, and more.**
+
+Crossthreads is a local-first session indexer and memory layer for AI coding tools. It auto-discovers conversation history wherever your agents store it, normalizes everything into a common schema, and gives you fast hybrid search (keyword + semantic) over the whole corpus — plus actionable outputs like "resume this thread," "export context," and "inject into a new agent prompt." A background daemon keeps the index live, and an MCP server lets your agents query it natively.
 
 Built for developers who switch between coding agents daily and are tired of fragmented, un-searchable session memory.
 
 ## Why
 
 The built-in history/search in each tool is siloed and weak. When you ask "where's the thread where we implemented the auth retry logic?", you have no way to answer it across tools. Crossthreads makes that a one-line query.
+
+## Quickstart
+
+Prereqs: **Rust** (stable); **Node** for the web UI. SQLite and the ONNX runtime are bundled; the embedding model downloads once on first use.
+
+```sh
+# CLI: index your sessions and search them
+cargo run --release -p ct-cli -- index
+cargo run --release -p ct-cli -- search "oauth refresh retry" --mode hybrid
+
+# Full app: daemon + web UI (auto-indexes, watches, serves the UI)
+cd ui && npm install && npm run build && cd ..
+cargo run --release --features onnx -p ct-daemon -- --http 127.0.0.1:47101 --ui ui/dist
+#   → open http://127.0.0.1:47101
+
+# Or bring up a sample 4-tool corpus + UI in one command:
+CT_ONNX=1 scripts/demo.sh
+```
+
+Add `--features onnx` for real semantic search (all-MiniLM via ONNX); without it, a deterministic offline embedder is used. For agents, point an MCP client at the `ct-mcp` binary — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Status
 
@@ -28,28 +52,34 @@ ui/               # React + Vite frontend (web + Tauri), talks to the daemon
 src-tauri/        # native desktop shell (Tauri; excluded from the CI workspace)
 ```
 
-Try it (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the `onnx` semantic build):
+## Documentation
+
+Full docs live in [`docs/`](docs/README.md):
+
+| | |
+|---|---|
+| [DEVELOPMENT](docs/DEVELOPMENT.md) | Build, test, run the daemon/UI/MCP; the `onnx` feature; crate layout |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | Components, data model, daemon process model, privacy posture |
+| [AGENT_API](docs/AGENT_API.md) | CLI/JSON, MCP, and HTTP interface (search / recall / build_context) |
+| [PRD](docs/PRD.md) · [REQUIREMENTS](docs/REQUIREMENTS.md) · [ROADMAP](docs/ROADMAP.md) | Product intent, requirements, status |
+| [DECISIONS](docs/DECISIONS.md) | Architecture decision records (ADRs) |
+
+## Testing & development
 
 ```sh
-cargo run -p ct-cli -- index                                    # discover, parse, store, embed
-cargo run -p ct-cli -- search "auth keeps failing" --mode hybrid
-
-# or run the always-on daemon and query it over the socket:
-cargo run -p ct-daemon --bin crossthreadsd &
-cargo run -p ct-cli -- status --remote
-cargo run -p ct-cli -- search "auth keeps failing" --remote
+scripts/check.sh   # everything CI runs: fmt + clippy + tests + UI build
+scripts/demo.sh    # bring up the full stack against a sample corpus
 ```
 
-### Documentation
+## Contributing
 
-- [`docs/PRD.md`](docs/PRD.md) — Product Requirements Document (vision, users, scope, GTM)
-- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — Detailed functional & non-functional requirements
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Reference architecture & tech decisions
-- [`docs/AGENT_API.md`](docs/AGENT_API.md) — Agent-facing API & interface spec (CLI/JSON, MCP, HTTP)
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) — Decision log (ADRs)
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phased delivery plan
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
+[Code of Conduct](CODE_OF_CONDUCT.md). Security issues: please report privately
+per [SECURITY.md](SECURITY.md). Licensed under [Apache-2.0](LICENSE).
 
-Licensed under [Apache-2.0](LICENSE).
+> **Status:** pre-release. The MVP backend (connectors, search, daemon, MCP, web
+> UI) is implemented and tested; the native desktop app is scaffolded. Not yet
+> publicly announced.
 
 ## Principles
 
