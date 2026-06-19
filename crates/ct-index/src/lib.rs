@@ -54,6 +54,13 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
                 continue;
             }
         };
+
+        // Aggregate per-connector parse failures into one line instead of
+        // flooding the log with a warning per session (a heavy Cursor user can
+        // have thousands of unparseable entries).
+        let mut skipped_here = 0usize;
+        let mut first_error: Option<String> = None;
+
         for session in sessions {
             if let Some(limit) = limit {
                 if conversations.len() >= limit {
@@ -64,9 +71,20 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
                 Ok(convo) => conversations.push(convo),
                 Err(e) => {
                     unparseable += 1;
-                    eprintln!("warn: skipped {}: {e}", session.path.display());
+                    skipped_here += 1;
+                    if first_error.is_none() {
+                        first_error = Some(e.to_string());
+                    }
                 }
             }
+        }
+
+        if skipped_here > 0 {
+            eprintln!(
+                "warn: {} — skipped {skipped_here} unparseable session(s) (e.g. {})",
+                connector.tool().slug(),
+                first_error.unwrap_or_default(),
+            );
         }
     }
 

@@ -79,6 +79,30 @@ fn put(conn: &Connection, table: &str, key: &str, value: &str) {
 }
 
 #[test]
+fn parses_composer_when_values_are_stored_as_text() {
+    // Real-world regression: some Cursor versions store cursorDiskKV values as
+    // TEXT, not BLOB. Reading them as bytes used to fail with "missing".
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("state.vscdb");
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB);")
+        .unwrap();
+    let comp = r#"{"composerId":"t1","conversation":[{"bubbleId":"b1","type":1,"text":"text-stored composer turn"}]}"#;
+    // Bind as &str so the column type is TEXT.
+    conn.execute(
+        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
+        rusqlite::params!["composerData:t1", comp],
+    )
+    .unwrap();
+
+    let sessions = discover_in_db(&db_path).unwrap();
+    assert_eq!(sessions.len(), 1, "discovery should find the composer");
+    let convo = parse_in_db(&db_path, "diskkv/t1").unwrap();
+    assert_eq!(convo.messages.len(), 1);
+    assert_eq!(convo.messages[0].content, "text-stored composer turn");
+}
+
+#[test]
 fn discovers_all_three_conversations() {
     let (_dir, db) = make_db();
     let mut locators: Vec<String> = discover_in_db(&db)

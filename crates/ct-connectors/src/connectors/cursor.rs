@@ -112,11 +112,16 @@ fn get_value(conn: &rusqlite::Connection, table: &str, key: &str) -> Option<Stri
     let sql = format!("SELECT value FROM {table} WHERE key = ?1");
     let mut stmt = conn.prepare(&sql).ok()?;
     stmt.query_row([key], |row| {
-        // Values are BLOBs holding UTF-8 JSON.
-        let bytes: Vec<u8> = row.get(0)?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
+        // Values hold UTF-8 JSON, stored as TEXT or BLOB depending on the Cursor
+        // version — accept either (reading a TEXT column as Vec<u8> would fail).
+        use rusqlite::types::ValueRef;
+        Ok(match row.get_ref(0)? {
+            ValueRef::Text(b) | ValueRef::Blob(b) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        })
     })
     .ok()
+    .flatten()
 }
 
 /// Collect keys matching a `LIKE` pattern from `table`. Returns empty if the
