@@ -83,7 +83,7 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
         if skipped_here > 0 {
             // Show reasons by frequency, e.g. "147× tab had no usable messages, …".
             let mut reasons: Vec<(String, usize)> = by_reason.into_iter().collect();
-            reasons.sort_by(|a, b| b.1.cmp(&a.1));
+            reasons.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
             let breakdown = reasons
                 .iter()
                 .take(4)
