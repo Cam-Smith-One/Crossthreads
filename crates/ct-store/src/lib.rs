@@ -65,6 +65,10 @@ pub struct StoredConversation {
     pub project: Option<String>,
     pub title: Option<String>,
     pub started_at: Option<String>,
+    /// Absolute path to the source file the conversation was parsed from,
+    /// for "open original" / reveal-in-folder (FR-ACT-01).
+    #[serde(default)]
+    pub source_path: String,
     pub messages: Vec<StoredMessage>,
 }
 
@@ -497,7 +501,8 @@ impl Store {
     /// Fetch a full stored conversation by id, with its messages in order.
     pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
         let meta = self.conn.query_row(
-            "SELECT tool, kind, project, title, started_at FROM conversations WHERE id = ?1",
+            "SELECT tool, kind, project, title, started_at, source_path \
+             FROM conversations WHERE id = ?1",
             [id],
             |r| {
                 Ok((
@@ -506,10 +511,11 @@ impl Store {
                     r.get::<_, Option<String>>(2)?,
                     r.get::<_, Option<String>>(3)?,
                     r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
                 ))
             },
         );
-        let (tool, kind, project, title, started_at) = match meta {
+        let (tool, kind, project, title, started_at, source_path) = match meta {
             Ok(t) => t,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -534,6 +540,7 @@ impl Store {
             project,
             title,
             started_at,
+            source_path,
             messages,
         }))
     }

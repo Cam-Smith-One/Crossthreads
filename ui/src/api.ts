@@ -45,6 +45,7 @@ export interface StoredConversation {
   project?: string | null;
   title?: string | null;
   started_at?: string | null;
+  source_path?: string;
   messages: StoredMessage[];
 }
 

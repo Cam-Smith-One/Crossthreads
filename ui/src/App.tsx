@@ -221,11 +221,51 @@ export function App() {
                 </div>
               ))}
             </div>
+            {open.source_path && (
+              <div className="modal-foot">
+                <div className="source">
+                  <span className="source-label">source</span>
+                  <code>{open.source_path}</code>
+                </div>
+                <div className="source-actions">
+                  {resumeHint(open.tool, open.source_path) && (
+                    <button
+                      className="secondary"
+                      title="Copy a command to resume this session in its original tool"
+                      onClick={() =>
+                        navigator.clipboard?.writeText(resumeHint(open.tool, open.source_path!)!)
+                      }
+                    >
+                      Copy resume cmd
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() => navigator.clipboard?.writeText(open.source_path!)}
+                  >
+                    Copy path
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
+}
+
+// A copy-pasteable command to reopen a session in its original tool, when one
+// exists. Claude Code and Codex both key resume off the session UUID, which is
+// the source file's stem (Codex prefixes it with `rollout-<timestamp>-`).
+function resumeHint(tool: string, sourcePath: string): string | null {
+  const stem = sourcePath.split("/").pop()?.replace(/\.jsonl$/i, "") ?? "";
+  const uuid =
+    stem.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0] ?? "";
+  if (!uuid) return null;
+  if (tool === "claude-code") return `claude --resume ${uuid}`;
+  if (tool === "codex") return `codex resume ${uuid}`;
+  return null;
 }
 
 // The daemon marks matched terms with [brackets]; render them as <mark>.
