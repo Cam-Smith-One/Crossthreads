@@ -34,8 +34,12 @@ COMMON OPTIONS:
     --dry-run         Parse only; do not write to the index
 
 `search` OPTIONS:
+    --mode <M>        lexical | semantic | hybrid (default: hybrid)
     --limit <N>       Max results (default: 10)
     --json            Emit results as JSON
+
+Build with `--features onnx` for real semantic embeddings (all-MiniLM);
+otherwise a deterministic offline embedder is used.
 ";
 
 fn main() -> ExitCode {
@@ -63,6 +67,28 @@ fn run(args: &[String]) -> Result<ExitCode> {
             Ok(ExitCode::FAILURE)
         }
     }
+}
+
+/// Embed all messages that don't yet have a vector, in batches. Returns the
+/// number embedded. Shared by `index` (and, later, the daemon).
+pub(crate) fn embed_pending(store: &mut ct_store::Store, embedder: &dyn ct_embed::Embedder) -> Result<usize> {
+    let mut total = 0;
+    loop {
+        let batch = store.pending_embeddings(256)?;
+        if batch.is_empty() {
+            break;
+        }
+        let texts: Vec<String> = batch.iter().map(|(_, c)| c.clone()).collect();
+        let vecs = embedder.embed(&texts)?;
+        let rows: Vec<(i64, Vec<f32>)> = batch
+            .iter()
+            .map(|(rowid, _)| *rowid)
+            .zip(vecs)
+            .collect();
+        store.store_embeddings(embedder.id(), &rows)?;
+        total += rows.len();
+    }
+    Ok(total)
 }
 
 /// Resolve the index DB path: explicit `--db`, else `CROSSTHREADS_DB`, else the

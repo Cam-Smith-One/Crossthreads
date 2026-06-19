@@ -76,6 +76,14 @@ Lightweight architecture decision records. Newest first. Each entry: the decisio
 **Consequences.**
 - If vectors outgrow `sqlite-vec`'s performance envelope, revisit LanceDB/Postgres+pgvector (P2 scale path) behind the same query interface.
 
+**Update (impl).** The Phase 0 implementation stores embeddings as raw f32 BLOBs
+in the same SQLite DB and ranks with a **brute-force cosine scan** rather than
+the `sqlite-vec` extension. This keeps the "one store" property and avoids
+loadable-extension setup during the spike; it's correct and adequate for the
+target corpus (tens of thousands of messages). `sqlite-vec` ANN remains the
+drop-in optimization behind the same `search_semantic`/`search_hybrid` API once
+linear scan becomes the bottleneck.
+
 ## ADR-008 — Third MVP connector = Aider
 **Decision.** The MVP ships three connectors: Claude Code, Cursor, and **Aider**.
 

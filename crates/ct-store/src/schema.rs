@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -64,4 +64,14 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
     INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
+
+-- Semantic vectors, one per message, in the same DB (ADR-007). Stored as raw
+-- little-endian f32 BLOBs; brute-force cosine KNN for now, with sqlite-vec ANN
+-- as a drop-in once corpora outgrow a linear scan.
+CREATE TABLE IF NOT EXISTS embeddings (
+    message_rowid INTEGER PRIMARY KEY REFERENCES messages(rowid) ON DELETE CASCADE,
+    model         TEXT NOT NULL,
+    dim           INTEGER NOT NULL,
+    vec           BLOB NOT NULL
+);
 "#;

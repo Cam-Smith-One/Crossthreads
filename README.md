@@ -12,23 +12,24 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Status
 
-🛠️ **Phase 0 (prototype) — core loop working.** Sessions from **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite) are parsed, normalized, **persisted into one SQLite index** (deduplicated by content hash), and **searchable** via FTS5 keyword search across tools. Aider, semantic search, the daemon, and the desktop app are next.
+🛠️ **Phase 0 (prototype) — hybrid search working.** Sessions from **Claude Code** (JSONL) and **Cursor** (`state.vscdb` SQLite) are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion. Aider, the daemon, and the desktop app are next.
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
   ct-connectors   # source-tool parsers (Claude Code + Cursor)
-  ct-store        # single SQLite index + FTS5 keyword search (ADR-007)
+  ct-embed        # Embedder trait: hash (default) + ONNX/all-MiniLM (`onnx`)
+  ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid search (ADR-007)
   ct-cli          # `crossthreads` CLI (index + search)
   ct-daemon       # `crossthreadsd` background daemon (scaffold)
   ct-mcp          # MCP server (scaffold)
 ```
 
-Try it:
+Try it (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the `onnx` semantic build):
 
 ```sh
-cargo run -p ct-cli -- index            # discover, parse, store local sessions
-cargo run -p ct-cli -- search "token refresh"
+cargo run -p ct-cli -- index                                    # discover, parse, store, embed
+cargo run -p ct-cli -- search "auth keeps failing" --mode hybrid
 ```
 
 ### Documentation

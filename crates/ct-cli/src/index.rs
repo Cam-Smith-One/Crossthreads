@@ -66,6 +66,14 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             String::new()
         }
     );
+
+    // Compute embeddings for new messages so semantic/hybrid search works.
+    let embedder = ct_embed::default_embedder();
+    let embedded = crate::embed_pending(&mut store, &*embedder)?;
+    if embedded > 0 {
+        println!("Embedded {embedded} message(s) with {}.", embedder.id());
+    }
+
     println!("Total in index: {}", store.conversation_count()?);
     Ok(ExitCode::SUCCESS)
 }

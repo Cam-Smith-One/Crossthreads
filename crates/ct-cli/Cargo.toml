@@ -11,10 +11,17 @@ description = "Crossthreads command-line interface."
 name = "crossthreads"
 path = "src/main.rs"
 
+[features]
+default = []
+# Real semantic embeddings (all-MiniLM via ONNX). Off by default so the CLI
+# builds fast; enable with `cargo build -p ct-cli --features onnx`.
+onnx = ["ct-embed/onnx"]
+
 [dependencies]
 ct-core = { workspace = true }
 ct-connectors = { path = "../ct-connectors" }
 ct-store = { path = "../ct-store" }
+ct-embed = { path = "../ct-embed" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

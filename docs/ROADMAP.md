@@ -17,10 +17,11 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 - ✅ Validate Cursor `state.vscdb` schema parsing and Claude Code JSONL parsing (schema reverse-engineered; see `ct-connectors`).
 - ✅ Build a minimal connector + SQLite indexer behind a thin Rust core API (`ct-core` / `ct-connectors` / `ct-store` / `ct-cli`).
 - ✅ Persist into a single SQLite index with content-hash dedup + FTS5 keyword search.
+- ✅ Semantic + **hybrid (RRF)** search: vectors in the same DB, real ONNX embeddings (`ct-embed --features onnx`, all-MiniLM) with a deterministic offline default.
+- ✅ Resolve **ML-runtime placement** — pure-Rust ONNX via `fastembed`/`ort`, validated end-to-end.
 - ⬜ Stand up a Tauri shell wired to the core (proves the primary surface early).
-- ⬜ Resolve **ML-runtime placement** (pure-Rust ONNX `ort`/`candle`); benchmark local indexing/embedding speed.
 
-**Exit:** ✅ parse 2 tools end-to-end into SQLite and run a keyword search (`crossthreads index` + `crossthreads search`). ⬜ display results in the Tauri shell.
+**Exit:** ✅ parse 2 tools end-to-end into SQLite and run keyword **and hybrid** search (`crossthreads index` + `crossthreads search --mode hybrid`). ⬜ display results in the Tauri shell.
 
 ## Phase 1 — MVP (4–8 weeks)
 **Goal:** ship the OSS core that is meaningfully better than built-ins.

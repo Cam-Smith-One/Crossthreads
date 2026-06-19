@@ -1,0 +1,24 @@
+[package]
+name = "ct-embed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Pluggable text embedders for Crossthreads (deterministic default; real ONNX behind `onnx`)."
+
+[features]
+# Off by default so the core workspace builds fast and tests need no model.
+# Enable for genuine semantic embeddings (downloads/uses an ONNX MiniLM model).
+default = []
+onnx = ["dep:fastembed"]
+
+[dependencies]
+anyhow = { workspace = true }
+
+[dependencies.fastembed]
+version = "5"
+optional = true
+
+[dev-dependencies]
+# (none)
