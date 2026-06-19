@@ -18,7 +18,10 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — Detailed functional & non-functional requirements
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Reference architecture & tech decisions
 - [`docs/AGENT_API.md`](docs/AGENT_API.md) — Agent-facing API & interface spec (CLI/JSON, MCP, HTTP)
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — Decision log (ADRs)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phased delivery plan
+
+Licensed under [Apache-2.0](LICENSE).
 
 ## Principles
 

@@ -157,14 +157,14 @@ A full requirement-by-requirement breakdown lives in [REQUIREMENTS.md](REQUIREME
 
 ## 12. Open Questions
 
-**Resolved** (see §13 Decisions): build-on-CASS, primary surface, embedding default, and license are decided.
+**Resolved** (see §13 Decisions): engine strategy, primary surface, embedding default, license, process model, ML runtime, vector store, and 3rd connector are decided.
 
 Still open:
 
 1. **Resume mechanics:** how deep can we deep-link back into each tool's session vs. only export context? (Per-tool capability varies — a research task, tracked in [AGENT_API.md](AGENT_API.md) §6.)
 2. **Schema versioning & migration** strategy as connectors evolve.
 3. **Team sync trust model:** git-based vs. self-hosted service; encryption & key management (P2).
-4. **ML runtime placement:** pure-Rust ONNX vs. a Python sidecar for embedding/rerank/LLM — resolve in Phase 0 prototype.
+4. **Minor / early-P1:** cross-encoder reranker timing, exact embedding model + chunk sizing, frontend↔daemon transport (Tauri command shim vs. loopback HTTP) — low-risk, settled in early P1.
 
 ## 13. Assumptions & Decisions
 
@@ -177,5 +177,9 @@ Still open:
 | **License** | **Apache-2.0** | Permissive + explicit patent grant; better for enterprise/team adoption and contributors | 2026-06-18 |
 | **Platforms** | macOS + Linux first; Windows fast-follow | Wedge users' primary platforms | 2026-06-18 |
 | **Core language** | Rust | Performance + single-binary distribution; pairs with Tauri | 2026-06-18 |
+| **Process model** | **Background daemon (`crossthreadsd`)** | Single-writer index; desktop/CLI/MCP are thin clients over loopback — clean concurrency, always-on file-watching | 2026-06-19 |
+| **ML runtime** | **Pure-Rust ONNX (`ort`/`candle`)** | Single binary, clean signing/distribution; no Python sidecar | 2026-06-19 |
+| **Vector store** | **`sqlite-vec` (same SQLite DB)** | One store/file to back up, sync, purge; no second backend | 2026-06-19 |
+| **3rd MVP connector** | **Aider** | Well-documented history format; lower-risk parse alongside Claude Code + Cursor | 2026-06-19 |
 
-> Decisions are recorded; the remaining open questions in §12 are scoped to Phase 0 or P2.
+> Decisions are recorded in [DECISIONS.md](DECISIONS.md) (ADR log); remaining open questions in §12 are scoped to early P1 or P2.
