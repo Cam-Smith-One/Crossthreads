@@ -160,6 +160,10 @@ impl Daemon {
             Request::Search { query, mode, limit } => {
                 self.search(&query, mode, limit).unwrap_or_else(err)
             }
+            Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
+            Request::Context { query, mode, limit, max_chars } => {
+                self.context(&query, mode, limit, max_chars).unwrap_or_else(err)
+            }
         }
     }
 
@@ -194,6 +198,36 @@ impl Daemon {
             }
         };
         Ok(Response::Hits { hits })
+    }
+
+    fn get_conversation(&self, id: &str) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        Ok(Response::Conversation {
+            conversation: store.get_conversation(id)?,
+        })
+    }
+
+    /// Search for the top matches and render them into a paste-ready context
+    /// block (AGENT_API §5). Embedding happens before the store lock.
+    fn context(&self, query: &str, mode: Mode, limit: usize, max_chars: usize) -> Result<Response> {
+        let qv = match mode {
+            Mode::Lexical => None,
+            _ => Some(self.embedder.embed_one(query)?),
+        };
+        let store = self.store.lock().expect("store mutex poisoned");
+        let hits = match (mode, &qv) {
+            (Mode::Lexical, _) => store.search(query, limit)?,
+            (Mode::Semantic, Some(q)) => store.search_semantic(q, limit)?,
+            (_, Some(q)) => store.search_hybrid(query, q, limit)?,
+            (_, None) => store.search(query, limit)?,
+        };
+        let ids: Vec<String> = hits.into_iter().map(|h| h.conversation_id).collect();
+        let block = store.render_context(&ids, max_chars)?;
+        Ok(Response::Context {
+            markdown: block.markdown,
+            sources: block.sources,
+            token_estimate: block.token_estimate,
+        })
     }
 }
 
@@ -241,6 +275,27 @@ impl Client {
             limit,
         })? {
             Response::Hits { hits } => Ok(hits),
+            Response::Error { message } => Err(anyhow::anyhow!(message)),
+            other => Err(anyhow::anyhow!("unexpected response: {other:?}")),
+        }
+    }
+
+    /// Build a paste-ready context block from the top matches for `query`.
+    /// Returns the markdown and the conversation ids included.
+    pub fn build_context(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        max_chars: usize,
+    ) -> Result<(String, Vec<String>)> {
+        match self.call(&Request::Context {
+            query: query.into(),
+            mode,
+            limit,
+            max_chars,
+        })? {
+            Response::Context { markdown, sources, .. } => Ok((markdown, sources)),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
             other => Err(anyhow::anyhow!("unexpected response: {other:?}")),
         }

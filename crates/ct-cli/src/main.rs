@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 
+mod context;
 mod index;
 mod search;
 mod status;
@@ -23,6 +24,7 @@ USAGE:
 COMMANDS:
     index             Discover, parse, and store local sessions
     search <QUERY>    Search the index (lexical / semantic / hybrid)
+    context <QUERY>   Build a paste-ready context block from top matches
     status            Show index health (local, or --remote for the daemon)
     help              Show this help
 
@@ -60,6 +62,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
     match args.first().map(String::as_str) {
         Some("index") => index::run(&args[1..]),
         Some("search") => search::run(&args[1..]),
+        Some("context") => context::run(&args[1..]),
         Some("status") => status::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");

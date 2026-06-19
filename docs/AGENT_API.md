@@ -202,13 +202,16 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 
 | MCP tool | Maps to |
 |---|---|
-| `crossthreads.search` | §2 |
-| `crossthreads.recall` | §3 |
-| `crossthreads.get_conversation` | §4 |
-| `crossthreads.build_context` | §5 |
-| `crossthreads.resume` | §6 |
-| `crossthreads.list_facets` | filter discovery |
-| `crossthreads.status` | index/connector health |
+| `crossthreads_search` | §2 — **implemented** |
+| `crossthreads_recall` | §3 — **implemented** (retrieval-only digest) |
+| `crossthreads_build_context` | §5 — **implemented** |
+| `crossthreads_status` | index health — **implemented** |
+| `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
+| `crossthreads.resume` | §6 — planned |
+| `crossthreads.list_facets` | filter discovery — planned |
+
+> Implemented tools live in `ct-mcp` and forward to `crossthreadsd`. Tool names
+> use underscores (`crossthreads_search`) to satisfy MCP's name charset.
 
 Tool input schemas mirror the request bodies above; outputs mirror the responses. Tools are **read-only** by default (no mutation of indexed data) — a safe surface to expose to an agent.
 

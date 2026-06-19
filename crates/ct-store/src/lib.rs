@@ -15,6 +15,11 @@ mod schema;
 
 pub use schema::SCHEMA_VERSION;
 
+/// Minimum cosine similarity for a vector to count as a semantic match.
+/// Tuned to filter near-zero matches for both the hash and ONNX embedders
+/// while keeping genuinely related sentences (which score well above it).
+pub const MIN_SIMILARITY: f32 = 0.15;
+
 /// Outcome of attempting to persist one conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Upsert {
@@ -38,6 +43,34 @@ pub struct SearchHit {
     /// BM25 score (lower is a better match; we expose it as-is).
     pub score: f64,
     pub source_path: String,
+}
+
+/// One message of a stored conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// A full conversation fetched from the index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredConversation {
+    pub id: String,
+    pub tool: String,
+    pub project: Option<String>,
+    pub title: Option<String>,
+    pub started_at: Option<String>,
+    pub messages: Vec<StoredMessage>,
+}
+
+/// A paste-ready context block built from one or more conversations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextBlock {
+    pub markdown: String,
+    /// Conversation ids included, in order.
+    pub sources: Vec<String>,
+    pub chars: usize,
+    pub token_estimate: usize,
 }
 
 /// Handle to the index database.
@@ -240,6 +273,11 @@ impl Store {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for (score, mut hit) in scored {
+            // Precision floor: don't surface weakly-related vectors. Without
+            // this, a small corpus returns the top-N even at ~0 similarity.
+            if score < MIN_SIMILARITY {
+                break; // sorted desc — nothing below will qualify either
+            }
             if seen.insert(hit.conversation_id.clone()) {
                 hit.score = score as f64;
                 out.push(hit);
@@ -287,6 +325,92 @@ impl Store {
             }
         }
         Ok(out)
+    }
+
+    // ---- Retrieval of full conversations / context ------------------------
+
+    /// Fetch a full stored conversation by id, with its messages in order.
+    pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
+        let meta = self.conn.query_row(
+            "SELECT tool, project, title, started_at FROM conversations WHERE id = ?1",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            },
+        );
+        let (tool, project, title, started_at) = match meta {
+            Ok(t) => t,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY seq",
+        )?;
+        let messages = stmt
+            .query_map([id], |r| {
+                Ok(StoredMessage { role: r.get(0)?, content: r.get(1)? })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(Some(StoredConversation {
+            id: id.to_string(),
+            tool,
+            project,
+            title,
+            started_at,
+            messages,
+        }))
+    }
+
+    /// Render a paste-ready markdown context block from the given conversations,
+    /// in order, stopping once `max_chars` is reached (FR-ACT-03 / AGENT_API §5).
+    pub fn render_context(&self, ids: &[String], max_chars: usize) -> Result<ContextBlock> {
+        let mut markdown = String::from("## Prior context (Crossthreads)\n");
+        let mut sources = Vec::new();
+
+        for id in ids {
+            let Some(convo) = self.get_conversation(id)? else {
+                continue;
+            };
+            let mut section = String::new();
+            let when = convo.started_at.as_deref().and_then(|s| s.get(..10)).unwrap_or("");
+            section.push_str(&format!(
+                "\n### {} — {}{}\n",
+                convo.title.as_deref().unwrap_or("(untitled)"),
+                convo.tool,
+                if when.is_empty() { String::new() } else { format!("  [{when}]") },
+            ));
+            if let Some(p) = &convo.project {
+                section.push_str(&format!("_{p}_\n\n"));
+            }
+            for m in &convo.messages {
+                section.push_str(&format!("**{}:** {}\n\n", m.role, m.content.trim()));
+            }
+
+            // Stop before exceeding the budget; always include at least one.
+            if !sources.is_empty() && markdown.len() + section.len() > max_chars {
+                break;
+            }
+            markdown.push_str(&section);
+            sources.push(id.clone());
+            if markdown.len() >= max_chars {
+                break;
+            }
+        }
+
+        let chars = markdown.chars().count();
+        Ok(ContextBlock {
+            markdown,
+            sources,
+            chars,
+            token_estimate: chars / 4, // rough heuristic
+        })
     }
 
     /// Score every stored vector against `query`, returning (cosine, hit) with

@@ -76,7 +76,35 @@ fn initialize_advertises_server_and_tools() {
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     assert!(names.contains(&"crossthreads_search"));
+    assert!(names.contains(&"crossthreads_recall"));
+    assert!(names.contains(&"crossthreads_build_context"));
     assert!(names.contains(&"crossthreads_status"));
+}
+
+#[test]
+fn build_context_returns_paste_ready_markdown() {
+    let s = server_with_daemon();
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":7,"method":"tools/call",
+            "params":{"name":"crossthreads_build_context",
+                      "arguments":{"query":"retry backoff"}}}))
+        .unwrap();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Prior context"), "got: {text}");
+    assert!(text.contains("**user:**"), "got: {text}");
+}
+
+#[test]
+fn recall_digests_relevant_sessions() {
+    let s = server_with_daemon();
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":8,"method":"tools/call",
+            "params":{"name":"crossthreads_recall",
+                      "arguments":{"question":"retry backoff"}}}))
+        .unwrap();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("relevant past session"), "got: {text}");
+    assert!(text.contains("acme-api"), "got: {text}");
 }
 
 #[test]

@@ -77,8 +77,10 @@ crossthreads index && crossthreads search "..." --mode hybrid
 }
 ```
 
-Tools exposed: `crossthreads_search` (lexical/semantic/hybrid) and
-`crossthreads_status`. The daemon must be running. See `docs/AGENT_API.md` §7.
+Tools exposed: `crossthreads_search` (lexical/semantic/hybrid),
+`crossthreads_recall` (answer-oriented digest), `crossthreads_build_context`
+(paste-ready markdown for injecting prior work), and `crossthreads_status`. The
+daemon must be running. See `docs/AGENT_API.md` §7.
 
 ## Running the daemon
 

@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use ct_store::SearchHit;
+use ct_store::{SearchHit, StoredConversation};
 
 /// Default loopback address. Override with `CROSSTHREADS_ADDR`.
 pub const DEFAULT_ADDR: &str = "127.0.0.1:47100";
@@ -38,6 +38,18 @@ pub enum Request {
         #[serde(default = "default_limit")]
         limit: usize,
     },
+    /// Fetch a full conversation by id.
+    GetConversation { id: String },
+    /// Build a paste-ready context block from the top matches for a query.
+    Context {
+        query: String,
+        #[serde(default = "default_mode")]
+        mode: Mode,
+        #[serde(default = "default_context_limit")]
+        limit: usize,
+        #[serde(default = "default_max_chars")]
+        max_chars: usize,
+    },
 }
 
 fn default_mode() -> Mode {
@@ -45,6 +57,12 @@ fn default_mode() -> Mode {
 }
 fn default_limit() -> usize {
     10
+}
+fn default_context_limit() -> usize {
+    3
+}
+fn default_max_chars() -> usize {
+    6000
 }
 
 /// A response from the daemon to a client.
@@ -64,6 +82,14 @@ pub enum Response {
     },
     Hits {
         hits: Vec<SearchHit>,
+    },
+    Conversation {
+        conversation: Option<StoredConversation>,
+    },
+    Context {
+        markdown: String,
+        sources: Vec<String>,
+        token_estimate: usize,
     },
     Error {
         message: String,

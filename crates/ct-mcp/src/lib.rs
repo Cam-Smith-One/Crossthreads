@@ -96,6 +96,38 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_recall",
+                    "description": "Recall what was discussed or decided in past \
+                        sessions about a topic — answer-oriented. Returns a concise \
+                        digest of the most relevant past messages. Use for questions \
+                        like \"what did we decide about the queue?\".",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "question": { "type": "string", "description": "What to recall." },
+                            "limit": { "type": "integer", "description": "Max sources (default: 5)." }
+                        },
+                        "required": ["question"]
+                    }
+                },
+                {
+                    "name": "crossthreads_build_context",
+                    "description": "Build a paste-ready context block from the past \
+                        sessions most relevant to a query, for injecting prior work \
+                        into the current task (\"resume where we left off\"). Returns \
+                        markdown.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "What to pull context for." },
+                            "mode": { "type": "string", "enum": ["lexical", "semantic", "hybrid"] },
+                            "limit": { "type": "integer", "description": "Max conversations (default: 3)." },
+                            "max_chars": { "type": "integer", "description": "Budget (default: 6000)." }
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
                     "name": "crossthreads_status",
                     "description": "Report Crossthreads index health: how many \
                         conversations and embeddings are indexed.",
@@ -112,6 +144,8 @@ impl Server {
 
         match name {
             "crossthreads_search" => Ok(self.call_search(&args)),
+            "crossthreads_recall" => Ok(self.call_recall(&args)),
+            "crossthreads_build_context" => Ok(self.call_build_context(&args)),
             "crossthreads_status" => Ok(self.call_status()),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
@@ -132,6 +166,59 @@ impl Server {
             Ok(hits) => tool_text(format_hits(query, &hits)),
             Err(e) => tool_error(format!(
                 "search failed ({e:#}). Is crossthreadsd running?"
+            )),
+        }
+    }
+
+    fn call_recall(&self, args: &Value) -> Value {
+        let Some(question) = args.get("question").and_then(|q| q.as_str()) else {
+            return tool_error("missing required argument: question");
+        };
+        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
+        match self.client.search(question, Mode::Hybrid, limit) {
+            Ok(hits) if hits.is_empty() => {
+                tool_text(format!("No past sessions found about \"{question}\"."))
+            }
+            Ok(hits) => {
+                let mut out = format!(
+                    "Found {} relevant past session(s) for \"{question}\":\n",
+                    hits.len()
+                );
+                for (i, h) in hits.iter().enumerate() {
+                    out.push_str(&format!(
+                        "\n{}. [{}] {} — {}\n   {}\n",
+                        i + 1,
+                        h.tool,
+                        h.title.as_deref().unwrap_or("(untitled)"),
+                        h.project.as_deref().unwrap_or("-"),
+                        h.snippet.replace('\n', " "),
+                    ));
+                }
+                tool_text(out)
+            }
+            Err(e) => tool_error(format!("recall failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_build_context(&self, args: &Value) -> Value {
+        let Some(query) = args.get("query").and_then(|q| q.as_str()) else {
+            return tool_error("missing required argument: query");
+        };
+        let mode = match args.get("mode").and_then(|m| m.as_str()) {
+            Some("lexical") => Mode::Lexical,
+            Some("semantic") => Mode::Semantic,
+            _ => Mode::Hybrid,
+        };
+        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(3) as usize;
+        let max_chars = args.get("max_chars").and_then(|l| l.as_u64()).unwrap_or(6000) as usize;
+
+        match self.client.build_context(query, mode, limit, max_chars) {
+            Ok((markdown, sources)) if sources.is_empty() => {
+                tool_text(format!("No prior context found for \"{query}\".\n{markdown}"))
+            }
+            Ok((markdown, _)) => tool_text(markdown),
+            Err(e) => tool_error(format!(
+                "build_context failed ({e:#}). Is crossthreadsd running?"
             )),
         }
     }
