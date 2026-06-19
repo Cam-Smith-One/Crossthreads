@@ -78,11 +78,11 @@ Differentiators vs. built-ins and existing OSS:
 3. **Hybrid search** — BM25/FTS + local embeddings (ONNX/all-MiniLM-class) in a local vector store, with reranking. Filters: tool, project, date, model.
 4. **Natural-language queries** via lightweight query rewriting + retrieval.
 5. **Actions** — open in original tool, copy/export context (markdown), "resume here."
-6. **TUI** as primary interface; **agent API** (CLI/JSON) for programmatic access.
+6. **Desktop app (Tauri)** as the primary interface; **CLI / JSON + agent API** alongside for scripting and programmatic/agent access.
 7. **Deduplication** via content hashing; **incremental** re-index.
 
 ### 6.2 Fast-Follow (v1.x)
-- Desktop app (Tauri + web UI).
+- **TUI** — keyboard-first terminal surface over the same core.
 - MCP server exposing `search` / `recall` tools to agents.
 - Timeline view + basic analytics.
 - More connectors (Gemini CLI, Windsurf, Claude.ai web import).
@@ -151,23 +151,31 @@ A full requirement-by-requirement breakdown lives in [REQUIREMENTS.md](REQUIREME
 | **Privacy concerns** | Adoption blocker | Local-only default, no telemetry, explicit data controls, easy purge, auditable network behavior |
 | **Embedding cost/perf locally** | Slow/heavy indexing | Quantized ONNX models, incremental + background indexing, configurable model size, optional cloud fallback |
 | **Competition / commoditization** | Hard to differentiate | Compete on UX, actionability, memory depth, connector breadth — not raw speed |
-| **Scope creep** | Slow MVP | Strict MVP gate (3–4 tools, hybrid search, TUI, agent API) before v2 features |
+| **Scope creep** | Slow MVP | Strict MVP gate (3–4 tools, hybrid search, desktop app, agent API) before v2 features |
+| **Clean-build connector burden** | Higher upfront cost, sole maintenance of parsers | Port proven extraction patterns from CASS/public extractors, versioned connectors + regression corpus, plugin system (P2) to crowdsource drift |
 | **Corpus scale** (large/old histories) | Index bloat, slow queries | Chunking, dedup, pruning/retention controls, optional Postgres backend |
 
 ## 12. Open Questions
 
-1. **Build-on-CASS vs. clean build?** Fork/extend CASS's indexer, interoperate with it, or build a fresh engine? (Affects timeline and licensing.)
-2. **Primary surface:** TUI-first or desktop-first (Tauri)? Resourcing trade-off.
-3. **Embedding default:** bundled ONNX model vs. Ollama dependency vs. user choice.
-4. **Resume mechanics:** how deep can we deep-link back into each tool's session vs. only export context? (Per-tool capability varies.)
-5. **Schema versioning & migration** strategy as connectors evolve.
-6. **Team sync trust model:** git-based vs. self-hosted service; encryption & key management.
+**Resolved** (see §13 Decisions): build-on-CASS, primary surface, embedding default, and license are decided.
 
-## 13. Assumptions & Decisions (to validate)
+Still open:
 
-- **Name:** "Crossthreads" (repo already named this).
-- **License:** OSS core, permissive (MIT/Apache-2.0) — *pending decision*.
-- **Tech stack leaning:** Rust core for performance + Tauri/web UI; Python acceptable for ML-heavy components if it accelerates delivery — see [ARCHITECTURE.md](ARCHITECTURE.md).
-- **Platforms:** macOS + Linux first; Windows fast-follow.
+1. **Resume mechanics:** how deep can we deep-link back into each tool's session vs. only export context? (Per-tool capability varies — a research task, tracked in [AGENT_API.md](AGENT_API.md) §6.)
+2. **Schema versioning & migration** strategy as connectors evolve.
+3. **Team sync trust model:** git-based vs. self-hosted service; encryption & key management (P2).
+4. **ML runtime placement:** pure-Rust ONNX vs. a Python sidecar for embedding/rerank/LLM — resolve in Phase 0 prototype.
 
-> These are explicit working assumptions, not final commitments; each maps to an open question or roadmap gate.
+## 13. Assumptions & Decisions
+
+| Decision | Choice | Rationale | Date |
+|---|---|---|---|
+| **Name** | Crossthreads | Repo already named this | 2026-06-18 |
+| **Engine strategy** | **Clean build, port patterns** | Own the core engine outright; study CASS's connector/extraction patterns but take no code/runtime dependency — avoids license entanglement and format-coupling, at the cost of more upfront work | 2026-06-18 |
+| **Primary surface** | **Desktop-first (Tauri)** | Lead with a polished GUI as the adoption wedge; CLI + agent API ship alongside for scripting/agents; TUI demoted to fast-follow | 2026-06-18 |
+| **Embeddings** | **Bundled ONNX (all-MiniLM-class), Ollama optional** | Zero-dependency local default for fast activation; Ollama as opt-in upgrade for power users | 2026-06-18 |
+| **License** | **Apache-2.0** | Permissive + explicit patent grant; better for enterprise/team adoption and contributors | 2026-06-18 |
+| **Platforms** | macOS + Linux first; Windows fast-follow | Wedge users' primary platforms | 2026-06-18 |
+| **Core language** | Rust | Performance + single-binary distribution; pairs with Tauri | 2026-06-18 |
+
+> Decisions are recorded; the remaining open questions in §12 are scoped to Phase 0 or P2.

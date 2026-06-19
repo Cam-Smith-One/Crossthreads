@@ -76,19 +76,22 @@ This is a *reference* architecture to anchor estimation and the MVP build. Concr
 ### 2.6 Actions
 - Open original (deep-link/reveal), export markdown/HTML, copy-as-prompt / inject, resume/handoff.
 
-## 3. Tech stack (proposed)
+## 3. Tech stack
 
-| Layer | Proposal | Rationale | Status |
+| Layer | Choice | Rationale | Status |
 |---|---|---|---|
-| Core / indexing | **Rust** | Performance + single-binary distribution; aligns with CASS-style tooling | Proposed |
-| ML-heavy parts | Rust ONNX runtime, or a Python sidecar if it accelerates delivery | Pragmatic; Python has the richer ML ecosystem | Open Q |
+| Core / indexing | **Rust** | Performance + single-binary distribution | Decided |
+| Engine strategy | **Clean build, port patterns** | Own engine; study CASS/public-extractor patterns, no code/runtime dependency | Decided |
+| ML-heavy parts | Rust ONNX runtime, or a Python sidecar if it accelerates delivery | Pragmatic; Python has the richer ML ecosystem | Open Q (Phase 0) |
 | Lexical store | SQLite + FTS5 | Ubiquitous, embeddable, BM25 | Proposed |
 | Vector store | LanceDB (embedded) | Local-first, no server | Proposed |
-| Embeddings | Bundled ONNX (all-MiniLM-class) w/ optional Ollama | Local, private, swappable | Proposed |
-| Desktop | Tauri + React/Next + shadcn/ui | Polished UI, small footprint | Fast-follow |
+| Embeddings | **Bundled ONNX (all-MiniLM-class), Ollama optional** | Zero-dependency local default; Ollama opt-in upgrade | Decided |
+| Desktop (primary surface) | **Tauri + React/Next + shadcn/ui** | Polished GUI as the adoption wedge; primary MVP surface | Decided |
+| TUI | `ratatui`-class | Keyboard surface over same core | Fast-follow |
 | File watching | `notify`-class watcher | Near real-time incremental | Proposed |
+| License | **Apache-2.0** | Permissive + patent grant | Decided |
 
-> **Build-on-CASS vs. clean build** (PRD Open Q1) is the biggest fork in the road and should be resolved during the Research & Prototype phase.
+> **Engine strategy resolved:** clean build (own Rust engine), porting connector/extraction *patterns* from CASS and public extractors without depending on their code or on-disk format. The remaining stack open question is ML-runtime placement (pure-Rust ONNX vs. Python sidecar), to settle in Phase 0.
 
 ## 4. Data model (sketch)
 

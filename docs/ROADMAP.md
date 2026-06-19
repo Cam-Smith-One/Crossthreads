@@ -11,14 +11,15 @@ Phases map to requirement IDs in [REQUIREMENTS.md](REQUIREMENTS.md). Timeboxes a
 ---
 
 ## Phase 0 — Research & Prototype (1–2 weeks)
-**Goal:** de-risk parsing and the build-on-CASS decision.
+**Goal:** de-risk parsing, the Tauri shell, and the ML-runtime placement.
 
-- Study CASS source deeply; decide fork/interoperate/clean-build (PRD Open Q1).
+- Study CASS/public-extractor source for connector *patterns* (no dependency — clean build is decided).
 - Validate Cursor `state.vscdb` schema parsing and Claude Code JSONL parsing on real data.
-- Build a minimal connector + SQLite indexer spike.
-- Pick embedding model + vector store; benchmark local indexing speed.
+- Build a minimal connector + SQLite indexer spike behind a thin Rust core API.
+- Stand up a Tauri shell wired to the core (proves the primary surface early).
+- Resolve **ML-runtime placement** (pure-Rust ONNX vs. Python sidecar); benchmark local indexing/embedding speed.
 
-**Exit:** can parse 2 tools end-to-end into SQLite and run a keyword search.
+**Exit:** parse 2 tools end-to-end into SQLite, run a keyword search, and display results in the Tauri shell.
 
 ## Phase 1 — MVP (4–8 weeks)
 **Goal:** ship the OSS core that is meaningfully better than built-ins.
@@ -29,7 +30,7 @@ Covers all **Must / P1** requirements:
 - SQLite/FTS + local vector store + local embeddings (FR-STO-01..03).
 - Hybrid search + filters + NL queries + ranked results (FR-SRCH-01..04).
 - Actions: open / export / inject (FR-ACT-01..03).
-- TUI + CLI/JSON + agent API (FR-UI-01..03).
+- **Desktop app (Tauri, primary surface)** + CLI/JSON + agent API (FR-UI-05, FR-UI-02/03).
 - Local-only, no telemetry, purge (NFR-PRIV-01..03); perf + robustness targets.
 
 **Exit:** MVP acceptance gate in REQUIREMENTS §11 passes. **Validate** with the originating X/Grok thread community and heavy users.
@@ -37,7 +38,7 @@ Covers all **Must / P1** requirements:
 ## Phase 1.x — Fast-Follow (post-launch, weeks)
 **Goal:** polish + reach.
 
-- Desktop app (Tauri + shadcn/ui) (FR-UI-05).
+- TUI surface over the same core (FR-UI-01).
 - MCP server (FR-UI-04).
 - Timeline + analytics (FR-UI-06).
 - Resume/handoff action, HTML export (FR-ACT-04/05).
@@ -63,7 +64,7 @@ Covers all **Must / P1** requirements:
 
 | Milestone | Phase | Outcome |
 |---|---|---|
-| **M0 Prototype** | 0 | 2 connectors → SQLite → keyword search |
-| **M1 MVP / OSS launch** | 1 | Hybrid search, 3 tools, TUI + agent API, local-first |
-| **M2 Desktop + MCP** | 1.x | Polished GUI, agent-native via MCP, more connectors |
+| **M0 Prototype** | 0 | 2 connectors → SQLite → keyword search in a Tauri shell |
+| **M1 MVP / OSS launch** | 1 | Hybrid search, 3 tools, desktop app + agent API, local-first |
+| **M2 TUI + MCP** | 1.x | Terminal surface, agent-native via MCP, more connectors |
 | **M3 Memory + Sync** | 2 | Episodic→semantic→procedural, outcomes, team sync |

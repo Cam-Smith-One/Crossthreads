@@ -80,11 +80,11 @@ This document enumerates functional (FR) and non-functional (NFR) requirements w
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| FR-UI-01 | **TUI.** Keyboard-first terminal UI for search, filtering, preview, and actions as the primary MVP surface. | Must | P1 |
+| FR-UI-05 | **Desktop app.** Tauri (Rust backend + web frontend, shadcn/ui-style) — the **primary MVP surface**: onboarding/auto-detect, search, filtering, preview, and actions. | Must | P1 |
 | FR-UI-02 | **CLI / JSON mode.** Scriptable CLI with structured JSON output for all core operations (index, search, export). | Must | P1 |
 | FR-UI-03 | **Agent API.** A programmatic interface agents can call, e.g. `search(query, filters)` and `recall_decision(topic)`, returning structured results. | Must | P1 |
 | FR-UI-04 | **MCP server.** Expose search/recall as MCP tools for direct use inside agents that support MCP. | Should | P1.x |
-| FR-UI-05 | **Desktop app.** Tauri (Rust backend + web frontend, shadcn/ui-style) for a polished GUI. | Should | P1.x |
+| FR-UI-01 | **TUI.** Keyboard-first terminal UI over the same core for search, filtering, preview, and actions. | Should | P1.x |
 | FR-UI-06 | **Timeline & analytics.** Timeline view and activity analytics (by tool/project, frequent topics). | Could | P1.x |
 | FR-UI-07 | **Web dashboard.** Dashboard over synced data (team context). | Won't-yet | P2 |
 
@@ -122,7 +122,7 @@ This document enumerates functional (FR) and non-functional (NFR) requirements w
 | NFR-PORT-01 | **Platforms.** macOS + Linux at MVP; Windows fast-follow. | Must | P1 |
 | NFR-SEC-01 | **At-rest protection (sync).** Synced data is encrypted; keys are user-controlled. | Should | P2 |
 | NFR-MAINT-01 | **Extensibility.** Connectors and embedding models are pluggable behind stable interfaces. | Should | P1.x |
-| NFR-LIC-01 | **OSS core.** Core indexer/search/TUI released under a permissive license (MIT/Apache-2.0 — TBD). | Must | P1 |
+| NFR-LIC-01 | **OSS core.** Core indexer/search/desktop app released under **Apache-2.0**. | Must | P1 |
 | NFR-OBS-01 | **Diagnostics.** Local logs/metrics for index health, connector status, and search performance (no egress). | Should | P1 |
 
 ## 10. Traceability
@@ -142,6 +142,6 @@ The MVP ships when all **Must / P1** requirements pass acceptance, specifically:
 1. Three working connectors (Claude Code, Cursor, + one) with incremental indexing and dedup.
 2. Hybrid search with filters and NL queries meeting FR-SRCH acceptance (≥80% top-3 on the eval set).
 3. Open / export / inject actions functional.
-4. TUI + CLI/JSON + agent API operational.
+4. Desktop app (Tauri) + CLI/JSON + agent API operational.
 5. Local-only, no-telemetry, purgeable — verified (NFR-PRIV-*).
 6. Search latency and connector robustness targets met (NFR-PERF-01, NFR-REL-01).
