@@ -479,6 +479,19 @@ impl Store {
         Ok(tools)
     }
 
+    /// Record counts grouped by (tool, kind), most-frequent first. Lets a user
+    /// see at a glance how much each tool contributed (e.g. is Codex indexing?).
+    pub fn counts_by_tool(&self) -> Result<Vec<(String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT tool, kind, COUNT(*) AS n FROM conversations
+             GROUP BY tool, kind ORDER BY n DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     // ---- Retrieval of full conversations / context ------------------------
 
     /// Fetch a full stored conversation by id, with its messages in order.

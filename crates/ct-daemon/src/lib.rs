@@ -86,6 +86,12 @@ impl Daemon {
         Ok(report)
     }
 
+    /// Per-(tool, kind) record counts, for a coverage summary.
+    pub fn counts_by_tool(&self) -> Result<Vec<(String, String, i64)>> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        store.counts_by_tool()
+    }
+
     /// Spawn the file-watcher: re-index (debounced) whenever a connector root
     /// changes (FR-ING-05). Returns a handle; the watcher lives for the
     /// thread's lifetime. Watching nothing (no connectors present) is a no-op.

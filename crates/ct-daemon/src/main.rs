@@ -78,10 +78,18 @@ fn run() -> Result<()> {
         std::thread::Builder::new()
             .name("ct-initial-index".into())
             .spawn(move || match d.reindex() {
-                Ok(r) => eprintln!(
-                    "crossthreadsd: initial index complete — {} new, {} present, {} embedded",
-                    r.inserted, r.duplicate, r.embedded
-                ),
+                Ok(r) => {
+                    eprintln!(
+                        "crossthreadsd: initial index complete — {} new, {} present, {} embedded",
+                        r.inserted, r.duplicate, r.embedded
+                    );
+                    // Per-tool coverage, so it's obvious what indexed.
+                    if let Ok(counts) = d.counts_by_tool() {
+                        for (tool, kind, n) in counts {
+                            eprintln!("  {tool} ({kind}): {n}");
+                        }
+                    }
+                }
                 Err(e) => eprintln!("crossthreadsd: initial index failed: {e:#}"),
             })
             .context("starting initial index")?;
