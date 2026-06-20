@@ -27,6 +27,8 @@ pub enum Upsert {
     Inserted,
     /// Already present (same content hash) — skipped per dedup.
     Duplicate,
+    /// Skipped because the user forgot this thread (tombstoned).
+    Forgotten,
 }
 
 /// A single keyword-search result, collapsed to the best-matching message of a
@@ -307,6 +309,28 @@ impl Store {
     /// Persist a conversation and its messages, skipping if an identical one
     /// (by content hash) is already stored.
     pub fn upsert_conversation(&mut self, convo: &Conversation) -> Result<Upsert> {
+        // Stable key for durable user state: tool + source + first message.
+        let seed = convo
+            .messages
+            .first()
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let session_key = ct_core::hash::session_key(&convo.tool, &convo.source.path, seed);
+
+        // A conversation the user has forgotten stays forgotten across
+        // re-indexing, even though its source file still exists.
+        let forgotten: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM forgotten WHERE session_key = ?1",
+                [&session_key],
+                |_| Ok(true),
+            )
+            .optional_bool()?;
+        if forgotten {
+            return Ok(Upsert::Forgotten);
+        }
+
         let exists: bool = self
             .conn
             .query_row(
@@ -318,14 +342,6 @@ impl Store {
         if exists {
             return Ok(Upsert::Duplicate);
         }
-
-        // Stable key for durable user state: tool + source + first message.
-        let seed = convo
-            .messages
-            .first()
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
-        let session_key = ct_core::hash::session_key(&convo.tool, &convo.source.path, seed);
 
         let tx = self.conn.transaction()?;
         tx.execute(
@@ -697,6 +713,42 @@ impl Store {
             pinned,
             messages,
         }))
+    }
+
+    /// Forget a conversation: delete it (and every other indexed version of the
+    /// same session) from the index, and tombstone its `session_key` so it is
+    /// not re-added on the next index pass. Returns `false` if no such id.
+    ///
+    /// Messages, embeddings, and FTS rows cascade away via foreign keys/triggers.
+    pub fn forget(&self, id: &str) -> Result<bool> {
+        let key: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT session_key FROM conversations WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(key) = key.filter(|k| !k.is_empty()) else {
+            return Ok(false);
+        };
+        self.conn.execute(
+            "INSERT OR IGNORE INTO forgotten (session_key, forgotten_at) VALUES (?1, ?2)",
+            params![key, chrono::Utc::now().to_rfc3339()],
+        )?;
+        self.conn
+            .execute("DELETE FROM conversations WHERE session_key = ?1", [&key])?;
+        self.conn
+            .execute("DELETE FROM user_state WHERE session_key = ?1", [&key])?;
+        self.bump_write_gen();
+        Ok(true)
+    }
+
+    /// How many conversations are tombstoned (for status/diagnostics).
+    pub fn forgotten_count(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM forgotten", [], |r| r.get(0))?)
     }
 
     // ---- Bookmarks &amp; pins (FR-SRCH-*) -------------------------------------

@@ -156,6 +156,7 @@ pub fn index_once(
         match store.upsert_conversation(convo)? {
             Upsert::Inserted => report.inserted += 1,
             Upsert::Duplicate => report.duplicate += 1,
+            Upsert::Forgotten => {} // tombstoned: intentionally not re-indexed
         }
     }
 

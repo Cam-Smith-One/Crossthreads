@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -94,5 +94,13 @@ CREATE TABLE IF NOT EXISTS embeddings (
     model         TEXT NOT NULL,
     dim           INTEGER NOT NULL,
     vec           BLOB NOT NULL
+);
+
+-- Tombstones for "forget this thread" (FR-PRIV). Keyed by the stable
+-- session_key so a forgotten conversation stays forgotten across re-indexing,
+-- even though its source file still exists on disk.
+CREATE TABLE IF NOT EXISTS forgotten (
+    session_key  TEXT PRIMARY KEY,
+    forgotten_at TEXT NOT NULL
 );
 "#;

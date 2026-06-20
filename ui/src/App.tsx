@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   buildContext,
+  forget,
   getConversation,
   getFacets,
   getSaved,
@@ -114,6 +115,22 @@ export function App() {
   async function reveal(id: string) {
     try {
       if (!(await openSource(id))) setError("Couldn't open the source file.");
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  // Forget a conversation: remove it from the index for good (tombstoned so it
+  // won't be re-added). Drops it from the current results and saved panel.
+  async function forgetConversation(id: string) {
+    if (!window.confirm("Forget this conversation? It's removed from the index and won't be re-added.")) {
+      return;
+    }
+    try {
+      await forget(id);
+      setOpen(null);
+      setHits((hs) => hs.filter((h) => h.conversation_id !== id));
+      refreshSaved();
     } catch (err) {
       setError(String(err));
     }
@@ -314,6 +331,13 @@ export function App() {
                   pinned: open.pinned,
                   bookmarked: open.bookmarked,
                 })}
+                <button
+                  className="danger"
+                  title="Remove this conversation from the index for good"
+                  onClick={() => forgetConversation(open.id)}
+                >
+                  Forget
+                </button>
                 <button className="secondary" onClick={() => setOpen(null)}>
                   Close
                 </button>

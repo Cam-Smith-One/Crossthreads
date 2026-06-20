@@ -56,6 +56,9 @@ pub enum Request {
     Saved,
     /// Open a conversation's source file in the OS default app / reveal it.
     OpenSource { id: String },
+    /// Forget a conversation: delete it from the index and tombstone it so it is
+    /// not re-indexed.
+    Forget { id: String },
     /// Build a paste-ready context block from the top matches for a query.
     Context {
         query: String,

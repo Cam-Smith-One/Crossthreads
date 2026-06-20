@@ -58,6 +58,7 @@ impl Daemon {
                 match store.upsert_conversation(convo)? {
                     ct_store::Upsert::Inserted => report.inserted += 1,
                     ct_store::Upsert::Duplicate => report.duplicate += 1,
+                    ct_store::Upsert::Forgotten => {} // tombstoned, skip
                 }
             }
         }
@@ -218,6 +219,7 @@ impl Daemon {
             } => self.set_flags(&id, bookmarked, pinned).unwrap_or_else(err),
             Request::Saved => self.saved().unwrap_or_else(err),
             Request::OpenSource { id } => self.open_source(&id).unwrap_or_else(err),
+            Request::Forget { id } => self.forget(&id).unwrap_or_else(err),
             Request::Context {
                 query,
                 mode,
@@ -293,6 +295,12 @@ impl Daemon {
         Ok(Response::Hits {
             hits: store.saved()?,
         })
+    }
+
+    fn forget(&self, id: &str) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        let ok = store.forget(id)?;
+        Ok(Response::Ok { ok })
     }
 
     /// Reveal a conversation's source file in the OS file manager (FR-ACT-01).

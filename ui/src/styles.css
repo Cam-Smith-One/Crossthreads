@@ -330,6 +330,16 @@ body {
 .saved-item .hit-actions { margin-left: 0; }
 
 .modal-head-actions { display: flex; align-items: center; gap: 8px; }
+.modal-head-actions button.danger {
+  background: var(--bg);
+  color: var(--err-text);
+  border: 1px solid var(--err-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.modal-head-actions button.danger:hover { background: var(--err-bg); }
 
 .badge-skill {
   font-size: 11px;

@@ -193,6 +193,34 @@ fn bookmark_survives_a_growing_conversation() {
 }
 
 #[test]
+fn forget_deletes_and_tombstones_across_reindex() {
+    let mut store = Store::open_in_memory().unwrap();
+    let c = convo(
+        Tool::ClaudeCode,
+        "/repo",
+        vec![msg(Role::User, "rotate the leaked api credentials")],
+    );
+    assert_eq!(store.upsert_conversation(&c).unwrap(), Upsert::Inserted);
+    assert_eq!(store.search("leaked api credentials", 10).unwrap().len(), 1);
+
+    // Forget it: gone from the index.
+    assert!(store.forget(&c.id).unwrap());
+    assert_eq!(store.conversation_count().unwrap(), 0);
+    assert!(store
+        .search("leaked api credentials", 10)
+        .unwrap()
+        .is_empty());
+    assert_eq!(store.forgotten_count().unwrap(), 1);
+
+    // Re-indexing the same conversation does NOT bring it back (tombstoned).
+    assert_eq!(store.upsert_conversation(&c).unwrap(), Upsert::Forgotten);
+    assert_eq!(store.conversation_count().unwrap(), 0);
+
+    // Forgetting an unknown id is a no-op false.
+    assert!(!store.forget("cv_nope").unwrap());
+}
+
+#[test]
 fn punctuation_in_query_does_not_break_fts() {
     let mut store = Store::open_in_memory().unwrap();
     store

@@ -138,6 +138,11 @@ export async function openSource(id: string): Promise<boolean> {
   return data.ok;
 }
 
+export async function forget(id: string): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "forget", id });
+  return data.ok;
+}
+
 export function buildContext(
   query: string,
   mode: Mode,
