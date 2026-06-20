@@ -13,6 +13,8 @@
 [![MCP](https://img.shields.io/badge/agent--ready-MCP-6e56cf.svg)](#-for-agents-mcp)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+⚠️ Early Beta: Under active development. Expect a lot of rough edges.
+
 <br/>
 
 <img src=".github/assets/screenshot-dark.png" alt="Crossthreads searching across tools" width="760" />
