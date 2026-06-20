@@ -275,6 +275,38 @@ body {
   padding: 6px 12px;
   cursor: pointer;
 }
+.load-more {
+  align-self: center;
+  margin-top: 6px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 18px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.load-more:hover { border-color: var(--border-hover); }
+.load-more:disabled { opacity: 0.6; cursor: default; }
+
+.transcript-find {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 0;
+}
+.transcript-find input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.transcript-find input:focus { outline: none; border-color: var(--accent); }
+.transcript-find .find-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
 .transcript { overflow: auto; padding: 8px 16px 16px; }
 .turn { padding: 10px 0; border-bottom: 1px solid var(--turn-border); }
 .turn .role {

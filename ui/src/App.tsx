@@ -20,6 +20,7 @@ import {
 } from "./api";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
+const PAGE = 25;
 
 export function App() {
   const [query, setQuery] = useState("");
@@ -30,6 +31,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [tools, setTools] = useState<string[]>([]);
   const [tagFacets, setTagFacets] = useState<string[]>([]);
+  const [limit, setLimit] = useState(PAGE);
+  const [find, setFind] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -90,15 +93,16 @@ export function App() {
   }, [refreshSaved, refreshFacets]);
 
   const runSearch = useCallback(
-    async (e?: React.FormEvent) => {
+    async (e?: React.FormEvent, lim = PAGE) => {
       e?.preventDefault();
       if (!query.trim()) return;
       setLoading(true);
       setError(null);
       setContext(null);
       try {
-        const results = await search(query, mode, filters);
+        const results = await search(query, mode, filters, lim);
         setHits(results);
+        setLimit(lim);
         setSelected(results.length ? 0 : -1);
         setSearched(true);
       } catch (err) {
@@ -110,10 +114,19 @@ export function App() {
     [query, mode, filters],
   );
 
+  // Fetch the next page by raising the limit and re-querying (search returns
+  // top-N, so we replace rather than append).
+  async function loadMore() {
+    await runSearch(undefined, limit + PAGE);
+  }
+
   async function openConversation(id: string) {
     try {
       const convo = await getConversation(id);
-      if (convo) setOpen(convo);
+      if (convo) {
+        setFind("");
+        setOpen(convo);
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -427,6 +440,11 @@ export function App() {
             )}
           </article>
         ))}
+        {searched && hits.length >= limit && (
+          <button className="load-more" onClick={loadMore} disabled={loading}>
+            {loading ? "…" : "Load more"}
+          </button>
+        )}
       </section>
 
       {open && (
@@ -470,13 +488,30 @@ export function App() {
                 </button>
               </div>
             </div>
+            <div className="transcript-find">
+              <input
+                placeholder="find in conversation…"
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+              />
+              {find.trim() && (
+                <span className="find-count">
+                  {open.messages.filter((m) => matchesFind(m.content, find)).length} match(es)
+                </span>
+              )}
+            </div>
             <div className="transcript">
-              {open.messages.map((m, i) => (
-                <div key={i} className={`turn turn-${m.role}`}>
-                  <span className="role">{m.role}</span>
-                  <div className="content">{m.content}</div>
-                </div>
-              ))}
+              {open.messages
+                .filter((m) => !find.trim() || matchesFind(m.content, find))
+                .map((m, i) => (
+                  <div key={i} className={`turn turn-${m.role}`}>
+                    <span className="role">{m.role}</span>
+                    <div
+                      className="content"
+                      dangerouslySetInnerHTML={{ __html: highlightFind(m.content, find) }}
+                    />
+                  </div>
+                ))}
             </div>
             <div className="meta-edit">
               <label className="meta-row">
@@ -558,4 +593,24 @@ function highlight(snippet: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   return escaped.replace(/\[([^\]]+)\]/g, "<mark>$1</mark>");
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesFind(content: string, find: string): boolean {
+  return content.toLowerCase().includes(find.trim().toLowerCase());
+}
+
+// Escape the content, then wrap case-insensitive matches of `find` in <mark>.
+function highlightFind(content: string, find: string): string {
+  const escaped = escapeHtml(content);
+  const term = find.trim();
+  if (!term) return escaped;
+  return escaped.replace(new RegExp(escapeRegex(escapeHtml(term)), "gi"), "<mark>$&</mark>");
 }
