@@ -39,10 +39,11 @@ CREATE TABLE IF NOT EXISTS conversations (
     session_key        TEXT NOT NULL DEFAULT ''
 );
 
+-- Indexes on columns that have existed since v1. Indexes on columns added by
+-- migration (`kind`, `session_key`) are created in code AFTER those ALTERs run,
+-- because on an upgrading DB the column does not exist yet at this point.
 CREATE INDEX IF NOT EXISTS idx_conversations_tool    ON conversations(tool);
-CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project);
-CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);
 
 -- Durable user state (bookmarks, pins), kept SEPARATE from the rebuildable
 -- index and keyed by the stable `session_key`. Deleting/rebuilding the index

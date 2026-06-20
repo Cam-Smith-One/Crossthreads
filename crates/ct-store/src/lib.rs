@@ -218,6 +218,15 @@ impl Store {
             [],
         );
 
+        // Indexes on migration-added columns, created only now that the ALTERs
+        // above guarantee the columns exist (on a fresh DB they came from
+        // CREATE TABLE; on an upgrade, from the ALTERs).
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
+             CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);",
+        )
+        .context("creating migration-column indexes")?;
+
         // Persist/verify the schema version in the user_version pragma. The
         // schema is additive (CREATE … IF NOT EXISTS), so older DBs upgrade in
         // place; a newer-than-supported DB is refused.
