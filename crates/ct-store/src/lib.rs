@@ -8,7 +8,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use ct_core::model::{Conversation, Role};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 mod schema;
@@ -212,6 +212,11 @@ impl Store {
             "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // v4 -> v5: stable session key for durable user state.
+        let _ = conn.execute(
+            "ALTER TABLE conversations ADD COLUMN session_key TEXT NOT NULL DEFAULT ''",
+            [],
+        );
 
         // Persist/verify the schema version in the user_version pragma. The
         // schema is additive (CREATE … IF NOT EXISTS), so older DBs upgrade in
@@ -225,11 +230,64 @@ impl Store {
         if current < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
-        Ok(Self {
+
+        let store = Self {
             conn,
             write_gen: std::cell::Cell::new(1),
             vec_cache: std::cell::RefCell::new(VecCache::default()),
-        })
+        };
+        // Backfill session keys for rows indexed before v5, carrying any legacy
+        // bookmark/pin flags into the durable `user_state` table.
+        store.backfill_session_keys()?;
+        Ok(store)
+    }
+
+    /// Compute `session_key` for any pre-v5 conversation rows that lack one, and
+    /// migrate their legacy `bookmarked`/`pinned` columns into `user_state`.
+    /// Cheap no-op once everything has a key.
+    fn backfill_session_keys(&self) -> Result<()> {
+        let rows: Vec<(String, String, String, i64, i64)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, tool, source_path, bookmarked, pinned
+                 FROM conversations WHERE session_key = ''",
+            )?;
+            let collected = stmt
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            collected
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+        for (id, tool, source_path, bookmarked, pinned) in rows {
+            let seed: String = self
+                .conn
+                .query_row(
+                    "SELECT content FROM messages WHERE conversation_id = ?1 ORDER BY seq LIMIT 1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_default();
+            let key =
+                ct_core::hash::session_key(&ct_core::model::Tool::Other(tool), &source_path, &seed);
+            self.conn.execute(
+                "UPDATE conversations SET session_key = ?1 WHERE id = ?2",
+                params![key, id],
+            )?;
+            if bookmarked != 0 || pinned != 0 {
+                self.conn.execute(
+                    "INSERT INTO user_state (session_key, bookmarked, pinned, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(session_key) DO UPDATE SET
+                        bookmarked = max(bookmarked, excluded.bookmarked),
+                        pinned     = max(pinned, excluded.pinned)",
+                    params![key, bookmarked, pinned, chrono::Utc::now().to_rfc3339()],
+                )?;
+            }
+        }
+        Ok(())
     }
 
     /// Mark the vector cache stale after a write that touched embeddings.
@@ -252,13 +310,22 @@ impl Store {
             return Ok(Upsert::Duplicate);
         }
 
+        // Stable key for durable user state: tool + source + first message.
+        let seed = convo
+            .messages
+            .first()
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let session_key = ct_core::hash::session_key(&convo.tool, &convo.source.path, seed);
+
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO conversations (
                 id, tool, kind, project, model, started_at, ended_at,
                 git_branch, git_commit, source_path, source_offset,
-                source_fingerprint, content_hash, title, message_count, indexed_at
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                source_fingerprint, content_hash, title, message_count, indexed_at,
+                session_key
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
             params![
                 convo.id,
                 convo.tool.slug(),
@@ -276,6 +343,7 @@ impl Store {
                 convo.derived_title(),
                 convo.messages.len() as i64,
                 chrono::Utc::now().to_rfc3339(),
+                session_key,
             ],
         )?;
 
@@ -319,12 +387,13 @@ impl Store {
         let fetch = (limit * 5).max(limit) as i64;
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
-                    c.bookmarked, c.pinned,
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0),
                     snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
                     bm25(messages_fts) AS score
              FROM messages_fts
              JOIN messages m      ON m.rowid = messages_fts.rowid
              JOIN conversations c ON c.id = m.conversation_id
+             LEFT JOIN user_state us ON us.session_key = c.session_key
              WHERE messages_fts MATCH ?1
              ORDER BY score
              LIMIT ?2",
@@ -570,8 +639,11 @@ impl Store {
     /// Fetch a full stored conversation by id, with its messages in order.
     pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
         let meta = self.conn.query_row(
-            "SELECT tool, kind, project, title, started_at, source_path, bookmarked, pinned \
-             FROM conversations WHERE id = ?1",
+            "SELECT c.tool, c.kind, c.project, c.title, c.started_at, c.source_path, \
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0) \
+             FROM conversations c \
+             LEFT JOIN user_state us ON us.session_key = c.session_key \
+             WHERE c.id = ?1",
             [id],
             |r| {
                 Ok((
@@ -621,36 +693,57 @@ impl Store {
     // ---- Bookmarks &amp; pins (FR-SRCH-*) -------------------------------------
 
     /// Set or clear the bookmark / pin flag on a conversation. `None` leaves a
-    /// flag unchanged. Returns `false` if no such conversation exists.
+    /// flag unchanged. Returns `false` if no such conversation exists. The state
+    /// is written to the durable `user_state` table keyed by the conversation's
+    /// stable `session_key`, so it survives re-indexing and a growing session.
     pub fn set_flags(
         &self,
         id: &str,
         bookmarked: Option<bool>,
         pinned: Option<bool>,
     ) -> Result<bool> {
-        let mut sets = Vec::new();
-        if let Some(b) = bookmarked {
-            sets.push(format!("bookmarked = {}", b as i64));
-        }
-        if let Some(p) = pinned {
-            sets.push(format!("pinned = {}", p as i64));
-        }
-        if sets.is_empty() {
-            return Ok(true);
-        }
-        let sql = format!("UPDATE conversations SET {} WHERE id = ?1", sets.join(", "));
-        let n = self.conn.execute(&sql, [id])?;
-        Ok(n > 0)
+        let key: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT session_key FROM conversations WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(key) = key.filter(|k| !k.is_empty()) else {
+            return Ok(false);
+        };
+
+        // Upsert, leaving the unspecified flag at its current value.
+        self.conn.execute(
+            "INSERT INTO user_state (session_key, bookmarked, pinned, updated_at)
+             VALUES (?1, COALESCE(?2, 0), COALESCE(?3, 0), ?4)
+             ON CONFLICT(session_key) DO UPDATE SET
+                bookmarked = COALESCE(?2, bookmarked),
+                pinned     = COALESCE(?3, pinned),
+                updated_at = ?4",
+            params![
+                key,
+                bookmarked.map(|b| b as i64),
+                pinned.map(|p| p as i64),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(true)
     }
 
     /// Saved conversations — pinned first, then bookmarked — newest first within
-    /// each group. Powers the "Saved &amp; pinned" panel.
+    /// each group, one row per stable session. Powers the "Saved &amp; pinned" panel.
     pub fn saved(&self) -> Result<Vec<SearchHit>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tool, kind, project, title, started_at, source_path, bookmarked, pinned
-             FROM conversations
-             WHERE bookmarked = 1 OR pinned = 1
-             ORDER BY pinned DESC, started_at DESC",
+            "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
+                    us.bookmarked, us.pinned,
+                    MAX(c.indexed_at) AS latest
+             FROM user_state us
+             JOIN conversations c ON c.session_key = us.session_key
+             WHERE us.bookmarked = 1 OR us.pinned = 1
+             GROUP BY us.session_key
+             ORDER BY us.pinned DESC, c.started_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(SearchHit {
@@ -763,9 +856,10 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT m.conversation_id, m.content,
                     c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
-                    c.bookmarked, c.pinned
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0)
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
+             LEFT JOIN user_state us ON us.session_key = c.session_key
              WHERE m.rowid = ?1",
         )?;
         let mut out = Vec::with_capacity(ranked.len());

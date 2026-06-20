@@ -156,6 +156,43 @@ fn bookmark_and_pin_flags_round_trip() {
 }
 
 #[test]
+fn bookmark_survives_a_growing_conversation() {
+    let mut store = Store::open_in_memory().unwrap();
+    // A conversation, then bookmark it.
+    let first = convo(
+        Tool::ClaudeCode,
+        "/repo",
+        vec![msg(Role::User, "wire up the websocket reconnect")],
+    );
+    store.upsert_conversation(&first).unwrap();
+    assert!(store.set_flags(&first.id, Some(true), None).unwrap());
+
+    // The same session continues: same tool + source + first message, one more
+    // turn. Different content hash -> a new row, but the SAME stable session key.
+    let grown = convo(
+        Tool::ClaudeCode,
+        "/repo",
+        vec![
+            msg(Role::User, "wire up the websocket reconnect"),
+            msg(Role::Assistant, "added exponential backoff on close"),
+        ],
+    );
+    store.upsert_conversation(&grown).unwrap();
+    assert_ne!(first.id, grown.id, "growing changes the content-hash id");
+
+    // The bookmark follows the live (grown) conversation.
+    let full = store.get_conversation(&grown.id).unwrap().unwrap();
+    assert!(
+        full.bookmarked,
+        "bookmark carried over to the grown session"
+    );
+
+    // saved() collapses the two versions to one row.
+    let saved = store.saved().unwrap();
+    assert_eq!(saved.len(), 1);
+}
+
+#[test]
 fn punctuation_in_query_does_not_break_fts() {
     let mut store = Store::open_in_memory().unwrap();
     store

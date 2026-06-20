@@ -35,6 +35,25 @@ pub fn conversation_id(content_hash: &str) -> String {
     format!("cv_{}", &content_hash[..content_hash.len().min(16)])
 }
 
+/// A *stable* per-conversation key for user state (bookmarks, pins).
+///
+/// Unlike [`conversation_hash`] — which changes whenever a message is appended —
+/// this keys on the tool, the source location, and a `seed` taken from the first
+/// message, so it stays constant as a conversation grows. That lets bookmarks
+/// and pins survive both a continuing session and a full index rebuild. (Two
+/// sessions sharing one source file *and* an identical first message can
+/// collide; that is rare and only loses the distinction between those two.)
+pub fn session_key(tool: &Tool, source_path: &str, seed: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(tool.slug().as_bytes());
+    hasher.update([0]);
+    hasher.update(source_path.as_bytes());
+    hasher.update([0]);
+    hasher.update(seed.as_bytes());
+    let h = hex(&hasher.finalize());
+    format!("sk_{}", &h[..h.len().min(16)])
+}
+
 fn role_byte(m: &Message) -> u8 {
     use crate::model::Role::*;
     match m.role {

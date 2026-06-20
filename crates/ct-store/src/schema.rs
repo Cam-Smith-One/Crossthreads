@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -30,16 +30,29 @@ CREATE TABLE IF NOT EXISTS conversations (
     title              TEXT,
     message_count      INTEGER NOT NULL,
     indexed_at         TEXT NOT NULL,
-    -- User-set flags (FR-SRCH-*): a saved bookmark and a sticky pin. Survive
-    -- re-indexing because dedup keys on content_hash, so the row persists.
+    -- Legacy (schema v4) flag columns. User state now lives in `user_state`
+    -- keyed by `session_key`; these remain only so old rows still read.
     bookmarked         INTEGER NOT NULL DEFAULT 0,
-    pinned             INTEGER NOT NULL DEFAULT 0
+    pinned             INTEGER NOT NULL DEFAULT 0,
+    -- Stable identity for user state: constant as a conversation grows, unlike
+    -- the content-hash `id`. See ct_core::hash::session_key.
+    session_key        TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_tool    ON conversations(tool);
 CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project);
-CREATE INDEX IF NOT EXISTS idx_conversations_saved   ON conversations(bookmarked, pinned);
+CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);
+
+-- Durable user state (bookmarks, pins), kept SEPARATE from the rebuildable
+-- index and keyed by the stable `session_key`. Deleting/rebuilding the index
+-- does not touch this table, and a continuing conversation keeps its flags.
+CREATE TABLE IF NOT EXISTS user_state (
+    session_key TEXT PRIMARY KEY,
+    bookmarked  INTEGER NOT NULL DEFAULT 0,
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS messages (
     rowid           INTEGER PRIMARY KEY,
