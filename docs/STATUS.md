@@ -17,7 +17,7 @@ verified, what's a known coverage gap, and what features are worth adding next.
 
 ## ✅ End-to-end test — passing
 
-- **Gate:** `cargo fmt --check` + `clippy --all-targets -D warnings` + **69 tests** + UI build — all green.
+- **Gate:** `cargo fmt --check` + `clippy --all-targets -D warnings` + **80 tests** + UI build — all green.
 - **Live RPC sweep** against real indexed data passed every path: lexical / semantic / hybrid search, filters, the `build_context` budget cap, `get_conversation`, bookmark/pin → `saved` → clear, plus negatives (bad id → null, empty query → `[]`) and static assets (all 200).
 - **v4 → v5 DB upgrade** is covered by a migration test (bookmarks preserved, search works, idempotent re-open).
 
@@ -34,7 +34,7 @@ Found and fixed during this audit:
 
 These are environments this sandbox can't reproduce — flagged honestly rather than claimed as proven:
 
-- **8 of 9 connectors are fixture-tested, not run against real installs.** Only **Claude Code** is exercised against live data here. Codex/Cursor were validated earlier on a real Mac. **Windsurf** (medium confidence) and **Antigravity** (low) are the likeliest to need real-data calibration — their formats are undocumented. All connectors detect-and-skip gracefully, so a mismatch means "missed sessions," never a crash.
+- **8 of 9 connectors are fixture-tested, not run against real installs.** Only **Claude Code** is exercised against live data here. Codex/Cursor/Copilot were validated on a real Mac (739 conversations). **Windsurf** (medium confidence) and **Antigravity** (low) are the likeliest to need real-data calibration — their formats are undocumented. The Antigravity connector now scans the whole `~/.gemini/antigravity/` home for Markdown rather than assuming a `brain/` subfolder, so it adapts to the on-disk layout. All connectors detect-and-skip gracefully, so a mismatch means "missed sessions," never a crash.
 - **ONNX semantic path** wasn't run this session (deterministic embedder; CI is the same). Validated earlier in the project.
 - **File watcher** (live re-index on change) isn't exercised in CI — only `--no-watch` in tests.
 - **Tauri desktop shell** can't build/run headless; the web path is the verified equivalent.
@@ -54,6 +54,16 @@ All seven prioritized features are now implemented, tested, and on PR #1:
 | 5 | **Export + notes/tags** | Export a conversation as Markdown/JSON; durable notes + tags (schema v7) with a tag filter, tag chips, and tag facets. |
 | 6 | **In-transcript find + pagination** | "Find in conversation" (filter + highlight + count) and a "Load more" pager. |
 | 7 | **Scaled semantic search** | Parallel (rayon) vector scan above 8,192 vectors, with a 12k-vector scale test. A clean seam for a future HNSW/sqlite-vec ANN (deferred — the native extension is fragile to ship cross-platform, and the in-memory scan already meets the target). |
+
+## ✅ Since the audit
+
+- **One-step MCP.** `ct-mcp` now **auto-starts `crossthreadsd`** on first use (and
+  reuses one already running — only ever one writer per index), so registering the
+  MCP server is the only setup step. `start.sh` builds the daemon + CLI + MCP
+  server, installs the agent skill, and reuses an existing daemon.
+- **Antigravity home-scan.** The connector scans the whole `~/.gemini/antigravity/`
+  home for Markdown instead of assuming a `brain/` subfolder, so it adapts to the
+  real on-disk layout.
 
 ## 💡 Possible next features
 

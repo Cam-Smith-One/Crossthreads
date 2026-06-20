@@ -17,7 +17,8 @@ scaffolded but not yet released.
   Cursor (`state.vscdb`), Aider (`.aider.chat.history.md`), Cline (VS Code
   globalStorage tasks), GitHub Copilot Chat (VS Code `chatSessions`, incl. the
   1.109+ JSONL mutation log), Gemini CLI (`~/.gemini/tmp/*/chats`), Windsurf
-  (`state.vscdb`), and Antigravity (Markdown brain artifacts, best-effort) —
+  (`state.vscdb`), and Antigravity (Markdown artifacts scanned from its
+  `~/.gemini/antigravity/` home, best-effort) —
   plus **skills/prompts** (`SKILL.md`, Codex prompts) as `kind = skill`. Each is
   versioned, detect-and-skips gracefully, and has a regression test.
 - **Single SQLite index** (`ct-store`): content-hash dedup, FTS5 lexical search,
@@ -36,7 +37,9 @@ scaffolded but not yet released.
   watcher, loopback protocol server, and an HTTP/JSON bridge that serves the UI.
 - **CLI** (`crossthreads`): `index`, `search`, `context`, `status`.
 - **MCP server** (`ct-mcp`): `crossthreads_search` / `recall` / `build_context`
-  / `status` over stdio for agents.
+  / `status` over stdio for agents. **Auto-starts `crossthreadsd`** on first use
+  (and reuses one already running), so registering the MCP server is the only
+  setup step — no daemon to keep up by hand.
 - **Agent skill**: `crossthreads skill install` drops a Claude Code `SKILL.md`
   and a Codex `/crossthreads` prompt that nudge agents to recall prior work via
   the MCP tools.

@@ -79,8 +79,10 @@ crossthreads index && crossthreads search "..." --mode hybrid
 
 Tools exposed: `crossthreads_search` (lexical/semantic/hybrid),
 `crossthreads_recall` (answer-oriented digest), `crossthreads_build_context`
-(paste-ready markdown for injecting prior work), and `crossthreads_status`. The
-daemon must be running. See `docs/AGENT_API.md` §7.
+(paste-ready markdown for injecting prior work), and `crossthreads_status`.
+`ct-mcp` **auto-starts `crossthreadsd`** on first use (and reuses one already
+running), so you don't need to keep a daemon up yourself — just register the
+absolute path to `ct-mcp`. See `docs/AGENT_API.md` §7.
 
 ## Running the daemon
 

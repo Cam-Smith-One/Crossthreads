@@ -133,10 +133,10 @@ the next index.
 | **GitHub Copilot Chat** | Copilot's chat in VS Code | `…/<editor>/**/chatSessions/*.{json,jsonl}` | ✅ High |
 | **Gemini CLI** | Google's terminal coding agent | `~/.gemini/tmp/*/chats/session-*.{json,jsonl}` | ✅ High |
 | **Windsurf** | Codeium's agentic editor (Cascade) | `…/Windsurf/User/**/state.vscdb` | 🟡 Medium |
-| **Antigravity** | Google's agentic IDE | `~/.gemini/antigravity*/brain/<uuid>/*.md` (best-effort)¹ | 🟠 Low |
+| **Antigravity** | Google's agentic IDE | Markdown artifacts under `~/.gemini/antigravity/` (best-effort)¹ | 🟠 Low |
 | **Skills / prompts** | Reusable Claude `SKILL.md` + Codex prompts | `~/.claude/skills/**/SKILL.md`, `~/.codex/prompts/*.md` | ✅ High |
 
-<sub>¹ Antigravity's full conversation lives in an undocumented protobuf format; Crossthreads indexes the readable Markdown task/plan artifacts until that format is documented. Connectors detect-and-skip gracefully and are stamped with a versioned fingerprint, so a format change degrades to "missed a session," never a crash.</sub>
+<sub>¹ Antigravity's full conversation lives in an undocumented protobuf format; Crossthreads scans the Antigravity home and indexes the readable Markdown task/plan artifacts (wherever they sit under it) until that format is documented. Connectors detect-and-skip gracefully and are stamped with a versioned fingerprint, so a format change degrades to "missed a session," never a crash.</sub>
 
 ## 🔎 Search modes
 
@@ -178,8 +178,11 @@ encodes "recall before you build, search when stuck"):
 crossthreads skill install        # Claude Code skill + Codex /crossthreads prompt
 ```
 
-`ct-mcp` forwards to a running `crossthreadsd`, so keep the daemon up. See
-[docs/AGENT_API.md](docs/AGENT_API.md) for the full CLI/JSON, HTTP, and MCP contracts.
+`ct-mcp` **auto-starts `crossthreadsd`** on first use (and reuses one that's
+already running — there's only ever one writer per index), so registering the
+MCP server is the only step. Use the **absolute path** to `ct-mcp` so it can find
+its sibling daemon. See [docs/AGENT_API.md](docs/AGENT_API.md) for the full
+CLI/JSON, HTTP, and MCP contracts.
 
 ## 🏗️ How it works
 

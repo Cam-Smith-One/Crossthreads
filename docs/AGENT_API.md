@@ -210,8 +210,11 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads.resume` | §6 — planned |
 | `crossthreads.list_facets` | filter discovery — planned |
 
-> Implemented tools live in `ct-mcp` and forward to `crossthreadsd`. Tool names
-> use underscores (`crossthreads_search`) to satisfy MCP's name charset.
+> Implemented tools live in `ct-mcp`, which forwards to `crossthreadsd` and
+> **auto-starts it** on first use (reusing one already running — only ever one
+> writer per index), so registering the absolute path to `ct-mcp` is the only
+> setup step. Tool names use underscores (`crossthreads_search`) to satisfy MCP's
+> name charset.
 
 Tool input schemas mirror the request bodies above; outputs mirror the responses. Tools are **read-only** by default (no mutation of indexed data) — a safe surface to expose to an agent.
 
