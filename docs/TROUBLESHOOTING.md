@@ -92,8 +92,8 @@ ls ~/.codex/sessions 2>/dev/null | head
 ls ~/Library/Application\ Support/Cursor/User/globalStorage/state.vscdb 2>/dev/null
 # Gemini CLI
 ls ~/.gemini/tmp/*/chats 2>/dev/null | head
-# Antigravity (Markdown brain artifacts we index)
-ls ~/.gemini/antigravity*/brain 2>/dev/null | head
+# Antigravity (Markdown artifacts we index, anywhere under the home)
+ls ~/.gemini/antigravity* 2>/dev/null | head
 ```
 
 Then click **re-index** in the UI (or restart `start.sh`). If a tool stores its
@@ -104,11 +104,13 @@ non-standard.
 
 ### Antigravity shows nothing
 Antigravity's full conversation lives in an **undocumented protobuf** format;
-Crossthreads indexes the readable Markdown task/plan artifacts under
-`~/.gemini/antigravity*/brain/<uuid>/*.md`. If that directory is empty or your
-install keeps them elsewhere, Antigravity won't appear. Paste the output of
-`ls -d ~/.gemini/antigravity*/ ~/.antigravity* 2>/dev/null` in an issue and
-we'll point the connector at the right place.
+Crossthreads indexes the readable Markdown task/plan artifacts that Antigravity
+writes under its home (`~/.gemini/antigravity/`). The connector scans the whole
+home and treats any folder holding `.md` files as a conversation, so it doesn't
+matter whether they sit in `brain/<uuid>/`, `conversations/<uuid>/`, or directly
+under the home. If nothing shows, there are likely no Markdown artifacts yet (a
+brand-new install, or a version that only keeps `.pb`). Point the connector at a
+non-standard location with `ANTIGRAVITY_HOME=/path/to/antigravity`.
 
 ### Skill search returns nothing
 Skills/prompts aren't a separate **tool** — they're indexed under their tool
