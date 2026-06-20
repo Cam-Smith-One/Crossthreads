@@ -792,8 +792,34 @@ impl Store {
             if let Some(p) = &convo.project {
                 section.push_str(&format!("_{p}_\n\n"));
             }
+            // Add messages up to the remaining budget so neither a long
+            // conversation nor a single huge message can blow past max_chars.
+            let budget = max_chars.saturating_sub(markdown.len());
+            let mut truncated = false;
             for m in &convo.messages {
-                section.push_str(&format!("**{}:** {}\n\n", m.role, m.content.trim()));
+                let prefix = format!("**{}:** ", m.role);
+                let avail = budget.saturating_sub(section.len());
+                // Room needed for the prefix, the "\n\n", and an ellipsis.
+                if avail <= prefix.len() + 8 {
+                    truncated = true;
+                    break;
+                }
+                let body = m.content.trim();
+                let turn = format!("{prefix}{body}\n\n");
+                if turn.len() <= avail {
+                    section.push_str(&turn);
+                } else {
+                    // The message alone overflows the budget — include a head of it.
+                    let keep = avail - prefix.len() - 6;
+                    section.push_str(&prefix);
+                    section.push_str(truncate_on_boundary(body, keep));
+                    section.push_str(" …\n\n");
+                    truncated = true;
+                    break;
+                }
+            }
+            if truncated {
+                section.push_str("_…(truncated)_\n");
             }
 
             // Stop before exceeding the budget; always include at least one.
@@ -944,6 +970,19 @@ fn bytes_to_f32s(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+/// Borrow at most `max` bytes of `s`, backing up to the nearest char boundary
+/// so the slice is always valid UTF-8.
+fn truncate_on_boundary(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// A plain (un-highlighted) snippet: first `max` chars of the content, single-lined.

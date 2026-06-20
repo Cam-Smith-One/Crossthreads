@@ -180,3 +180,34 @@ fn render_context_respects_char_budget() {
     let ctx = store.render_context(&[id], 10).unwrap();
     assert_eq!(ctx.sources.len(), 1);
 }
+
+#[test]
+fn render_context_caps_a_single_long_conversation() {
+    let mut store = Store::open_in_memory().unwrap();
+    // One conversation far larger than the budget (50 KB of message text).
+    let big = "x".repeat(2_000);
+    let msgs: Vec<Message> = (0..25)
+        .map(|i| {
+            let role = if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            };
+            msg(role, &big)
+        })
+        .collect();
+    let c = convo(Tool::ClaudeCode, "/repo", msgs);
+    let id = c.id.clone();
+    store.upsert_conversation(&c).unwrap();
+
+    let max = 6_000;
+    let ctx = store.render_context(&[id], max).unwrap();
+    // The block must respect the budget (with a small slack for the truncation
+    // marker), not dump the whole 50 KB conversation.
+    assert!(
+        ctx.chars <= max + 200,
+        "context block {} chars exceeded budget {max}",
+        ctx.chars
+    );
+    assert!(ctx.markdown.contains("truncated"));
+}
