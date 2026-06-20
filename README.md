@@ -19,6 +19,16 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 Prereqs: **Rust** (stable); **Node** for the web UI. SQLite and the ONNX runtime are bundled; the embedding model downloads once on first use.
 
 ```sh
+# Easiest: index your real sessions and open the app in one command.
+scripts/start.sh              # fast offline search
+CT_ONNX=1 scripts/start.sh    # real semantic search (downloads all-MiniLM once)
+```
+
+That builds the daemon + UI, indexes whatever tools you have installed (Claude Code, Codex, Cursor, Aider, Cline, Copilot, Gemini CLI, Windsurf, Antigravity), watches for new sessions, and opens `http://127.0.0.1:47101`.
+
+<details><summary>Or run the pieces directly</summary>
+
+```sh
 # CLI: index your sessions and search them
 cargo run --release -p ct-cli -- index
 cargo run --release -p ct-cli -- search "oauth refresh retry" --mode hybrid
@@ -28,9 +38,11 @@ cd ui && npm install && npm run build && cd ..
 cargo run --release --features onnx -p ct-daemon -- --http 127.0.0.1:47101 --ui ui/dist
 #   → open http://127.0.0.1:47101
 
-# Or bring up a sample 4-tool corpus + UI in one command:
+# Or bring up a sample multi-tool corpus + UI in one command:
 CT_ONNX=1 scripts/demo.sh
 ```
+
+</details>
 
 Add `--features onnx` for real semantic search (all-MiniLM via ONNX); without it, a deterministic offline embedder is used. For agents, point an MCP client at the `ct-mcp` binary — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
