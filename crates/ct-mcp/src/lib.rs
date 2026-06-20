@@ -258,6 +258,7 @@ fn filters_from(args: &Value) -> Filters {
         project: s("project"),
         since: s("since"),
         until: s("until"),
+        tag: s("tag"),
     }
 }
 

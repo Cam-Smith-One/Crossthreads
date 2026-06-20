@@ -359,7 +359,49 @@ body {
 .saved-item .date { margin-left: auto; }
 .saved-item .hit-actions { margin-left: 0; }
 
-.modal-head-actions { display: flex; align-items: center; gap: 8px; }
+/* Tag chips + the note/tag editor in the viewer */
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.meta-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.meta-row { display: flex; align-items: flex-start; gap: 10px; }
+.meta-row .meta-label {
+  width: 40px;
+  flex-shrink: 0;
+  padding-top: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.meta-row input,
+.meta-row textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+.meta-row input:focus,
+.meta-row textarea:focus { outline: none; border-color: var(--accent); }
+
+.modal-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .modal-head-actions button.danger {
   background: var(--bg);
   color: var(--err-text);

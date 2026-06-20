@@ -193,6 +193,59 @@ fn bookmark_survives_a_growing_conversation() {
 }
 
 #[test]
+fn notes_and_tags_round_trip_and_filter() {
+    let mut store = Store::open_in_memory().unwrap();
+    let c = convo(
+        Tool::ClaudeCode,
+        "/repo",
+        vec![msg(Role::User, "design the billing webhook")],
+    );
+    store.upsert_conversation(&c).unwrap();
+
+    // Set a note and (messy, mixed-case, duplicate) tags — normalized on store.
+    assert!(store.set_note(&c.id, "revisit idempotency").unwrap());
+    assert!(store
+        .set_tags(
+            &c.id,
+            &["Billing".into(), " billing ".into(), "Webhooks".into()]
+        )
+        .unwrap());
+
+    let full = store.get_conversation(&c.id).unwrap().unwrap();
+    assert_eq!(full.note, "revisit idempotency");
+    assert_eq!(full.tags, vec!["billing", "webhooks"]);
+    assert_eq!(store.facets_tags().unwrap(), vec!["billing", "webhooks"]);
+
+    // Search hits carry tags, and a tag filter narrows results.
+    let hit = &store.search("billing webhook", 10).unwrap()[0];
+    assert!(hit.tags.contains(&"billing".to_string()));
+
+    use ct_store::Filters;
+    let by_tag = store
+        .search_filtered(
+            "billing webhook",
+            10,
+            &Filters {
+                tag: Some("webhooks".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(by_tag.len(), 1);
+    let none = store
+        .search_filtered(
+            "billing webhook",
+            10,
+            &Filters {
+                tag: Some("nope".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(none.is_empty());
+}
+
+#[test]
 fn forget_deletes_and_tombstones_across_reindex() {
     let mut store = Store::open_in_memory().unwrap();
     let c = convo(

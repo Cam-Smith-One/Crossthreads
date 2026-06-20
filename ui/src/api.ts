@@ -8,6 +8,7 @@ export interface Filters {
   project?: string;
   since?: string;
   until?: string;
+  tag?: string;
 }
 
 export interface Hit {
@@ -22,6 +23,7 @@ export interface Hit {
   source_path: string;
   bookmarked?: boolean;
   pinned?: boolean;
+  tags?: string[];
 }
 
 export interface Status {
@@ -50,6 +52,8 @@ export interface StoredConversation {
   source_path?: string;
   bookmarked?: boolean;
   pinned?: boolean;
+  note?: string;
+  tags?: string[];
   messages: StoredMessage[];
 }
 
@@ -84,6 +88,7 @@ function clean(f: Filters): Filters {
   if (f.project) out.project = f.project;
   if (f.since) out.since = f.since;
   if (f.until) out.until = f.until;
+  if (f.tag) out.tag = f.tag;
   return out;
 }
 
@@ -101,9 +106,19 @@ export function reindex(): Promise<Reindexed> {
   return rpc<Reindexed>({ op: "reindex" });
 }
 
-export async function getFacets(): Promise<string[]> {
-  const data = await rpc<{ tools: string[] }>({ op: "facets" });
-  return data.tools;
+export async function getFacets(): Promise<{ tools: string[]; tags: string[] }> {
+  const data = await rpc<{ tools: string[]; tags?: string[] }>({ op: "facets" });
+  return { tools: data.tools ?? [], tags: data.tags ?? [] };
+}
+
+export async function setNote(id: string, note: string): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "set_note", id, note });
+  return data.ok;
+}
+
+export async function setTags(id: string, tags: string[]): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "set_tags", id, tags });
+  return data.ok;
 }
 
 export async function search(

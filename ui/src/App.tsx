@@ -10,6 +10,8 @@ import {
   reindex,
   search,
   setFlags,
+  setNote,
+  setTags,
   type Filters,
   type Hit,
   type Mode,
@@ -27,6 +29,7 @@ export function App() {
   const [selected, setSelected] = useState(-1);
   const [status, setStatus] = useState<Status | null>(null);
   const [tools, setTools] = useState<string[]>([]);
+  const [tagFacets, setTagFacets] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -45,6 +48,14 @@ export function App() {
   const refreshStatus = useCallback(() => {
     getStatus().then(setStatus).catch(() => {});
   }, []);
+  const refreshFacets = useCallback(() => {
+    getFacets()
+      .then((f) => {
+        setTools(f.tools);
+        setTagFacets(f.tags);
+      })
+      .catch(() => {});
+  }, []);
 
   async function runReindex() {
     setReindexing(true);
@@ -52,7 +63,7 @@ export function App() {
     try {
       await reindex();
       refreshStatus();
-      getFacets().then(setTools).catch(() => {});
+      refreshFacets();
       refreshSaved();
     } catch (err) {
       setError(String(err));
@@ -74,9 +85,9 @@ export function App() {
 
   useEffect(() => {
     getStatus().then(setStatus).catch((e) => setError(String(e)));
-    getFacets().then(setTools).catch(() => {});
+    refreshFacets();
     refreshSaved();
-  }, [refreshSaved]);
+  }, [refreshSaved, refreshFacets]);
 
   const runSearch = useCallback(
     async (e?: React.FormEvent) => {
@@ -136,6 +147,53 @@ export function App() {
   async function reveal(id: string) {
     try {
       if (!(await openSource(id))) setError("Couldn't open the source file.");
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  // Build a portable markdown transcript of an open conversation.
+  function conversationMarkdown(c: StoredConversation): string {
+    const head = `# ${c.title ?? "(untitled)"}\n\n_${c.tool}${c.project ? ` · ${c.project}` : ""}${
+      c.started_at ? ` · ${c.started_at.slice(0, 10)}` : ""
+    }_\n\n`;
+    return head + c.messages.map((m) => `**${m.role}:** ${m.content.trim()}`).join("\n\n");
+  }
+
+  function download(name: string, text: string, type: string) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportConversation(c: StoredConversation, fmt: "md" | "json") {
+    const stem = (c.title ?? c.id).replace(/[^\w.-]+/g, "_").slice(0, 60) || "conversation";
+    if (fmt === "md") download(`${stem}.md`, conversationMarkdown(c), "text/markdown");
+    else download(`${stem}.json`, JSON.stringify(c, null, 2), "application/json");
+  }
+
+  async function saveTags(id: string, raw: string) {
+    const tags = Array.from(
+      new Set(raw.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)),
+    );
+    try {
+      await setTags(id, tags);
+      setOpen((o) => (o && o.id === id ? { ...o, tags } : o));
+      setHits((hs) => hs.map((h) => (h.conversation_id === id ? { ...h, tags } : h)));
+      refreshFacets();
+      refreshSaved();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function saveNote(id: string, note: string) {
+    try {
+      await setNote(id, note);
+      setOpen((o) => (o && o.id === id ? { ...o, note } : o));
     } catch (err) {
       setError(String(err));
     }
@@ -269,6 +327,16 @@ export function App() {
             </option>
           ))}
         </select>
+        {tagFacets.length > 0 && (
+          <select value={filters.tag ?? ""} onChange={(e) => setF({ tag: e.target.value || undefined })}>
+            <option value="">all tags</option>
+            {tagFacets.map((t) => (
+              <option key={t} value={t}>
+                #{t}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           placeholder="project contains…"
           value={filters.project ?? ""}
@@ -350,6 +418,13 @@ export function App() {
             </div>
             {h.project && <div className="project">{h.project}</div>}
             <div className="snippet" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />
+            {h.tags && h.tags.length > 0 && (
+              <div className="tags">
+                {h.tags.map((t) => (
+                  <span key={t} className="tag-chip">#{t}</span>
+                ))}
+              </div>
+            )}
           </article>
         ))}
       </section>
@@ -370,6 +445,20 @@ export function App() {
                   bookmarked: open.bookmarked,
                 })}
                 <button
+                  className="secondary"
+                  title="Download this conversation as Markdown"
+                  onClick={() => exportConversation(open, "md")}
+                >
+                  Export .md
+                </button>
+                <button
+                  className="secondary"
+                  title="Download this conversation as JSON"
+                  onClick={() => exportConversation(open, "json")}
+                >
+                  JSON
+                </button>
+                <button
                   className="danger"
                   title="Remove this conversation from the index for good"
                   onClick={() => forgetConversation(open.id)}
@@ -388,6 +477,25 @@ export function App() {
                   <div className="content">{m.content}</div>
                 </div>
               ))}
+            </div>
+            <div className="meta-edit">
+              <label className="meta-row">
+                <span className="meta-label">tags</span>
+                <input
+                  defaultValue={(open.tags ?? []).join(", ")}
+                  placeholder="comma,separated"
+                  onBlur={(e) => saveTags(open.id, e.target.value)}
+                />
+              </label>
+              <label className="meta-row">
+                <span className="meta-label">note</span>
+                <textarea
+                  defaultValue={open.note ?? ""}
+                  placeholder="add a private note…"
+                  rows={2}
+                  onBlur={(e) => saveNote(open.id, e.target.value)}
+                />
+              </label>
             </div>
             {open.source_path && (
               <div className="modal-foot">

@@ -220,6 +220,8 @@ impl Daemon {
             Request::Saved => self.saved().unwrap_or_else(err),
             Request::OpenSource { id } => self.open_source(&id).unwrap_or_else(err),
             Request::Forget { id } => self.forget(&id).unwrap_or_else(err),
+            Request::SetNote { id, note } => self.set_note(&id, &note).unwrap_or_else(err),
+            Request::SetTags { id, tags } => self.set_tags(&id, &tags).unwrap_or_else(err),
             Request::Context {
                 query,
                 mode,
@@ -236,6 +238,7 @@ impl Daemon {
         let store = self.store.lock().expect("store mutex poisoned");
         Ok(Response::Facets {
             tools: store.facets_tools()?,
+            tags: store.facets_tags()?,
         })
     }
 
@@ -301,6 +304,20 @@ impl Daemon {
         let store = self.store.lock().expect("store mutex poisoned");
         let ok = store.forget(id)?;
         Ok(Response::Ok { ok })
+    }
+
+    fn set_note(&self, id: &str, note: &str) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        Ok(Response::Ok {
+            ok: store.set_note(id, note)?,
+        })
+    }
+
+    fn set_tags(&self, id: &str, tags: &[String]) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        Ok(Response::Ok {
+            ok: store.set_tags(id, tags)?,
+        })
     }
 
     /// Reveal a conversation's source file in the OS file manager (FR-ACT-01).

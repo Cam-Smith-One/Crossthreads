@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -52,7 +52,9 @@ CREATE TABLE IF NOT EXISTS user_state (
     session_key TEXT PRIMARY KEY,
     bookmarked  INTEGER NOT NULL DEFAULT 0,
     pinned      INTEGER NOT NULL DEFAULT 0,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    tags        TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS messages (

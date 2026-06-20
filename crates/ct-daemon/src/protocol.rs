@@ -59,6 +59,10 @@ pub enum Request {
     /// Forget a conversation: delete it from the index and tombstone it so it is
     /// not re-indexed.
     Forget { id: String },
+    /// Attach a free-text note to a conversation.
+    SetNote { id: String, note: String },
+    /// Set the tags on a conversation.
+    SetTags { id: String, tags: Vec<String> },
     /// Build a paste-ready context block from the top matches for a query.
     Context {
         query: String,
@@ -98,6 +102,8 @@ pub enum Response {
     },
     Facets {
         tools: Vec<String>,
+        #[serde(default)]
+        tags: Vec<String>,
     },
     Reindexed {
         inserted: usize,

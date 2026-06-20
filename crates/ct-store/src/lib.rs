@@ -54,6 +54,9 @@ pub struct SearchHit {
     /// User-set: pinned to the top.
     #[serde(default)]
     pub pinned: bool,
+    /// User-set tags (lowercased).
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// One message of a stored conversation.
@@ -81,6 +84,10 @@ pub struct StoredConversation {
     pub bookmarked: bool,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub messages: Vec<StoredMessage>,
 }
 
@@ -107,6 +114,8 @@ pub struct Filters {
     pub since: Option<String>,
     /// Inclusive upper bound on the start date (ISO `YYYY-MM-DD`).
     pub until: Option<String>,
+    /// Exact (case-insensitive) tag membership.
+    pub tag: Option<String>,
 }
 
 impl Filters {
@@ -116,6 +125,7 @@ impl Filters {
             && self.project.is_none()
             && self.since.is_none()
             && self.until.is_none()
+            && self.tag.is_none()
     }
 
     /// Does a hit satisfy every set constraint?
@@ -148,6 +158,12 @@ impl Filters {
                 if date > until.as_str() {
                     return false;
                 }
+            }
+        }
+        if let Some(tag) = &self.tag {
+            let want = tag.trim().to_lowercase();
+            if !want.is_empty() && !hit.tags.iter().any(|t| t == &want) {
+                return false;
             }
         }
         true
@@ -217,6 +233,15 @@ impl Store {
         // v4 -> v5: stable session key for durable user state.
         let _ = conn.execute(
             "ALTER TABLE conversations ADD COLUMN session_key TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // v6 -> v7: notes and tags on user_state.
+        let _ = conn.execute(
+            "ALTER TABLE user_state ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE user_state ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
             [],
         );
 
@@ -412,7 +437,7 @@ impl Store {
         let fetch = (limit * 5).max(limit) as i64;
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
-                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0),
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0), COALESCE(us.tags, ''),
                     snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
                     bm25(messages_fts) AS score
              FROM messages_fts
@@ -435,8 +460,9 @@ impl Store {
                 source_path: row.get(6)?,
                 bookmarked: row.get::<_, i64>(7)? != 0,
                 pinned: row.get::<_, i64>(8)? != 0,
-                snippet: row.get(9)?,
-                score: row.get(10)?,
+                tags: split_tags(&row.get::<_, String>(9)?),
+                snippet: row.get(10)?,
+                score: row.get(11)?,
             })
         })?;
 
@@ -665,7 +691,8 @@ impl Store {
     pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
         let meta = self.conn.query_row(
             "SELECT c.tool, c.kind, c.project, c.title, c.started_at, c.source_path, \
-                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0) \
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0), \
+                    COALESCE(us.note, ''), COALESCE(us.tags, '') \
              FROM conversations c \
              LEFT JOIN user_state us ON us.session_key = c.session_key \
              WHERE c.id = ?1",
@@ -680,14 +707,17 @@ impl Store {
                     r.get::<_, String>(5)?,
                     r.get::<_, i64>(6)? != 0,
                     r.get::<_, i64>(7)? != 0,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, String>(9)?,
                 ))
             },
         );
-        let (tool, kind, project, title, started_at, source_path, bookmarked, pinned) = match meta {
-            Ok(t) => t,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
+        let (tool, kind, project, title, started_at, source_path, bookmarked, pinned, note, tags) =
+            match meta {
+                Ok(t) => t,
+                Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
 
         let mut stmt = self.conn.prepare(
             "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY seq",
@@ -711,6 +741,8 @@ impl Store {
             source_path,
             bookmarked,
             pinned,
+            note,
+            tags: split_tags(&tags),
             messages,
         }))
     }
@@ -793,12 +825,67 @@ impl Store {
         Ok(true)
     }
 
+    /// Resolve a conversation id to its stable session key, if it exists.
+    fn session_key_of(&self, id: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT session_key FROM conversations WHERE id = ?1",
+                [id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .filter(|k| !k.is_empty()))
+    }
+
+    /// Attach a free-text note to a conversation (durable, by session key).
+    pub fn set_note(&self, id: &str, note: &str) -> Result<bool> {
+        let Some(key) = self.session_key_of(id)? else {
+            return Ok(false);
+        };
+        self.conn.execute(
+            "INSERT INTO user_state (session_key, note, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(session_key) DO UPDATE SET note = ?2, updated_at = ?3",
+            params![key, note, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(true)
+    }
+
+    /// Set the tags on a conversation (normalized, de-duplicated, durable).
+    pub fn set_tags(&self, id: &str, tags: &[String]) -> Result<bool> {
+        let Some(key) = self.session_key_of(id)? else {
+            return Ok(false);
+        };
+        let joined = join_tags(tags);
+        self.conn.execute(
+            "INSERT INTO user_state (session_key, tags, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(session_key) DO UPDATE SET tags = ?2, updated_at = ?3",
+            params![key, joined, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(true)
+    }
+
+    /// All distinct tags in use, sorted (for filter UIs).
+    pub fn facets_tags(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tags FROM user_state WHERE tags <> ''")?;
+        let mut set = std::collections::BTreeSet::new();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        for r in rows {
+            for t in split_tags(&r?) {
+                set.insert(t);
+            }
+        }
+        Ok(set.into_iter().collect())
+    }
+
     /// Saved conversations — pinned first, then bookmarked — newest first within
     /// each group, one row per stable session. Powers the "Saved &amp; pinned" panel.
     pub fn saved(&self) -> Result<Vec<SearchHit>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
-                    us.bookmarked, us.pinned,
+                    us.bookmarked, us.pinned, us.tags,
                     MAX(c.indexed_at) AS latest
              FROM user_state us
              JOIN conversations c ON c.session_key = us.session_key
@@ -817,6 +904,7 @@ impl Store {
                 source_path: row.get(6)?,
                 bookmarked: row.get::<_, i64>(7)? != 0,
                 pinned: row.get::<_, i64>(8)? != 0,
+                tags: split_tags(&row.get::<_, String>(9)?),
                 snippet: String::new(),
                 score: 0.0,
             })
@@ -943,7 +1031,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT m.conversation_id, m.content,
                     c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
-                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0)
+                    COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0), COALESCE(us.tags, '')
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
              LEFT JOIN user_state us ON us.session_key = c.session_key
@@ -963,6 +1051,7 @@ impl Store {
                     source_path: row.get(7)?,
                     bookmarked: row.get::<_, i64>(8)? != 0,
                     pinned: row.get::<_, i64>(9)? != 0,
+                    tags: split_tags(&row.get::<_, String>(10)?),
                     snippet: snippet_of(&content, 160),
                     score: *score as f64,
                 })
@@ -1031,6 +1120,26 @@ fn bytes_to_f32s(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+/// Parse the stored comma-joined tag string into normalized tags.
+fn split_tags(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Normalize, de-duplicate, and join tags for storage.
+fn join_tags(tags: &[String]) -> String {
+    let mut v: Vec<String> = tags
+        .iter()
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    v.sort();
+    v.dedup();
+    v.join(",")
 }
 
 /// Borrow at most `max` bytes of `s`, backing up to the nearest char boundary
