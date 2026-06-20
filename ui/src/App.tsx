@@ -31,10 +31,24 @@ export function App() {
   const [context, setContext] = useState<string | null>(null);
   const [open, setOpen] = useState<StoredConversation | null>(null);
   const [saved, setSaved] = useState<Hit[]>([]);
+  const [theme, setTheme] = useState<string>(
+    () => document.documentElement.dataset.theme || "dark",
+  );
 
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
   }, []);
+
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("ct-theme", next);
+    } catch {
+      /* ignore storage failures */
+    }
+  }
 
   useEffect(() => {
     getStatus().then(setStatus).catch((e) => setError(String(e)));
@@ -152,7 +166,21 @@ export function App() {
   return (
     <div className="app">
       <header>
-        <h1>Crossthreads</h1>
+        <div className="brand-row">
+          <img className="brand-mark" src="/mark.png" alt="Crossthreads" />
+          <h1 className="brand-name">
+            <span className="brand-cross">Cross</span>
+            <span className="brand-threads">threads</span>
+          </h1>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+        </div>
         <p className="tagline">Search every AI coding conversation, across tools.</p>
         {status && (
           <p className="status">
