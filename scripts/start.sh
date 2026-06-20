@@ -14,11 +14,15 @@ cd "$(dirname "$0")/.."
 HTTP_ADDR="${CT_HTTP:-127.0.0.1:47101}"
 URL="http://${HTTP_ADDR}"
 
-FEATURES=()
-[[ "${CT_ONNX:-0}" == "1" ]] && FEATURES=(--features onnx)
+# Plain string (not an array) so an empty value is safe under `set -u` on the
+# bash 3.2 that ships with macOS. The flag has no spaces, so word-splitting the
+# unquoted expansion below is intentional.
+FEATURES=""
+[[ "${CT_ONNX:-0}" == "1" ]] && FEATURES="--features onnx"
 
-echo "▸ Building Crossthreads${FEATURES:+ (${FEATURES[*]})}…"
-cargo build --release "${FEATURES[@]}" -p ct-daemon
+echo "▸ Building Crossthreads${FEATURES:+ ($FEATURES)}…"
+# shellcheck disable=SC2086
+cargo build --release $FEATURES -p ct-daemon
 
 if [[ ! -d ui/dist ]]; then
   echo "▸ Building the web UI…"

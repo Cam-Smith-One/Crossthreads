@@ -14,11 +14,12 @@ ROOT="$(pwd)"
 HTTP_ADDR="${CT_HTTP:-127.0.0.1:47101}"
 PROTO_ADDR="${CT_ADDR:-127.0.0.1:47100}"
 
-FEATURES=()
-[[ "${CT_ONNX:-0}" == "1" ]] && FEATURES=(--features onnx)
+FEATURES=""
+[[ "${CT_ONNX:-0}" == "1" ]] && FEATURES="--features onnx"
 
-echo "▸ Building (release${FEATURES:+, ${FEATURES[*]}})…"
-cargo build --release "${FEATURES[@]}" -p ct-daemon -p ct-cli -p ct-mcp
+echo "▸ Building (release${FEATURES:+, $FEATURES})…"
+# shellcheck disable=SC2086
+cargo build --release $FEATURES -p ct-daemon -p ct-cli -p ct-mcp
 
 if [[ ! -d ui/dist ]]; then
   echo "▸ Building UI…"
