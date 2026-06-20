@@ -1,0 +1,28 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# Node / frontend
+node_modules/
+ui/dist/
+
+# Tauri (native shell, excluded from the workspace)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/*.png
+src-tauri/icons/*.ico
+src-tauri/icons/*.icns
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Never commit a Crossthreads index — it contains your conversation history.
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm

@@ -1,0 +1,19 @@
+Crossthreads
+Copyright 2026 The Crossthreads Authors
+
+This product is licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain a
+copy of the License in the LICENSE file at the root of this repository.
+
+This product bundles or depends on third-party open-source software, each under
+its own license, including (non-exhaustive):
+
+  - SQLite (public domain), via the rusqlite "bundled" feature
+  - ONNX Runtime (MIT), via the `ort` crate (only with the `onnx` feature)
+  - all-MiniLM-L6-v2 sentence-transformer model (Apache-2.0), downloaded at
+    runtime only when the `onnx` feature is used
+  - Rust crates: serde, tokio-free tiny_http, notify, chrono, sha2, and others
+  - JavaScript packages: React, Vite (in ui/)
+
+See each dependency's repository and the generated dependency manifests
+(Cargo.lock, ui/package-lock.json) for full license details.

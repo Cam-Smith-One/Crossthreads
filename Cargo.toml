@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ct-core",
+    "crates/ct-connectors",
+    "crates/ct-embed",
+    "crates/ct-store",
+    "crates/ct-index",
+    "crates/ct-daemon",
+    "crates/ct-cli",
+    "crates/ct-mcp",
+]
+# The native Tauri shell lives in `src-tauri/` and is intentionally EXCLUDED
+# from the workspace: it needs platform webview libs (e.g. webkit2gtk) that
+# aren't present in headless CI, so building it here would fail. It builds on a
+# real dev machine with `cargo tauri build`. See src-tauri/README.md.
+exclude = ["src-tauri"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Cam-Smith-One/Crossthreads"
+rust-version = "1.80"
+
+[workspace.dependencies]
+ct-core = { path = "crates/ct-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+dirs = "5"
+regex = "1"
+rayon = "1"

@@ -1,0 +1,35 @@
+[package]
+name = "ct-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Crossthreads background daemon (crossthreadsd): single-writer indexer and query server."
+
+[lib]
+name = "ct_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crossthreadsd"
+path = "src/main.rs"
+
+[features]
+default = []
+onnx = ["ct-embed/onnx", "ct-index/onnx"]
+
+[dependencies]
+ct-core = { workspace = true }
+ct-store = { path = "../ct-store" }
+ct-embed = { path = "../ct-embed" }
+ct-index = { path = "../ct-index" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+notify = "6"
+tiny_http = "0.12"
+
+[dev-dependencies]
+ct-core = { workspace = true }

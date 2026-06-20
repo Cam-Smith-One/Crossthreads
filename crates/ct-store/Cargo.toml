@@ -1,0 +1,21 @@
+[package]
+name = "ct-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "SQLite storage + FTS5 keyword search for Crossthreads (ADR-007)."
+
+[dependencies]
+ct-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+rayon = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+ct-embed = { path = "../ct-embed" }

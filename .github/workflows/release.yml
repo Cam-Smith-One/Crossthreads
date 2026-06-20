@@ -1,0 +1,100 @@
+name: Release
+
+# Build prebuilt binaries + bundled UI for each OS and attach them to the
+# GitHub Release, so users can install without a Rust/Node toolchain.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: echo "v=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build binaries (release)
+        run: >
+          cargo build --release
+          --bin crossthreadsd --bin crossthreads --bin ct-mcp
+
+      - name: Assemble package
+        shell: bash
+        run: |
+          v="${{ steps.ver.outputs.v }}"
+          name="crossthreads-${v}-${{ matrix.target }}"
+          stage="dist-pkg/$name"
+          mkdir -p "$stage/bin" "$stage/ui"
+          # Binaries carry a .exe suffix on Windows; copy whichever exists.
+          ext=""
+          [[ "$RUNNER_OS" == "Windows" ]] && ext=".exe"
+          for b in crossthreadsd crossthreads ct-mcp; do
+            cp "target/release/${b}${ext}" "$stage/bin/"
+          done
+          cp -R ui/dist/. "$stage/ui/"
+          cp LICENSE "$stage/" 2>/dev/null || true
+          cp README.md "$stage/" 2>/dev/null || true
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp packaging/crossthreads-up.cmd "$stage/bin/"
+            ( cd dist-pkg && 7z a -tzip "../${name}.zip" "$name" >/dev/null )
+            echo "packaged ${name}.zip"
+          else
+            cp packaging/crossthreads-up "$stage/bin/"
+            chmod +x "$stage/bin/"*
+            ( cd dist-pkg && tar -czf "../${name}.tar.gz" "$name" )
+            echo "packaged ${name}.tar.gz"
+          fi
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.v }}
+          files: |
+            crossthreads-*.tar.gz
+            crossthreads-*.zip
+          fail_on_unmatched_files: false
