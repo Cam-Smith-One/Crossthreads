@@ -27,6 +27,11 @@ cargo build --release $FEATURES -p ct-daemon
 if [[ ! -d ui/dist ]]; then
   echo "▸ Building the web UI…"
   ( cd ui && npm install && npm run build )
+else
+  # Always refresh the built UI so it matches the current source (dist is
+  # git-ignored, so a `git pull` won't update it). Fast; installs only if needed.
+  echo "▸ Refreshing the web UI…"
+  ( cd ui && { [[ -d node_modules ]] || npm install; } && npm run build )
 fi
 
 # Open the browser once the server is reachable (best effort, in the background).
