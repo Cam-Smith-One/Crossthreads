@@ -41,19 +41,26 @@ These are environments this sandbox can't reproduce — flagged honestly rather 
 
 **Best next signal:** run it on your Mac against your real Cursor/Windsurf/Codex data and check the per-tool index counts — that's how we caught and fixed the Cursor issues last time.
 
-## 💡 Potential features missing (prioritized)
+## ✅ Features 1–7 — shipped
 
-| # | Feature | Why | Size |
-|---|---|---|---|
-| 1 | **Delete / "forget this thread"** | No way to remove a conversation short of a full rebuild — high-value for privacy | Small (1 RPC + UI + `user_state`-aware delete) |
-| 2 | **Secret redaction on index** | Chats often contain API keys/tokens; scrub them before they sit in the index | Medium |
-| 3 | **Windows release + installer** | Release builds Linux + macOS only; `install.sh` is bash | Medium |
-| 4 | **In-UI "Re-index now" + empty-state onboarding** | Daemon auto-watches, but there's no manual trigger or "no tools found" screen | Small |
-| 5 | **Export a conversation** (markdown/JSON) **+ notes/tags/collections** | `user_state` is already the right foundation for tags | Medium |
-| 6 | **In-transcript search / jump-to-match + result pagination** | Viewer shows the full thread; no in-thread find, no "load more" | Medium |
-| 7 | **`sqlite-vec` ANN** | Only needed past tens of thousands of messages (brute-force cosine is fine until then) | Medium |
+All seven prioritized features are now implemented, tested, and on PR #1:
 
-**Recommendation:** start with **#1 (delete/forget)** and **#2 (redaction)** — they round out the privacy story; **#3 (Windows)** is the biggest reach gap.
+| # | Feature | What landed |
+|---|---|---|
+| 1 | **Delete / "forget a thread"** | `forgotten` tombstone table (schema v6) + `forget` RPC + a viewer button; deletes every indexed version and **stays gone across re-index**. |
+| 2 | **Secret redaction** | `ct-core::redact` scrubs provider tokens, JWTs, PEM keys, Bearer tokens, and `KEY=value` secrets during indexing — nothing reaches content, FTS, or embeddings. |
+| 3 | **Windows release + installer** | `x86_64-pc-windows-msvc` in the release matrix (.zip + `crossthreads-up.cmd`) and a PowerShell `install.ps1`. |
+| 4 | **In-UI re-index + onboarding** | A "re-index" action in the status line and an empty-state card listing the supported tools. |
+| 5 | **Export + notes/tags** | Export a conversation as Markdown/JSON; durable notes + tags (schema v7) with a tag filter, tag chips, and tag facets. |
+| 6 | **In-transcript find + pagination** | "Find in conversation" (filter + highlight + count) and a "Load more" pager. |
+| 7 | **Scaled semantic search** | Parallel (rayon) vector scan above 8,192 vectors, with a 12k-vector scale test. A clean seam for a future HNSW/sqlite-vec ANN (deferred — the native extension is fragile to ship cross-platform, and the in-memory scan already meets the target). |
+
+## 💡 Possible next features
+
+- **Collections / saved searches** (named groups beyond tags).
+- **CLI parity** for forget/notes/tags (currently web + RPC).
+- **Per-tool real-data validation** for Windsurf/Antigravity (the remaining coverage gap).
+- True **ANN** if a corpus ever outgrows the parallel linear scan.
 
 ## Architecture recap
 
