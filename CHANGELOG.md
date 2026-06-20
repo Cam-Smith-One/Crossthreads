@@ -37,6 +37,9 @@ scaffolded but not yet released.
 - **CLI** (`crossthreads`): `index`, `search`, `context`, `status`.
 - **MCP server** (`ct-mcp`): `crossthreads_search` / `recall` / `build_context`
   / `status` over stdio for agents.
+- **Agent skill**: `crossthreads skill install` drops a Claude Code `SKILL.md`
+  and a Codex `/crossthreads` prompt that nudge agents to recall prior work via
+  the MCP tools.
 - **Web UI** (`ui/`): React + Vite with the Crossthreads logo, **light/dark**
   themes, hybrid search, filters, highlighted results, a conversation viewer with
   in-transcript find, bookmarks/pins/notes/tags, export (Markdown/JSON), "forget",

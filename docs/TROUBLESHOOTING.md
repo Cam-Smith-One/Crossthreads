@@ -164,6 +164,15 @@ Tools exposed: `crossthreads_search`, `crossthreads_recall` (takes a `question`)
 `crossthreads_build_context`, and `crossthreads_status`. See
 [AGENT_API](AGENT_API.md) for the full schemas.
 
+### The agent has the tools but never uses them
+Install the **agent skill**, which tells the agent *when* to reach for
+Crossthreads (recall at task start, search before re-solving):
+```sh
+crossthreads skill install
+```
+It writes a Claude Code `SKILL.md` and a Codex `/crossthreads` prompt. The skill
+still needs the MCP server configured and the daemon running to do anything.
+
 ---
 
 ## Data, privacy & reset

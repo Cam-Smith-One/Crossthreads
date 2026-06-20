@@ -147,7 +147,7 @@ Point any MCP client at the `ct-mcp` binary and your agent gets four tools:
 | Tool | Purpose |
 |---|---|
 | `crossthreads_search` | hybrid/semantic/lexical search with filters |
-| `crossthreads_recall` | fetch a full conversation by id |
+| `crossthreads_recall` | answer-oriented digest of relevant past sessions for a question |
 | `crossthreads_build_context` | render top matches into a paste-ready context block |
 | `crossthreads_status` | index health and counts |
 
@@ -156,7 +156,15 @@ Point any MCP client at the `ct-mcp` binary and your agent gets four tools:
 { "mcpServers": { "crossthreads": { "command": "ct-mcp" } } }
 ```
 
-See [docs/AGENT_API.md](docs/AGENT_API.md) for the full CLI/JSON, HTTP, and MCP contracts.
+**Install the agent skill** so your tools proactively recall prior work (it
+encodes "recall before you build, search when stuck"):
+
+```sh
+crossthreads skill install        # Claude Code skill + Codex /crossthreads prompt
+```
+
+`ct-mcp` forwards to a running `crossthreadsd`, so keep the daemon up. See
+[docs/AGENT_API.md](docs/AGENT_API.md) for the full CLI/JSON, HTTP, and MCP contracts.
 
 ## 🏗️ How it works
 

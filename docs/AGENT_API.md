@@ -215,6 +215,20 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 
 Tool input schemas mirror the request bodies above; outputs mirror the responses. Tools are **read-only** by default (no mutation of indexed data) — a safe surface to expose to an agent.
 
+### 7.1 Agent skill
+
+`crossthreads skill install` writes a workflow skill that nudges agents to use
+the MCP tools at the right moments (recall at task start, search before
+re-solving):
+
+- **Claude Code:** `<~/.claude>/skills/crossthreads/SKILL.md` (loads
+  automatically; `CLAUDE_CONFIG_DIR` overrides the location).
+- **Codex:** `<~/.codex>/prompts/crossthreads.md`, invoked as `/crossthreads`
+  (`CODEX_HOME` overrides).
+
+Flags: `--claude` / `--codex` to install one, `--force` to overwrite. The skill
+text is bundled in the binary; the canonical sources live in `assets/skills/`.
+
 ---
 
 ## 8. Conventions

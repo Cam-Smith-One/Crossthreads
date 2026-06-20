@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 mod context;
 mod index;
 mod search;
+mod skill;
 mod status;
 
 const USAGE: &str = "\
@@ -26,6 +27,7 @@ COMMANDS:
     search <QUERY>    Search the index (lexical / semantic / hybrid)
     context <QUERY>   Build a paste-ready context block from top matches
     status            Show index health (local, or --remote for the daemon)
+    skill install     Install the Crossthreads agent skill for Claude Code/Codex
     help              Show this help
 
 COMMON OPTIONS:
@@ -69,6 +71,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("search") => search::run(&args[1..]),
         Some("context") => context::run(&args[1..]),
         Some("status") => status::run(&args[1..]),
+        Some("skill") => skill::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)
