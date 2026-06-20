@@ -20,6 +20,10 @@ pub use schema::SCHEMA_VERSION;
 /// while keeping genuinely related sentences (which score well above it).
 pub const MIN_SIMILARITY: f32 = 0.15;
 
+/// Above this many cached vectors, parallelize the semantic scan across cores.
+/// Below it, the per-task overhead isn't worth it.
+const PARALLEL_SCAN_THRESHOLD: usize = 8_192;
+
 /// Outcome of attempting to persist one conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Upsert {
@@ -526,8 +530,10 @@ impl Store {
     ///
     /// Fast path: vectors are kept L2-normalized in memory (rebuilt only when
     /// the index changes), so this scores each candidate with a single dot
-    /// product — no per-query DB read and no per-vector sqrt. Only the top
-    /// `limit` messages are then hydrated into full [`SearchHit`]s.
+    /// product — no per-query DB read and no per-vector sqrt. For large corpora
+    /// the scan is parallelized across cores (a clean seam where an ANN index
+    /// like sqlite-vec/HNSW could drop in later). Only the top `limit` messages
+    /// are then hydrated into full [`SearchHit`]s.
     pub fn search_semantic(&self, query: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
         self.refresh_vec_cache()?;
         let qn = normalized(query);
@@ -535,12 +541,22 @@ impl Store {
         // Score in memory, collapse to the best message per conversation, keep
         // the rowids of the survivors in rank order.
         let cache = self.vec_cache.borrow();
-        let mut scored: Vec<(f32, i64, &str)> = cache
-            .entries
-            .iter()
-            .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
-            .filter(|(s, ..)| *s >= MIN_SIMILARITY)
-            .collect();
+        let mut scored: Vec<(f32, i64, &str)> = if cache.entries.len() >= PARALLEL_SCAN_THRESHOLD {
+            use rayon::prelude::*;
+            cache
+                .entries
+                .par_iter()
+                .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
+                .filter(|(s, ..)| *s >= MIN_SIMILARITY)
+                .collect()
+        } else {
+            cache
+                .entries
+                .iter()
+                .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
+                .filter(|(s, ..)| *s >= MIN_SIMILARITY)
+                .collect()
+        };
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut seen = std::collections::HashSet::new();

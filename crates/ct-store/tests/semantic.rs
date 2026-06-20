@@ -115,3 +115,61 @@ fn hybrid_finds_lexical_only_match_when_vectors_are_weak() {
         .iter()
         .any(|h| h.project.as_deref() == Some("/acme-web")));
 }
+
+#[test]
+fn semantic_scan_scales_and_stays_correct() {
+    // Build a corpus larger than the parallel-scan threshold (8_192) so the
+    // parallel path is exercised, with one planted "needle" conversation whose
+    // vector matches the query and a big "haystack" of orthogonal vectors.
+    let mut store = Store::open_in_memory().unwrap();
+
+    // Haystack: one conversation with many short messages.
+    let n = 12_000usize;
+    let haystack: Vec<String> = (0..n)
+        .map(|i| format!("noise message number {i}"))
+        .collect();
+    let haystack_refs: Vec<&str> = haystack.iter().map(String::as_str).collect();
+    store
+        .upsert_conversation(&convo(Tool::ClaudeCode, "/haystack", &haystack_refs))
+        .unwrap();
+    // Needle: its own conversation with a single, distinctive message.
+    store
+        .upsert_conversation(&convo(
+            Tool::Cursor,
+            "/needle",
+            &["the planted needle message"],
+        ))
+        .unwrap();
+
+    // Assign vectors directly (dim 16): the needle points at dim 0 (matching the
+    // query); every haystack vector points at a non-zero dim, so its cosine with
+    // the query is 0 and it's filtered by MIN_SIMILARITY.
+    let pending = store.pending_embeddings(100_000).unwrap();
+    let rows: Vec<(i64, Vec<f32>)> = pending
+        .iter()
+        .map(|(rowid, content)| {
+            let mut v = vec![0.0f32; 16];
+            if content.contains("planted needle") {
+                v[0] = 1.0;
+            } else {
+                v[1 + (*rowid as usize % 15)] = 1.0;
+            }
+            (*rowid, v)
+        })
+        .collect();
+    store.store_embeddings("test", &rows).unwrap();
+    assert!(store.embedding_count().unwrap() as usize >= n);
+
+    // Query aligned with the needle.
+    let mut q = vec![0.0f32; 16];
+    q[0] = 1.0;
+    let start = std::time::Instant::now();
+    let hits = store.search_semantic(&q, 5).unwrap();
+    let elapsed = start.elapsed();
+
+    // Only the needle clears the similarity floor; it ranks first.
+    assert_eq!(hits.len(), 1, "only the needle should clear MIN_SIMILARITY");
+    assert_eq!(hits[0].project.as_deref(), Some("/needle"));
+    // Generous bound: a 12k-vector scan should be well under this even in CI.
+    assert!(elapsed.as_secs() < 5, "scan too slow: {elapsed:?}");
+}
