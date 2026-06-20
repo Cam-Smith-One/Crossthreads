@@ -129,7 +129,6 @@ Occasionally a locked DB is skipped for that pass and picked up on the next one.
 ---
 
 ## Search
-
 ### Semantic search feels weak / too literal
 Prebuilt binaries and the default build use a **deterministic offline embedder**
 (fast, no download) — good for keyword/hybrid, weaker on pure meaning. For real
@@ -143,6 +142,27 @@ The model downloads once (~90 MB) and needs network for that first run.
 Intentional — the context block is capped (default ~6,000 chars) so it fits an
 agent's window. Raise it with `--max-chars` on the CLI or the `max_chars`
 argument on the MCP/HTTP `context` call.
+
+---
+
+## MCP server (agents)
+
+### The MCP tools fail / "connecting to daemon … connection refused"
+`ct-mcp` is a thin stdio server that **forwards to a running `crossthreadsd`** —
+it doesn't open the index itself. So the daemon must be running for the tools to
+work. Start it (`scripts/start.sh`, or `crossthreadsd` directly) and keep it up.
+It connects on `CROSSTHREADS_ADDR` (default `127.0.0.1:47100`); set that env var
+if you run the daemon on a non-default `--addr`.
+
+### Registering it with an agent
+Point your MCP client at the `ct-mcp` binary (after `install.sh` it's on your
+PATH; from source it's `target/release/ct-mcp`). For example:
+```jsonc
+{ "mcpServers": { "crossthreads": { "command": "ct-mcp" } } }
+```
+Tools exposed: `crossthreads_search`, `crossthreads_recall` (takes a `question`),
+`crossthreads_build_context`, and `crossthreads_status`. See
+[AGENT_API](AGENT_API.md) for the full schemas.
 
 ---
 
