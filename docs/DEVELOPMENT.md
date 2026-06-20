@@ -124,3 +124,20 @@ daemon. Building it needs a Node toolchain **and** platform webview libraries
 (e.g. `webkit2gtk` on Linux) plus a display — so it can't be built/run in a
 headless CI container. The web-served path above is the verifiable equivalent
 during development.
+
+## Releasing prebuilt binaries
+
+Users install without a Rust/Node toolchain via prebuilt release tarballs
+(`scripts/install.sh`). To cut a release, push a `v*` tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` then builds `crossthreadsd`, `crossthreads`, and
+`ct-mcp` plus the web UI for Linux x64 and macOS (arm64 + x64), packages each as
+`crossthreads-<tag>-<target>.tar.gz` (binaries under `bin/`, the built UI under
+`ui/`, and a `crossthreads-up` launcher), and attaches them to the GitHub
+Release. You can also run the workflow manually (`workflow_dispatch`) with a tag
+input. Release binaries use the offline embedder; ONNX/all-MiniLM semantic
+search is a source build (`--features onnx`).

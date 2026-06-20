@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# crossthreads-up — start Crossthreads (daemon + web UI) and open the app.
+#
+# Bundled in the release tarball next to the binaries and the built UI:
+#
+#   crossthreads-up/   ../ui/   ../bin/crossthreadsd
+#
+# Resolves the UI relative to its own location, so it works whether you run it
+# from an unpacked tarball or after `install.sh` has placed it under
+# ~/.crossthreads. Ctrl-C to stop.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+DAEMON="$ROOT/bin/crossthreadsd"
+UI="$ROOT/ui"
+HTTP_ADDR="${CT_HTTP:-127.0.0.1:47101}"
+URL="http://${HTTP_ADDR}"
+
+[[ -x "$DAEMON" ]] || { echo "crossthreadsd not found at $DAEMON" >&2; exit 1; }
+
+# Open the browser once the server answers (best effort, background).
+(
+  for _ in $(seq 1 60); do
+    if curl -fsS "${URL}/" >/dev/null 2>&1; then
+      case "$(uname -s)" in
+        Darwin) open "$URL" ;;
+        Linux)  command -v xdg-open >/dev/null && xdg-open "$URL" >/dev/null 2>&1 || true ;;
+      esac
+      break
+    fi
+    sleep 0.5
+  done
+) &
+
+echo "▸ Crossthreads is starting — it will open at ${URL}"
+echo "  (the first index of a large history can take a minute; search fills in live)"
+exec "$DAEMON" --http "$HTTP_ADDR" --ui "$UI"

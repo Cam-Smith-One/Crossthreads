@@ -16,24 +16,27 @@ The built-in history/search in each tool is siloed and weak. When you ask "where
 
 ## Quickstart
 
-Prereqs: **Rust** (stable); **Node** for the web UI. SQLite and the ONNX runtime are bundled; the embedding model downloads once on first use.
+**Install (no toolchain needed)** — grab a prebuilt build and open the app:
 
 ```sh
-# Easiest: index your real sessions and open the app in one command.
-scripts/start.sh              # fast offline search
-CT_ONNX=1 scripts/start.sh    # real semantic search (downloads all-MiniLM once)
+curl -fsSL https://raw.githubusercontent.com/Cam-Smith-One/Crossthreads/main/scripts/install.sh | bash
+crossthreads-up        # indexes your sessions and opens http://127.0.0.1:47101
 ```
 
-That builds the daemon + UI, indexes whatever tools you have installed (Claude Code, Codex, Cursor, Aider, Cline, Copilot, Gemini CLI, Windsurf, Antigravity), watches for new sessions, and opens `http://127.0.0.1:47101`.
+That installs to `~/.crossthreads`, links the `crossthreads` / `crossthreadsd` / `ct-mcp` commands into `~/.local/bin`, indexes whatever tools you have installed (Claude Code, Codex, Cursor, Aider, Cline, Copilot, Gemini CLI, Windsurf, Antigravity), watches for new sessions, and opens the web app. _(Prebuilt binaries use the offline embedder; build from source with `--features onnx` for ONNX/all-MiniLM semantic search.)_
 
-<details><summary>Or run the pieces directly</summary>
+<details><summary>Build from source</summary>
+
+Prereqs: **Rust** (stable); **Node** for the web UI.
 
 ```sh
-# CLI: index your sessions and search them
+# One command: build, index your real sessions, and open the app.
+scripts/start.sh              # fast offline search
+CT_ONNX=1 scripts/start.sh    # real semantic search (downloads all-MiniLM once)
+
+# Or run the pieces directly:
 cargo run --release -p ct-cli -- index
 cargo run --release -p ct-cli -- search "oauth refresh retry" --mode hybrid
-
-# Full app: daemon + web UI (auto-indexes, watches, serves the UI)
 cd ui && npm install && npm run build && cd ..
 cargo run --release --features onnx -p ct-daemon -- --http 127.0.0.1:47101 --ui ui/dist
 #   → open http://127.0.0.1:47101
@@ -43,6 +46,7 @@ CT_ONNX=1 scripts/demo.sh
 ```
 
 </details>
+
 
 Add `--features onnx` for real semantic search (all-MiniLM via ONNX); without it, a deterministic offline embedder is used. For agents, point an MCP client at the `ct-mcp` binary — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
