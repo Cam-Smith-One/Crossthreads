@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Local-first](https://img.shields.io/badge/local--first-no%20telemetry-2ea44f.svg)](#principles)
 
-**One place to search, recall, and resume every AI coding conversation — across Claude Code, Codex, Cursor, Aider, and more.**
+**One place to search, recall, and resume every AI coding conversation — across Claude Code, Codex, Cursor, Aider, Cline, Copilot, Gemini CLI, Windsurf, Antigravity, and more.**
 
 Crossthreads is a local-first session indexer and memory layer for AI coding tools. It auto-discovers conversation history wherever your agents store it, normalizes everything into a common schema, and gives you fast hybrid search (keyword + semantic) over the whole corpus — plus actionable outputs like "resume this thread," "export context," and "inject into a new agent prompt." A background daemon keeps the index live, and an MCP server lets your agents query it natively.
 
@@ -36,13 +36,13 @@ Add `--features onnx` for real semantic search (all-MiniLM via ONNX); without it
 
 ## Status
 
-🛠️ **MVP backend complete.** Sessions from **Claude Code** (JSONL), **Cursor** (`state.vscdb` SQLite), **Aider** (`.aider.chat.history.md`), and **Codex** (`~/.codex/sessions` rollouts) are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion, with tool/project/date **filters**. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status/context over a loopback socket **and** an HTTP bridge. An **MCP server** lets agents search/recall/inject context natively, a **React+Vite UI** provides search + filters + a conversation viewer, and a **Tauri shell** wraps that UI (builds on a desktop machine).
+🛠️ **MVP backend complete.** Sessions from **Claude Code** (JSONL), **Cursor** (`state.vscdb` SQLite), **Aider** (`.aider.chat.history.md`), **Codex** (`~/.codex/sessions` rollouts), **Cline** (VS Code globalStorage tasks), **GitHub Copilot Chat** (VS Code `chatSessions`), **Gemini CLI** (`~/.gemini/tmp/*/chats`), **Windsurf** (`state.vscdb`), and **Antigravity** (Markdown brain artifacts, best-effort) are parsed, normalized, **persisted into one SQLite index** (deduped by content hash), and searchable with **hybrid retrieval** — FTS5 keyword (BM25) **+ semantic embeddings (all-MiniLM via ONNX)** fused with Reciprocal Rank Fusion, with tool/project/date **filters**, **bookmarks & pins**, and **reveal-the-original-file**. A background daemon (`crossthreadsd`) owns the index, **watches for new sessions and re-indexes automatically**, and serves search/status/context over a loopback socket **and** an HTTP bridge. An **MCP server** lets agents search/recall/inject context natively, a **React+Vite UI** provides search + filters + a conversation viewer, and a **Tauri shell** wraps that UI (builds on a desktop machine).
 
 ```
 crates/
   ct-core         # normalized schema + Connector trait + content hashing
-  ct-connectors   # parsers: Claude Code, Cursor, Aider, Codex threads +
-                  #   skills/prompts (Claude SKILL.md, Codex prompts) — kind=skill
+  ct-connectors   # parsers: Claude Code, Cursor, Aider, Codex, Cline, Copilot,
+                  #   Gemini CLI, Windsurf, Antigravity threads + skills/prompts
   ct-embed        # Embedder trait: hash (default) + ONNX/all-MiniLM (`onnx`)
   ct-store        # one SQLite index: FTS5 + vectors + RRF hybrid + filters (ADR-007)
   ct-index        # indexing orchestration shared by CLI + daemon

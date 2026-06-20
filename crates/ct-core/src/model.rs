@@ -19,6 +19,9 @@ pub enum Tool {
     Codex,
     GeminiCli,
     Windsurf,
+    Cline,
+    Copilot,
+    Antigravity,
     #[serde(untagged)]
     Other(String),
 }
@@ -33,6 +36,9 @@ impl Tool {
             Tool::Codex => "codex",
             Tool::GeminiCli => "gemini-cli",
             Tool::Windsurf => "windsurf",
+            Tool::Cline => "cline",
+            Tool::Copilot => "copilot",
+            Tool::Antigravity => "antigravity",
             Tool::Other(s) => s,
         }
     }
