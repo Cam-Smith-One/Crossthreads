@@ -23,7 +23,7 @@
 
 ---
 
-Crossthreads is a **local-first session indexer and memory layer** for AI coding agents. It auto-discovers your conversation history wherever each tool stores it, normalizes everything into one schema, and gives you **fast hybrid search** (keyword + semantic) over the whole corpus — then makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent. A background daemon keeps the index live, and an MCP server lets your agents query it natively.
+Crossthreads is a **local-first session indexer and memory layer** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent. A background daemon keeps the index live, and an MCP server lets your agents query it natively.
 
 > **Where's the thread where we fixed the OAuth refresh retry?** — one query, every tool, instant answer.
 
