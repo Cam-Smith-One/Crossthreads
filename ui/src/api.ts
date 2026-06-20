@@ -20,6 +20,8 @@ export interface Hit {
   snippet: string;
   score: number;
   source_path: string;
+  bookmarked?: boolean;
+  pinned?: boolean;
 }
 
 export interface Status {
@@ -46,6 +48,8 @@ export interface StoredConversation {
   title?: string | null;
   started_at?: string | null;
   source_path?: string;
+  bookmarked?: boolean;
+  pinned?: boolean;
   messages: StoredMessage[];
 }
 
@@ -114,6 +118,24 @@ export async function getConversation(id: string): Promise<StoredConversation | 
     id,
   });
   return data.conversation;
+}
+
+export async function setFlags(
+  id: string,
+  flags: { bookmarked?: boolean; pinned?: boolean },
+): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "set_flags", id, ...flags });
+  return data.ok;
+}
+
+export async function getSaved(): Promise<Hit[]> {
+  const data = await rpc<{ hits: Hit[] }>({ op: "saved" });
+  return data.hits;
+}
+
+export async function openSource(id: string): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "open_source", id });
+  return data.ok;
 }
 
 export function buildContext(

@@ -211,6 +211,13 @@ impl Daemon {
                 .search(&query, mode, limit, &filters)
                 .unwrap_or_else(err),
             Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
+            Request::SetFlags {
+                id,
+                bookmarked,
+                pinned,
+            } => self.set_flags(&id, bookmarked, pinned).unwrap_or_else(err),
+            Request::Saved => self.saved().unwrap_or_else(err),
+            Request::OpenSource { id } => self.open_source(&id).unwrap_or_else(err),
             Request::Context {
                 query,
                 mode,
@@ -270,6 +277,39 @@ impl Daemon {
         })
     }
 
+    fn set_flags(
+        &self,
+        id: &str,
+        bookmarked: Option<bool>,
+        pinned: Option<bool>,
+    ) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        let ok = store.set_flags(id, bookmarked, pinned)?;
+        Ok(Response::Ok { ok })
+    }
+
+    fn saved(&self) -> Result<Response> {
+        let store = self.store.lock().expect("store mutex poisoned");
+        Ok(Response::Hits {
+            hits: store.saved()?,
+        })
+    }
+
+    /// Reveal a conversation's source file in the OS file manager (FR-ACT-01).
+    /// The daemon runs locally, so it can hand the path to the platform opener;
+    /// this works for the web UI and the native shell alike.
+    fn open_source(&self, id: &str) -> Result<Response> {
+        let path = {
+            let store = self.store.lock().expect("store mutex poisoned");
+            store.get_conversation(id)?.map(|c| c.source_path)
+        };
+        let Some(path) = path.filter(|p| !p.is_empty()) else {
+            return Ok(Response::Ok { ok: false });
+        };
+        let ok = open_in_file_manager(&path);
+        Ok(Response::Ok { ok })
+    }
+
     /// Search for the top matches and render them into a paste-ready context
     /// block (AGENT_API §5). Embedding happens before the store lock.
     fn context(
@@ -305,6 +345,28 @@ fn err(e: anyhow::Error) -> Response {
     Response::Error {
         message: format!("{e:#}"),
     }
+}
+
+/// Reveal `path` in the platform file manager (best effort). Returns whether the
+/// opener launched. Uses `open -R` on macOS, `explorer /select,` on Windows, and
+/// `xdg-open` on the containing dir elsewhere.
+fn open_in_file_manager(path: &str) -> bool {
+    use std::process::Command;
+    let spawned = if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(path).spawn()
+    } else if cfg!(target_os = "windows") {
+        Command::new("explorer")
+            .arg(format!("/select,{path}"))
+            .spawn()
+    } else {
+        // Linux/other: reveal the containing directory.
+        let dir = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from(path));
+        Command::new("xdg-open").arg(dir).spawn()
+    };
+    spawned.is_ok()
 }
 
 /// A thin client for talking to a running daemon.

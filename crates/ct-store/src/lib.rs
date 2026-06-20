@@ -46,6 +46,12 @@ pub struct SearchHit {
     /// BM25 score (lower is a better match; we expose it as-is).
     pub score: f64,
     pub source_path: String,
+    /// User-set: saved to the bookmarks list.
+    #[serde(default)]
+    pub bookmarked: bool,
+    /// User-set: pinned to the top.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// One message of a stored conversation.
@@ -69,6 +75,10 @@ pub struct StoredConversation {
     /// for "open original" / reveal-in-folder (FR-ACT-01).
     #[serde(default)]
     pub source_path: String,
+    #[serde(default)]
+    pub bookmarked: bool,
+    #[serde(default)]
+    pub pinned: bool,
     pub messages: Vec<StoredMessage>,
 }
 
@@ -145,6 +155,29 @@ impl Filters {
 /// Handle to the index database.
 pub struct Store {
     conn: Connection,
+    /// Monotonic counter bumped on every write that can affect embeddings, so
+    /// the in-memory vector cache knows when it's stale.
+    write_gen: std::cell::Cell<u64>,
+    /// L2-normalized vectors held in memory for fast semantic search. Rebuilt
+    /// lazily from the `embeddings` table when `write_gen` advances, turning the
+    /// per-query cosine scan into a cache-friendly dot product (no DB I/O, no
+    /// per-vector sqrt). Interior-mutable so `&self` search can refresh it.
+    vec_cache: std::cell::RefCell<VecCache>,
+}
+
+/// In-memory, normalized vectors plus the `write_gen` they were built at.
+#[derive(Default)]
+struct VecCache {
+    gen: u64,
+    built: bool,
+    entries: Vec<CachedVec>,
+}
+
+struct CachedVec {
+    rowid: i64,
+    conversation_id: String,
+    /// L2-normalized embedding; cosine against another unit vector is its dot.
+    norm: Vec<f32>,
 }
 
 impl Store {
@@ -170,6 +203,15 @@ impl Store {
             "ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'thread'",
             [],
         );
+        // v3 -> v4: user-set bookmark/pin flags. Ignored when already present.
+        let _ = conn.execute(
+            "ALTER TABLE conversations ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         // Persist/verify the schema version in the user_version pragma. The
         // schema is additive (CREATE … IF NOT EXISTS), so older DBs upgrade in
@@ -183,7 +225,16 @@ impl Store {
         if current < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            write_gen: std::cell::Cell::new(1),
+            vec_cache: std::cell::RefCell::new(VecCache::default()),
+        })
+    }
+
+    /// Mark the vector cache stale after a write that touched embeddings.
+    fn bump_write_gen(&self) {
+        self.write_gen.set(self.write_gen.get().wrapping_add(1));
     }
 
     /// Persist a conversation and its messages, skipping if an identical one
@@ -245,6 +296,7 @@ impl Store {
         }
 
         tx.commit()?;
+        self.bump_write_gen();
         Ok(Upsert::Inserted)
     }
 
@@ -267,6 +319,7 @@ impl Store {
         let fetch = (limit * 5).max(limit) as i64;
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
+                    c.bookmarked, c.pinned,
                     snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
                     bm25(messages_fts) AS score
              FROM messages_fts
@@ -286,8 +339,10 @@ impl Store {
                 title: row.get(4)?,
                 started_at: row.get(5)?,
                 source_path: row.get(6)?,
-                snippet: row.get(7)?,
-                score: row.get(8)?,
+                bookmarked: row.get::<_, i64>(7)? != 0,
+                pinned: row.get::<_, i64>(8)? != 0,
+                snippet: row.get(9)?,
+                score: row.get(10)?,
             })
         })?;
 
@@ -335,6 +390,7 @@ impl Store {
             }
         }
         tx.commit()?;
+        self.bump_write_gen();
         Ok(())
     }
 
@@ -345,29 +401,42 @@ impl Store {
             .query_row("SELECT COUNT(*) FROM embeddings", [], |r| r.get(0))?)
     }
 
-    /// Semantic search: brute-force cosine over stored vectors, collapsed to the
-    /// best message per conversation. `query` is the query embedding.
+    /// Semantic search over stored vectors, collapsed to the best message per
+    /// conversation. `query` is the query embedding.
+    ///
+    /// Fast path: vectors are kept L2-normalized in memory (rebuilt only when
+    /// the index changes), so this scores each candidate with a single dot
+    /// product — no per-query DB read and no per-vector sqrt. Only the top
+    /// `limit` messages are then hydrated into full [`SearchHit`]s.
     pub fn search_semantic(&self, query: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
-        let mut scored = self.vector_scored(query)?;
-        // Highest cosine first.
+        self.refresh_vec_cache()?;
+        let qn = normalized(query);
+
+        // Score in memory, collapse to the best message per conversation, keep
+        // the rowids of the survivors in rank order.
+        let cache = self.vec_cache.borrow();
+        let mut scored: Vec<(f32, i64, &str)> = cache
+            .entries
+            .iter()
+            .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
+            .filter(|(s, ..)| *s >= MIN_SIMILARITY)
+            .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
         let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::new();
-        for (score, mut hit) in scored {
-            // Precision floor: don't surface weakly-related vectors. Without
-            // this, a small corpus returns the top-N even at ~0 similarity.
-            if score < MIN_SIMILARITY {
-                break; // sorted desc — nothing below will qualify either
-            }
-            if seen.insert(hit.conversation_id.clone()) {
-                hit.score = score as f64;
-                out.push(hit);
-                if out.len() >= limit {
+        let mut top: Vec<(i64, f32)> = Vec::with_capacity(limit);
+        for (score, rowid, conv) in scored {
+            if seen.insert(conv.to_string()) {
+                top.push((rowid, score));
+                if top.len() >= limit {
                     break;
                 }
             }
         }
-        Ok(out)
+        drop(cache);
+
+        // Hydrate only the survivors into full hits, preserving rank order.
+        self.hits_for_rowids(&top)
     }
 
     /// Hybrid search: fuse lexical (FTS/BM25) and semantic (cosine) rankings
@@ -501,7 +570,7 @@ impl Store {
     /// Fetch a full stored conversation by id, with its messages in order.
     pub fn get_conversation(&self, id: &str) -> Result<Option<StoredConversation>> {
         let meta = self.conn.query_row(
-            "SELECT tool, kind, project, title, started_at, source_path \
+            "SELECT tool, kind, project, title, started_at, source_path, bookmarked, pinned \
              FROM conversations WHERE id = ?1",
             [id],
             |r| {
@@ -512,10 +581,12 @@ impl Store {
                     r.get::<_, Option<String>>(3)?,
                     r.get::<_, Option<String>>(4)?,
                     r.get::<_, String>(5)?,
+                    r.get::<_, i64>(6)? != 0,
+                    r.get::<_, i64>(7)? != 0,
                 ))
             },
         );
-        let (tool, kind, project, title, started_at, source_path) = match meta {
+        let (tool, kind, project, title, started_at, source_path, bookmarked, pinned) = match meta {
             Ok(t) => t,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -541,8 +612,62 @@ impl Store {
             title,
             started_at,
             source_path,
+            bookmarked,
+            pinned,
             messages,
         }))
+    }
+
+    // ---- Bookmarks &amp; pins (FR-SRCH-*) -------------------------------------
+
+    /// Set or clear the bookmark / pin flag on a conversation. `None` leaves a
+    /// flag unchanged. Returns `false` if no such conversation exists.
+    pub fn set_flags(
+        &self,
+        id: &str,
+        bookmarked: Option<bool>,
+        pinned: Option<bool>,
+    ) -> Result<bool> {
+        let mut sets = Vec::new();
+        if let Some(b) = bookmarked {
+            sets.push(format!("bookmarked = {}", b as i64));
+        }
+        if let Some(p) = pinned {
+            sets.push(format!("pinned = {}", p as i64));
+        }
+        if sets.is_empty() {
+            return Ok(true);
+        }
+        let sql = format!("UPDATE conversations SET {} WHERE id = ?1", sets.join(", "));
+        let n = self.conn.execute(&sql, [id])?;
+        Ok(n > 0)
+    }
+
+    /// Saved conversations — pinned first, then bookmarked — newest first within
+    /// each group. Powers the "Saved &amp; pinned" panel.
+    pub fn saved(&self) -> Result<Vec<SearchHit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tool, kind, project, title, started_at, source_path, bookmarked, pinned
+             FROM conversations
+             WHERE bookmarked = 1 OR pinned = 1
+             ORDER BY pinned DESC, started_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SearchHit {
+                conversation_id: row.get(0)?,
+                tool: row.get(1)?,
+                kind: row.get(2)?,
+                project: row.get(3)?,
+                title: row.get(4)?,
+                started_at: row.get(5)?,
+                source_path: row.get(6)?,
+                bookmarked: row.get::<_, i64>(7)? != 0,
+                pinned: row.get::<_, i64>(8)? != 0,
+                snippet: String::new(),
+                score: 0.0,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// Render a paste-ready markdown context block from the given conversations,
@@ -598,39 +723,74 @@ impl Store {
         })
     }
 
-    /// Score every stored vector against `query`, returning (cosine, hit) with
-    /// per-message snippets. Internal helper for semantic/hybrid search.
-    fn vector_scored(&self, query: &[f32]) -> Result<Vec<(f32, SearchHit)>> {
+    /// Rebuild the in-memory normalized-vector cache if a write has advanced
+    /// `write_gen` since it was last built. Cheap no-op on the hot path.
+    fn refresh_vec_cache(&self) -> Result<()> {
+        let gen = self.write_gen.get();
+        if self.vec_cache.borrow().built && self.vec_cache.borrow().gen == gen {
+            return Ok(());
+        }
         let mut stmt = self.conn.prepare(
-            "SELECT m.conversation_id, m.content, e.vec,
-                    c.tool, c.kind, c.project, c.title, c.started_at, c.source_path
+            "SELECT e.message_rowid, m.conversation_id, e.vec
              FROM embeddings e
-             JOIN messages m      ON m.rowid = e.message_rowid
-             JOIN conversations c ON c.id = m.conversation_id",
+             JOIN messages m ON m.rowid = e.message_rowid",
         )?;
-        let rows = stmt.query_map([], |row| {
-            let content: String = row.get(1)?;
-            let bytes: Vec<u8> = row.get(2)?;
-            Ok((
-                bytes_to_f32s(&bytes),
-                SearchHit {
-                    conversation_id: row.get(0)?,
-                    tool: row.get(3)?,
-                    kind: row.get(4)?,
-                    project: row.get(5)?,
-                    title: row.get(6)?,
-                    started_at: row.get(7)?,
-                    source_path: row.get(8)?,
-                    snippet: snippet_of(&content, 160),
-                    score: 0.0,
-                },
-            ))
-        })?;
+        let entries = stmt
+            .query_map([], |row| {
+                let rowid: i64 = row.get(0)?;
+                let conversation_id: String = row.get(1)?;
+                let bytes: Vec<u8> = row.get(2)?;
+                let mut norm = bytes_to_f32s(&bytes);
+                normalize_in_place(&mut norm);
+                Ok(CachedVec {
+                    rowid,
+                    conversation_id,
+                    norm,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        *self.vec_cache.borrow_mut() = VecCache {
+            gen,
+            built: true,
+            entries,
+        };
+        Ok(())
+    }
 
-        let mut out = Vec::new();
-        for row in rows {
-            let (vec, hit) = row?;
-            out.push((cosine(query, &vec), hit));
+    /// Hydrate the given message rowids (with their scores) into full hits,
+    /// preserving the order given. Used by semantic search after ranking.
+    fn hits_for_rowids(&self, ranked: &[(i64, f32)]) -> Result<Vec<SearchHit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT m.conversation_id, m.content,
+                    c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
+                    c.bookmarked, c.pinned
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+             WHERE m.rowid = ?1",
+        )?;
+        let mut out = Vec::with_capacity(ranked.len());
+        for (rowid, score) in ranked {
+            let hit = stmt.query_row([rowid], |row| {
+                let content: String = row.get(1)?;
+                Ok(SearchHit {
+                    conversation_id: row.get(0)?,
+                    tool: row.get(2)?,
+                    kind: row.get(3)?,
+                    project: row.get(4)?,
+                    title: row.get(5)?,
+                    started_at: row.get(6)?,
+                    source_path: row.get(7)?,
+                    bookmarked: row.get::<_, i64>(8)? != 0,
+                    pinned: row.get::<_, i64>(9)? != 0,
+                    snippet: snippet_of(&content, 160),
+                    score: *score as f64,
+                })
+            });
+            match hit {
+                Ok(h) => out.push(h),
+                Err(rusqlite::Error::QueryReturnedNoRows) => continue,
+                Err(e) => return Err(e.into()),
+            }
         }
         Ok(out)
     }
@@ -651,19 +811,30 @@ fn rrf_fuse(lists: &[Vec<String>], k: f64) -> Vec<(String, f64)> {
     fused
 }
 
-/// Cosine similarity; 0 for a zero vector or length mismatch.
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
+/// Dot product of two equal-length vectors (0 on length mismatch). For two
+/// L2-normalized vectors this equals their cosine similarity.
+fn dot(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         return 0.0;
     }
-    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
-    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if na == 0.0 || nb == 0.0 {
-        0.0
-    } else {
-        dot / (na * nb)
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+/// Scale a vector to unit length in place; leaves a zero vector untouched.
+fn normalize_in_place(v: &mut [f32]) {
+    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for x in v.iter_mut() {
+            *x /= norm;
+        }
     }
+}
+
+/// Return an L2-normalized copy of `v`.
+fn normalized(v: &[f32]) -> Vec<f32> {
+    let mut out = v.to_vec();
+    normalize_in_place(&mut out);
+    out
 }
 
 fn f32s_to_bytes(v: &[f32]) -> Vec<u8> {

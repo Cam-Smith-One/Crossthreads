@@ -44,6 +44,18 @@ pub enum Request {
     },
     /// Fetch a full conversation by id.
     GetConversation { id: String },
+    /// Set/clear the bookmark and/or pin flag on a conversation.
+    SetFlags {
+        id: String,
+        #[serde(default)]
+        bookmarked: Option<bool>,
+        #[serde(default)]
+        pinned: Option<bool>,
+    },
+    /// List saved (bookmarked or pinned) conversations.
+    Saved,
+    /// Open a conversation's source file in the OS default app / reveal it.
+    OpenSource { id: String },
     /// Build a paste-ready context block from the top matches for a query.
     Context {
         query: String,
@@ -99,6 +111,10 @@ pub enum Response {
         markdown: String,
         sources: Vec<String>,
         token_estimate: usize,
+    },
+    /// Generic acknowledgement for mutating ops (set flags, open source).
+    Ok {
+        ok: bool,
     },
     Error {
         message: String,

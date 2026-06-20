@@ -3,8 +3,11 @@ import {
   buildContext,
   getConversation,
   getFacets,
+  getSaved,
   getStatus,
+  openSource,
   search,
+  setFlags,
   type Filters,
   type Hit,
   type Mode,
@@ -27,11 +30,17 @@ export function App() {
   const [searched, setSearched] = useState(false);
   const [context, setContext] = useState<string | null>(null);
   const [open, setOpen] = useState<StoredConversation | null>(null);
+  const [saved, setSaved] = useState<Hit[]>([]);
+
+  const refreshSaved = useCallback(() => {
+    getSaved().then(setSaved).catch(() => {});
+  }, []);
 
   useEffect(() => {
     getStatus().then(setStatus).catch((e) => setError(String(e)));
     getFacets().then(setTools).catch(() => {});
-  }, []);
+    refreshSaved();
+  }, [refreshSaved]);
 
   const runSearch = useCallback(
     async (e?: React.FormEvent) => {
@@ -75,6 +84,27 @@ export function App() {
     }
   }
 
+  // Toggle a bookmark/pin flag and reflect it everywhere it's shown.
+  async function toggleFlag(id: string, patch: { bookmarked?: boolean; pinned?: boolean }) {
+    try {
+      await setFlags(id, patch);
+      const apply = (h: Hit): Hit => (h.conversation_id === id ? { ...h, ...patch } : h);
+      setHits((hs) => hs.map(apply));
+      setOpen((o) => (o && o.id === id ? { ...o, ...patch } : o));
+      refreshSaved();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function reveal(id: string) {
+    try {
+      if (!(await openSource(id))) setError("Couldn't open the source file.");
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   // Keyboard navigation over results (j/k or arrows; Enter opens; Esc closes).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -98,6 +128,26 @@ export function App() {
   }, [hits, selected, open]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+
+  // Pin / bookmark toggles, shared by result rows and the saved panel.
+  const flagButtons = (h: Pick<Hit, "conversation_id" | "pinned" | "bookmarked">) => (
+    <span className="hit-actions" onClick={(e) => e.stopPropagation()}>
+      <button
+        className={`icon ${h.pinned ? "on" : ""}`}
+        title={h.pinned ? "Unpin" : "Pin to top"}
+        onClick={() => toggleFlag(h.conversation_id, { pinned: !h.pinned })}
+      >
+        {h.pinned ? "📌" : "📍"}
+      </button>
+      <button
+        className={`icon ${h.bookmarked ? "on" : ""}`}
+        title={h.bookmarked ? "Remove bookmark" : "Bookmark"}
+        onClick={() => toggleFlag(h.conversation_id, { bookmarked: !h.bookmarked })}
+      >
+        {h.bookmarked ? "🔖" : "🏷️"}
+      </button>
+    </span>
+  );
 
   return (
     <div className="app">
@@ -165,6 +215,26 @@ export function App() {
 
       {error && <div className="error">{error}</div>}
 
+      {saved.length > 0 && !searched && (
+        <section className="saved">
+          <h2>Saved &amp; pinned</h2>
+          <div className="saved-list">
+            {saved.map((h) => (
+              <div
+                key={h.conversation_id}
+                className="saved-item"
+                onClick={() => openConversation(h.conversation_id)}
+              >
+                <span className={`tool tool-${h.tool}`}>{h.tool}</span>
+                <span className="title">{h.title ?? "(untitled)"}</span>
+                {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
+                {flagButtons(h)}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {context !== null && (
         <section className="context">
           <div className="context-head">
@@ -193,6 +263,7 @@ export function App() {
               <span className={`tool tool-${h.tool}`}>{h.tool}</span>
               <span className="title">{h.title ?? "(untitled)"}</span>
               {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
+              {flagButtons(h)}
             </div>
             {h.project && <div className="project">{h.project}</div>}
             <div className="snippet" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />
@@ -209,9 +280,16 @@ export function App() {
                 <strong>{open.title ?? "(untitled)"}</strong>
                 {open.project && <div className="project">{open.project}</div>}
               </div>
-              <button className="secondary" onClick={() => setOpen(null)}>
-                Close
-              </button>
+              <div className="modal-head-actions">
+                {flagButtons({
+                  conversation_id: open.id,
+                  pinned: open.pinned,
+                  bookmarked: open.bookmarked,
+                })}
+                <button className="secondary" onClick={() => setOpen(null)}>
+                  Close
+                </button>
+              </div>
             </div>
             <div className="transcript">
               {open.messages.map((m, i) => (
@@ -228,6 +306,13 @@ export function App() {
                   <code>{open.source_path}</code>
                 </div>
                 <div className="source-actions">
+                  <button
+                    className="secondary"
+                    title="Reveal the original chat file in your file manager"
+                    onClick={() => reveal(open.id)}
+                  >
+                    Reveal
+                  </button>
                   {resumeHint(open.tool, open.source_path) && (
                     <button
                       className="secondary"

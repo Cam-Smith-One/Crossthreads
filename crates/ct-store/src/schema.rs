@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -29,12 +29,17 @@ CREATE TABLE IF NOT EXISTS conversations (
     content_hash       TEXT NOT NULL UNIQUE,
     title              TEXT,
     message_count      INTEGER NOT NULL,
-    indexed_at         TEXT NOT NULL
+    indexed_at         TEXT NOT NULL,
+    -- User-set flags (FR-SRCH-*): a saved bookmark and a sticky pin. Survive
+    -- re-indexing because dedup keys on content_hash, so the row persists.
+    bookmarked         INTEGER NOT NULL DEFAULT 0,
+    pinned             INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_tool    ON conversations(tool);
 CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project);
+CREATE INDEX IF NOT EXISTS idx_conversations_saved   ON conversations(bookmarked, pinned);
 
 CREATE TABLE IF NOT EXISTS messages (
     rowid           INTEGER PRIMARY KEY,

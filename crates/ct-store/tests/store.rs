@@ -118,6 +118,44 @@ fn search_collapses_to_one_hit_per_conversation() {
 }
 
 #[test]
+fn bookmark_and_pin_flags_round_trip() {
+    let mut store = Store::open_in_memory().unwrap();
+    let c = convo(
+        Tool::ClaudeCode,
+        "/repo",
+        vec![msg(Role::User, "set up the deploy pipeline")],
+    );
+    store.upsert_conversation(&c).unwrap();
+
+    // Nothing saved yet.
+    assert!(store.saved().unwrap().is_empty());
+
+    // Pin it, then bookmark it.
+    assert!(store.set_flags(&c.id, None, Some(true)).unwrap());
+    assert!(store.set_flags(&c.id, Some(true), None).unwrap());
+
+    let saved = store.saved().unwrap();
+    assert_eq!(saved.len(), 1);
+    assert!(saved[0].pinned);
+    assert!(saved[0].bookmarked);
+
+    // Flags surface on the fetched conversation and in search hits.
+    let full = store.get_conversation(&c.id).unwrap().unwrap();
+    assert!(full.pinned && full.bookmarked);
+    let hit = &store.search("deploy pipeline", 10).unwrap()[0];
+    assert!(hit.pinned && hit.bookmarked);
+
+    // Clearing the pin leaves only the bookmark; both clear -> not saved.
+    assert!(store.set_flags(&c.id, None, Some(false)).unwrap());
+    assert_eq!(store.saved().unwrap().len(), 1);
+    assert!(store.set_flags(&c.id, Some(false), None).unwrap());
+    assert!(store.saved().unwrap().is_empty());
+
+    // Unknown id reports no row updated.
+    assert!(!store.set_flags("nope", Some(true), None).unwrap());
+}
+
+#[test]
 fn punctuation_in_query_does_not_break_fts() {
     let mut store = Store::open_in_memory().unwrap();
     store

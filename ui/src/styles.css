@@ -245,6 +245,43 @@ header h1 {
   font-size: 13px;
 }
 
+/* Pin / bookmark toggle buttons */
+.hit-actions { display: inline-flex; gap: 4px; margin-left: 8px; }
+.hit-head .hit-actions { margin-left: 0; }
+.hit-actions .icon {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  filter: grayscale(1) opacity(0.55);
+}
+.hit-actions .icon:hover { background: #20262f; filter: none; }
+.hit-actions .icon.on { filter: none; }
+
+/* Saved & pinned panel */
+.saved { margin: 0 0 24px; }
+.saved h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+.saved-list { display: flex; flex-direction: column; gap: 6px; }
+.saved-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.saved-item:hover { border-color: #313a48; }
+.saved-item .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-item .date { margin-left: auto; }
+.saved-item .hit-actions { margin-left: 0; }
+
+.modal-head-actions { display: flex; align-items: center; gap: 8px; }
+
 .badge-skill {
   font-size: 11px;
   text-transform: uppercase;
