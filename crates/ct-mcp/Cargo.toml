@@ -26,3 +26,4 @@ ct-core = { workspace = true }
 ct-store = { path = "../ct-store" }
 ct-embed = { path = "../ct-embed" }
 ct-index = { path = "../ct-index" }
+tempfile = "3"

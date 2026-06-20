@@ -148,11 +148,16 @@ argument on the MCP/HTTP `context` call.
 ## MCP server (agents)
 
 ### The MCP tools fail / "connecting to daemon … connection refused"
-`ct-mcp` is a thin stdio server that **forwards to a running `crossthreadsd`** —
-it doesn't open the index itself. So the daemon must be running for the tools to
-work. Start it (`scripts/start.sh`, or `crossthreadsd` directly) and keep it up.
-It connects on `CROSSTHREADS_ADDR` (default `127.0.0.1:47100`); set that env var
-if you run the daemon on a non-default `--addr`.
+`ct-mcp` **auto-starts `crossthreadsd`** on the first tool call, so normally you
+don't need to keep a daemon running. For that to work, `crossthreadsd` must be
+findable: either next to `ct-mcp` (it is after `install.sh`, or in
+`target/release` from source) or on your `PATH`. If the tools still error:
+- Make sure you registered the **absolute path** to `ct-mcp` (so it can find its
+  sibling `crossthreadsd`).
+- It connects on `CROSSTHREADS_ADDR` (default `127.0.0.1:47100`); set that env
+  var if you point the daemon elsewhere.
+- You can always start one yourself (`crossthreads-up` / `scripts/start.sh`); the
+  MCP server will reuse it. There is only ever **one** daemon per index.
 
 ### Registering it with an agent
 Point your MCP client at the `ct-mcp` binary (after `install.sh` it's on your

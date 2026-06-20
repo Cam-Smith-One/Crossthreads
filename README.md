@@ -108,18 +108,33 @@ crossthreads status                                              # index health
 
 ## 🧩 Supported tools
 
-| Tool | Where it reads | Confidence |
-|---|---|---|
-| **Claude Code** | `~/.claude/projects/**/*.jsonl` | ✅ High |
-| **Codex** | `~/.codex/sessions/**/rollout-*.jsonl` | ✅ High |
-| **Cursor** | `…/Cursor/User/**/state.vscdb` (composer + legacy chat) | ✅ High |
-| **Aider** | `**/.aider.chat.history.md` | ✅ High |
-| **Cline** | `…/<editor>/globalStorage/saoudrizwan.claude-dev/tasks/**` | ✅ High |
-| **GitHub Copilot Chat** | `…/<editor>/**/chatSessions/*.{json,jsonl}` | ✅ High |
-| **Gemini CLI** | `~/.gemini/tmp/*/chats/session-*.{json,jsonl}` | ✅ High |
-| **Windsurf** | `…/Windsurf/User/**/state.vscdb` | 🟡 Medium |
-| **Antigravity** | `~/.gemini/antigravity*/brain/<uuid>/*.md` (best-effort)¹ | 🟠 Low |
-| **Skills / prompts** | Claude `~/.claude/skills/**/SKILL.md`, Codex `~/.codex/prompts/*.md` | ✅ High |
+These are the AI coding agents and assistants Crossthreads reads from. Each one
+keeps its own conversation history in its own place and format — a `.jsonl` log
+here, a SQLite `state.vscdb` there, Markdown somewhere else. Crossthreads has a
+small **connector** per tool that:
+
+1. **detects** whether the tool's data is present on your machine,
+2. **reads it where it lives** (always **read-only** — open editors are fine),
+3. **normalizes** every session into one common schema (tool, project, messages,
+   timestamps), and
+4. **deduplicates** by content hash into a single index.
+
+So a single search spans *all* of them at once — no per-tool exporting, no
+copy-paste. Add a tool to your workflow and its history shows up automatically on
+the next index.
+
+| Tool | What it is | Where Crossthreads reads it | Confidence |
+|---|---|---|---|
+| **Claude Code** | Anthropic's terminal coding agent | `~/.claude/projects/**/*.jsonl` | ✅ High |
+| **Codex** | OpenAI's CLI coding agent | `~/.codex/sessions/**/rollout-*.jsonl` | ✅ High |
+| **Cursor** | AI-first VS Code fork | `…/Cursor/User/**/state.vscdb` (composer + legacy chat) | ✅ High |
+| **Aider** | Terminal pair-programmer | `**/.aider.chat.history.md` | ✅ High |
+| **Cline** | Agentic VS Code extension | `…/<editor>/globalStorage/saoudrizwan.claude-dev/tasks/**` | ✅ High |
+| **GitHub Copilot Chat** | Copilot's chat in VS Code | `…/<editor>/**/chatSessions/*.{json,jsonl}` | ✅ High |
+| **Gemini CLI** | Google's terminal coding agent | `~/.gemini/tmp/*/chats/session-*.{json,jsonl}` | ✅ High |
+| **Windsurf** | Codeium's agentic editor (Cascade) | `…/Windsurf/User/**/state.vscdb` | 🟡 Medium |
+| **Antigravity** | Google's agentic IDE | `~/.gemini/antigravity*/brain/<uuid>/*.md` (best-effort)¹ | 🟠 Low |
+| **Skills / prompts** | Reusable Claude `SKILL.md` + Codex prompts | `~/.claude/skills/**/SKILL.md`, `~/.codex/prompts/*.md` | ✅ High |
 
 <sub>¹ Antigravity's full conversation lives in an undocumented protobuf format; Crossthreads indexes the readable Markdown task/plan artifacts until that format is documented. Connectors detect-and-skip gracefully and are stamped with a versioned fingerprint, so a format change degrades to "missed a session," never a crash.</sub>
 

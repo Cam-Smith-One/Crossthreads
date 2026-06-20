@@ -11,21 +11,72 @@
 
 use serde_json::{json, Value};
 
-use ct_daemon::{Client, Filters, Mode, Request, Response};
+use ct_daemon::{Client, Filters, Mode, Request, Response, DEFAULT_ADDR};
 
 /// MCP protocol version we implement (echoed if the client offers one).
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_NAME: &str = "crossthreads";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The MCP server: forwards tool calls to a daemon [`Client`].
+/// The MCP server: forwards tool calls to a daemon [`Client`]. When configured
+/// with an autostart address, it brings `crossthreadsd` up on demand so the
+/// agent path is one step — no separate daemon to babysit.
 pub struct Server {
     client: Client,
+    autostart_addr: Option<String>,
+    ensured: std::sync::atomic::AtomicBool,
 }
 
 impl Server {
+    /// A server that talks to an already-running daemon (no autostart). Used by
+    /// tests.
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            autostart_addr: None,
+            ensured: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// A server that auto-starts `crossthreadsd` at `addr` on the first tool
+    /// call if it isn't already running.
+    pub fn with_autostart(client: Client, addr: impl Into<String>) -> Self {
+        Self {
+            client,
+            autostart_addr: Some(addr.into()),
+            ensured: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Convenience: build from the environment (`CROSSTHREADS_ADDR`) with
+    /// autostart enabled — the configuration `ct-mcp` uses in production.
+    pub fn from_env_autostart() -> Self {
+        let addr = std::env::var("CROSSTHREADS_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+        Self::with_autostart(Client::new(addr.clone()), addr)
+    }
+
+    /// Ensure a daemon is reachable, spawning a detached `crossthreadsd` once if
+    /// not. Cheap when one is already running (a single loopback ping).
+    fn ensure_daemon(&self) {
+        use std::sync::atomic::Ordering;
+        let Some(addr) = self.autostart_addr.as_deref() else {
+            return;
+        };
+        // Fast path: already up.
+        if self.client.call(&Request::Ping).is_ok() {
+            return;
+        }
+        // Spawn at most once; later calls fall back to the fast-path ping above.
+        if self.ensured.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        spawn_daemon(addr);
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if self.client.call(&Request::Ping).is_ok() {
+                return;
+            }
+        }
     }
 
     /// Handle one incoming JSON-RPC message. Returns `Some(response)` for
@@ -150,6 +201,9 @@ impl Server {
         let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
+        // Every tool below hits the daemon — make sure one is running first.
+        self.ensure_daemon();
+
         match name {
             "crossthreads_search" => Ok(self.call_search(&args)),
             "crossthreads_recall" => Ok(self.call_recall(&args)),
@@ -273,6 +327,65 @@ fn tool_error(message: impl Into<String>) -> Value {
     json!({ "content": [ { "type": "text", "text": message.into() } ], "isError": true })
 }
 
+/// Spawn a detached `crossthreadsd` listening on `addr`. Best effort — failures
+/// are surfaced later as the tool's "is the daemon running?" error.
+///
+/// The daemon's stdio is sent to null so it can never corrupt our JSON-RPC
+/// stream, and it's put in its own process group so it outlives this process.
+/// If the bundled web UI is found next to the binary, it's served too, so the
+/// single daemon covers both the agent and browser surfaces.
+fn spawn_daemon(addr: &str) {
+    use std::process::{Command, Stdio};
+
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+    // Prefer a `crossthreadsd` sibling of this binary; else rely on PATH.
+    let program = exe_dir
+        .as_ref()
+        .map(|d| d.join(daemon_binary()))
+        .filter(|p| p.exists())
+        .map(std::ffi::OsString::from)
+        .unwrap_or_else(|| daemon_binary().into());
+
+    let mut cmd = Command::new(program);
+    cmd.arg("--addr").arg(addr);
+    if let Some(ui) = exe_dir.as_deref().and_then(bundled_ui_dir) {
+        // Also serve the web UI so the same daemon backs the browser app.
+        cmd.arg("--http").arg("127.0.0.1:47101").arg("--ui").arg(ui);
+    }
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // detach: survive our exit, ignore our signals
+    }
+    let _ = cmd.spawn();
+}
+
+fn daemon_binary() -> &'static str {
+    if cfg!(windows) {
+        "crossthreadsd.exe"
+    } else {
+        "crossthreadsd"
+    }
+}
+
+/// Locate the built web UI relative to the binary, for both the installed
+/// release layout (`<bin>/../ui`) and a source build (`target/release/../../ui/dist`).
+fn bundled_ui_dir(exe_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let candidates = [
+        exe_dir.join("..").join("ui"), // release: ~/.crossthreads/ui
+        exe_dir.join("..").join("..").join("ui").join("dist"), // source: repo/ui/dist
+    ];
+    candidates
+        .into_iter()
+        .find(|p| p.join("index.html").is_file())
+}
+
 fn format_hits(query: &str, hits: &[ct_daemon::SearchHit]) -> String {
     if hits.is_empty() {
         return format!("No prior sessions matched \"{query}\".");
@@ -300,4 +413,34 @@ fn format_hits(query: &str, hits: &[ct_daemon::SearchHit]) -> String {
         ));
     }
     out
+}
+
+#[cfg(test)]
+mod autostart_tests {
+    use super::{bundled_ui_dir, daemon_binary};
+
+    #[test]
+    fn finds_bundled_ui_in_both_layouts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+
+        // Nothing there yet.
+        assert!(bundled_ui_dir(&bin).is_none());
+
+        // Release layout: <bin>/../ui/index.html
+        let rel_ui = tmp.path().join("ui");
+        std::fs::create_dir_all(&rel_ui).unwrap();
+        std::fs::write(rel_ui.join("index.html"), "<html>").unwrap();
+        let got = bundled_ui_dir(&bin).expect("should find the ui dir");
+        assert!(got.join("index.html").is_file());
+        assert_eq!(got.canonicalize().unwrap(), rel_ui.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn daemon_binary_has_platform_suffix() {
+        let name = daemon_binary();
+        assert!(name.starts_with("crossthreadsd"));
+        assert_eq!(name.ends_with(".exe"), cfg!(windows));
+    }
 }
