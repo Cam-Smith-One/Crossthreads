@@ -42,11 +42,18 @@ Crossthreads indexes **all of it** into one place and answers cross-tool questio
 **Install — no toolchain required.** Grab a prebuilt build and open the app:
 
 ```sh
+# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/Cam-Smith-One/Crossthreads/main/scripts/install.sh | bash
 crossthreads-up        # indexes your sessions, then opens http://127.0.0.1:47101
 ```
 
-This installs to `~/.crossthreads`, links the `crossthreads` / `crossthreadsd` / `ct-mcp` commands into `~/.local/bin`, indexes whatever tools you have, watches for new sessions, and opens the web app.
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Cam-Smith-One/Crossthreads/main/scripts/install.ps1 | iex
+crossthreads-up
+```
+
+This installs to `~/.crossthreads` (`%USERPROFILE%\.crossthreads` on Windows), links the `crossthreads` / `crossthreadsd` / `ct-mcp` commands onto your PATH, indexes whatever tools you have, watches for new sessions, and opens the web app.
 
 <details>
 <summary><b>Build from source</b> (Rust + Node)</summary>

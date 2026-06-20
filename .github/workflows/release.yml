@@ -31,6 +31,8 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-13
             target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
 
@@ -68,18 +70,31 @@ jobs:
           name="crossthreads-${v}-${{ matrix.target }}"
           stage="dist-pkg/$name"
           mkdir -p "$stage/bin" "$stage/ui"
-          cp target/release/crossthreadsd target/release/crossthreads target/release/ct-mcp "$stage/bin/"
-          cp packaging/crossthreads-up "$stage/bin/"
-          chmod +x "$stage/bin/"*
+          # Binaries carry a .exe suffix on Windows; copy whichever exists.
+          ext=""
+          [[ "$RUNNER_OS" == "Windows" ]] && ext=".exe"
+          for b in crossthreadsd crossthreads ct-mcp; do
+            cp "target/release/${b}${ext}" "$stage/bin/"
+          done
           cp -R ui/dist/. "$stage/ui/"
           cp LICENSE "$stage/" 2>/dev/null || true
           cp README.md "$stage/" 2>/dev/null || true
-          ( cd dist-pkg && tar -czf "../${name}.tar.gz" "$name" )
-          echo "packaged ${name}.tar.gz"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp packaging/crossthreads-up.cmd "$stage/bin/"
+            ( cd dist-pkg && 7z a -tzip "../${name}.zip" "$name" >/dev/null )
+            echo "packaged ${name}.zip"
+          else
+            cp packaging/crossthreads-up "$stage/bin/"
+            chmod +x "$stage/bin/"*
+            ( cd dist-pkg && tar -czf "../${name}.tar.gz" "$name" )
+            echo "packaged ${name}.tar.gz"
+          fi
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.v }}
-          files: crossthreads-*.tar.gz
-          fail_on_unmatched_files: true
+          files: |
+            crossthreads-*.tar.gz
+            crossthreads-*.zip
+          fail_on_unmatched_files: false
