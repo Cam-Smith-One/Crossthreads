@@ -6,7 +6,7 @@
 | **Doc type** | Product Requirements Document |
 | **Status** | Draft v0.1 |
 | **Last updated** | 2026-06-18 |
-| **Owner** | Cameron Smith |
+| **Owner** | Crossthreads maintainers |
 | **Related docs** | [REQUIREMENTS.md](REQUIREMENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [ROADMAP.md](ROADMAP.md) |
 
 ---
