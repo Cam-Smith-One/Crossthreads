@@ -124,7 +124,7 @@ pub fn parse_session(path: &Path, text: &str) -> Result<Conversation> {
 
     let mut messages = Vec::new();
     let requests = data.get("requests").and_then(|v| v.as_array());
-    for (idx, req) in requests.into_iter().flatten().enumerate() {
+    for req in requests.into_iter().flatten() {
         let user = user_text(req.get("message"));
         if !user.trim().is_empty() {
             messages.push(make(messages.len(), Role::User, &user));
@@ -133,7 +133,6 @@ pub fn parse_session(path: &Path, text: &str) -> Result<Conversation> {
         if !reply.trim().is_empty() {
             messages.push(make(messages.len(), Role::Assistant, &reply));
         }
-        let _ = idx;
     }
 
     if messages.is_empty() {
