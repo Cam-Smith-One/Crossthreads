@@ -91,6 +91,16 @@ export function getStatus(): Promise<Status> {
   return rpc<Status>({ op: "status" });
 }
 
+export interface Reindexed {
+  inserted: number;
+  duplicate: number;
+  embedded: number;
+}
+
+export function reindex(): Promise<Reindexed> {
+  return rpc<Reindexed>({ op: "reindex" });
+}
+
 export async function getFacets(): Promise<string[]> {
   const data = await rpc<{ tools: string[] }>({ op: "facets" });
   return data.tools;

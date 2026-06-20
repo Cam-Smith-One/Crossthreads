@@ -7,6 +7,7 @@ import {
   getSaved,
   getStatus,
   openSource,
+  reindex,
   search,
   setFlags,
   type Filters,
@@ -36,9 +37,29 @@ export function App() {
     () => document.documentElement.dataset.theme || "dark",
   );
 
+  const [reindexing, setReindexing] = useState(false);
+
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
   }, []);
+  const refreshStatus = useCallback(() => {
+    getStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  async function runReindex() {
+    setReindexing(true);
+    setError(null);
+    try {
+      await reindex();
+      refreshStatus();
+      getFacets().then(setTools).catch(() => {});
+      refreshSaved();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setReindexing(false);
+    }
+  }
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
@@ -203,6 +224,9 @@ export function App() {
           <p className="status">
             {status.conversations.toLocaleString()} conversations ·{" "}
             {status.embeddings.toLocaleString()} embeddings · {status.embedder}
+            <button className="linklike" onClick={runReindex} disabled={reindexing}>
+              {reindexing ? "re-indexing…" : "re-index"}
+            </button>
           </p>
         )}
       </header>
@@ -259,6 +283,20 @@ export function App() {
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {status && status.conversations === 0 && !searched && (
+        <section className="onboarding">
+          <h2>No conversations indexed yet</h2>
+          <p>
+            Crossthreads looks for history from <strong>Claude Code, Codex, Cursor, Aider,
+            Cline, Copilot Chat, Gemini CLI, Windsurf,</strong> and <strong>Antigravity</strong>.
+            Use any of them, then re-index — new sessions are picked up automatically as you work.
+          </p>
+          <button onClick={runReindex} disabled={reindexing}>
+            {reindexing ? "Indexing…" : "Index now"}
+          </button>
+        </section>
+      )}
 
       {saved.length > 0 && !searched && (
         <section className="saved">

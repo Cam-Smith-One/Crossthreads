@@ -81,6 +81,36 @@ body {
 .theme-toggle:hover { border-color: var(--border-hover); }
 .tagline { margin: 8px 0 0; color: var(--muted); }
 .status { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.status .linklike {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 0 0 8px;
+  text-decoration: underline;
+}
+.status .linklike:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+
+.onboarding {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 22px;
+}
+.onboarding h2 { margin: 0 0 8px; font-size: 17px; }
+.onboarding p { margin: 0 0 14px; color: var(--muted); line-height: 1.6; }
+.onboarding button {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.onboarding button:disabled { opacity: 0.6; cursor: default; }
 
 .searchbar {
   display: flex;
