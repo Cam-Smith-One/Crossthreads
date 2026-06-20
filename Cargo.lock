@@ -492,6 +492,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
@@ -531,6 +532,7 @@ dependencies = [
  "ct-core",
  "ct-embed",
  "ct-store",
+ "serde_json",
 ]
 
 [[package]]

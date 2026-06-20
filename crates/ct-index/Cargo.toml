@@ -17,3 +17,6 @@ ct-connectors = { path = "../ct-connectors" }
 ct-store = { path = "../ct-store" }
 ct-embed = { path = "../ct-embed" }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

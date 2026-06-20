@@ -7,6 +7,7 @@
 pub mod connector;
 pub mod hash;
 pub mod model;
+pub mod redact;
 
 pub use connector::{Connector, ConnectorError, DiscoveredSession};
 pub use model::{

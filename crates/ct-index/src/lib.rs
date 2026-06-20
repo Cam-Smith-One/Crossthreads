@@ -10,8 +10,24 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use ct_core::connector::ConnectorError;
 use ct_core::model::Conversation;
+use ct_core::redact::redact;
 use ct_embed::Embedder;
 use ct_store::{Store, Upsert};
+
+/// Redact secrets from every message of a conversation in place, so credentials
+/// never reach the stored content, FTS index, or embeddings.
+fn redact_conversation(convo: &mut Conversation) {
+    for m in &mut convo.messages {
+        if let std::borrow::Cow::Owned(clean) = redact(&m.content) {
+            m.content = clean;
+        }
+        for s in &mut m.code_snippets {
+            if let std::borrow::Cow::Owned(clean) = redact(&s.text) {
+                s.text = clean;
+            }
+        }
+    }
+}
 
 /// Summary of one indexing pass.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -71,7 +87,11 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
                 }
             }
             match connector.parse(&session) {
-                Ok(convo) => conversations.push(convo),
+                Ok(mut convo) => {
+                    // Scrub secrets before anything reaches the index (FR-PRIV).
+                    redact_conversation(&mut convo);
+                    conversations.push(convo);
+                }
                 Err(e) => {
                     unparseable += 1;
                     skipped_here += 1;
@@ -162,4 +182,49 @@ pub fn index_once(
 
     report.embedded = embed_pending(store, embedder)?;
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_conversation;
+    use ct_core::model::{Conversation, GitContext, Kind, Message, Role, Source, Tool};
+
+    fn msg(content: &str) -> Message {
+        Message {
+            id: "m".into(),
+            role: Role::User,
+            content: content.into(),
+            timestamp: None,
+            code_snippets: vec![],
+            tool_calls: vec![],
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn indexing_redacts_secrets_in_messages() {
+        let mut convo = Conversation {
+            id: "cv_t".into(),
+            tool: Tool::ClaudeCode,
+            kind: Kind::Thread,
+            title: None,
+            project: None,
+            model: None,
+            started_at: None,
+            ended_at: None,
+            git_context: GitContext::default(),
+            source: Source {
+                path: "/x".into(),
+                offset: None,
+                fingerprint: "t/v1".into(),
+            },
+            content_hash: "h".into(),
+            messages: vec![msg(
+                "deploy with OPENAI_API_KEY=sk-proj-abcdEFGH1234abcdEFGH5678",
+            )],
+        };
+        redact_conversation(&mut convo);
+        assert!(convo.messages[0].content.contains("[REDACTED]"));
+        assert!(!convo.messages[0].content.contains("sk-proj-abcdEFGH"));
+    }
 }
