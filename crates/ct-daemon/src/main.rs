@@ -21,7 +21,9 @@ USAGE:
 OPTIONS:
     --addr <ADDR>   Listen address (default: 127.0.0.1:47100; override with
                     CROSSTHREADS_ADDR). Set to a tailnet IP to be searchable
-                    from your other devices (ADR-010).
+                    from your other devices (ADR-010). Use `auto` to bind to
+                    this device's Tailscale IP automatically (only once a
+                    federation token is set).
     --http <ADDR>   Also serve the HTTP/JSON API + UI (e.g. 127.0.0.1:47101)
     --ui <DIR>      Static UI directory to serve over HTTP (built frontend)
     --db <PATH>     Index database path (override with CROSSTHREADS_DB)
@@ -142,6 +144,28 @@ fn run() -> Result<()> {
             .map(ct_daemon::federation::token_store::set)
             .unwrap_or(false)
     };
+
+    // `--addr auto`: bind federation to this device's tailnet IP so peers can
+    // reach it for cross-device search. Gated on a token being set, so we never
+    // expose the daemon on the tailnet without authentication; falls back to the
+    // loopback default when there's no token or Tailscale isn't connected.
+    if addr == "auto" {
+        addr = match (&token, ct_daemon::federation::detect_self_tailnet_ip()) {
+            (Some(_), Some(ip)) => {
+                let a = format!("{ip}:47100");
+                eprintln!("crossthreadsd: federation reachable at {a} (token required)");
+                a
+            }
+            (None, Some(_)) => {
+                eprintln!(
+                    "crossthreadsd: tailnet detected but no token set — staying on \
+                     loopback. Set a token in Settings → Devices to enable pairing."
+                );
+                DEFAULT_ADDR.to_string()
+            }
+            _ => DEFAULT_ADDR.to_string(),
+        };
+    }
 
     let mut all_peers = saved.peers;
     for p in peers {

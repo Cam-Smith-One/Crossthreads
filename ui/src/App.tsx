@@ -69,6 +69,7 @@ export function App() {
   const [fedConfig, setFedConfig] = useState<FederationConfig | null>(null);
   const [pairCode, setPairCode] = useState("");
   const [tokenInput, setTokenInput] = useState("");
+  const [showPairing, setShowPairing] = useState(false);
   // Monotonic search id so a slow earlier response can't overwrite a newer one.
   const searchGen = useRef(0);
 
@@ -948,16 +949,37 @@ export function App() {
                       <div className="fed-row">
                         <span className="fed-label">pairing</span>
                         {fedConfig.pairing_code ? (
-                          <button
-                            className="secondary"
-                            title="Copy a code another device can paste to join"
-                            onClick={() => navigator.clipboard?.writeText(fedConfig.pairing_code!)}
-                          >
-                            Copy pairing code
-                          </button>
+                          <div className="fed-pairing">
+                            <code className="fed-pairing-code">
+                              {showPairing
+                                ? fedConfig.pairing_code
+                                : "•".repeat(28)}
+                            </code>
+                            <button
+                              className="linklike"
+                              onClick={() => setShowPairing((s) => !s)}
+                            >
+                              {showPairing ? "Hide" : "Show"}
+                            </button>
+                            <button
+                              className="secondary"
+                              title="Copy this device's code; paste it on another device's “Add a device by code”"
+                              onClick={() =>
+                                navigator.clipboard?.writeText(fedConfig.pairing_code!)
+                              }
+                            >
+                              Copy
+                            </button>
+                            <span className="doc-desc">
+                              This device's code — paste it on another device to join them.
+                              Treat it like a password.
+                            </span>
+                          </div>
                         ) : (
                           <span className="doc-desc">
-                            Set a token and bind to your tailnet address to generate a pairing code.
+                            Set a token (above) and run with Tailscale connected — the
+                            launcher binds to your tailnet automatically, and this
+                            device's pairing code appears here.
                           </span>
                         )}
                       </div>
