@@ -4,6 +4,7 @@ Lightweight architecture decision records. Newest first. Each entry: the decisio
 
 | # | Decision | Status | Date |
 |---|---|---|---|
+| [ADR-010](#adr-010-cross-device-search--query-federation-over-a-private-tunnel) | Cross-device search = query federation over a private tunnel | Proposed | 2026-06-21 |
 | [ADR-009](#adr-009-frontenddaemon-transport--httpjson-bridge) | Frontend↔daemon transport = HTTP/JSON bridge | Accepted | 2026-06-19 |
 | [ADR-008](#adr-008-third-mvp-connector--aider) | 3rd MVP connector = Aider | Accepted | 2026-06-19 |
 | [ADR-007](#adr-007-vector-store--sqlite-vec-in-the-same-db) | Vector store = `sqlite-vec` (one DB) | Accepted | 2026-06-19 |
@@ -124,10 +125,44 @@ one API for CLI, MCP, and UI. Resolves the open "transport" question.
   call the same JSON API from Rust commands).
 - CORS/auth stay trivial because it's loopback-only; revisit if ever exposed.
 
+## ADR-010 — Cross-device search = query federation over a private tunnel
+**Decision.** To search history that lives on your other machines, **federate
+the query** rather than replicate indexes: each device keeps only its own index;
+a search runs locally and is forwarded to peer daemons, which search their own
+index and return matches that the querying device merges. Transport and device
+identity are delegated to a **private mesh tunnel (Tailscale/WireGuard)** the
+user runs on each device; the daemon binds a peer listener to the tailnet
+interface and authenticates peers with a shared token. Full design in
+[CROSS_DEVICE_SEARCH.md](CROSS_DEVICE_SEARCH.md).
+
+**Why.** Federation reuses the existing `Request`/`Response` protocol, RRF merge,
+and content-hash dedup, and keeps each device the single source of truth (offline
+peers degrade gracefully, no sync conflicts). It preserves the local-first /
+no-account / no-telemetry posture — no central server and no bulk copy of history
+anywhere new. Tailscale solves encryption, stable addressing, and NAT traversal
+so we don't build (and own the security of) a mesh.
+
+**Consequences.**
+- The daemon gains a federation layer: bind to the tailnet interface (in addition
+  to loopback), a static `peers` list + shared token, parallel fan-out with a
+  bounded per-peer timeout, and a `local_only` flag on forwarded `Search`
+  requests to prevent query loops.
+- Results carry a `device` tag; cross-device duplicates collapse by
+  `content_hash`. No index/schema change — it's purely a query-time layer.
+- New trust boundary: peers return matching content to the querying device over
+  the user's own encrypted tailnet — documented explicitly, with snippet-first
+  fetch and per-peer scope filters as opt-in tighteners.
+- Tailscale is the recommended default, not a hard dependency: a raw `host:port`
+  peer list still works on a LAN (user owns NAT/firewall).
+- Status: **Proposed** — not yet implemented; phased MVP→P2 in the design doc.
+
 ---
 
 ## Still open
 - Resume deep-link depth per tool (research; [AGENT_API.md](AGENT_API.md) §6).
 - Schema versioning & migration strategy.
-- Team-sync trust model (P2).
+- Team-sync trust model (P2). _(Single-user cross-device search is now specified
+  — see [ADR-010](#adr-010-cross-device-search--query-federation-over-a-private-tunnel)
+  / [CROSS_DEVICE_SEARCH.md](CROSS_DEVICE_SEARCH.md); multi-user team sharing is a
+  separate, later question.)_
 - Early-P1 details: cross-encoder reranker timing, exact embedding model + chunk sizing, frontend↔daemon transport.
