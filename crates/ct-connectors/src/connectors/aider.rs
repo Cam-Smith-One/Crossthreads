@@ -186,12 +186,14 @@ pub fn build_conversation(
     };
 
     for line in &session.body {
-        if let Some(user) = line.strip_prefix("####") {
+        // aider writes user turns as `#### ` (or a bare `####`); require that exact
+        // form so assistant Markdown headings (`##### Foo`) aren't misread as user.
+        if *line == "####" || line.starts_with("#### ") {
             if role != Some(Role::User) {
                 flush(role, &mut buf, &mut messages);
                 role = Some(Role::User);
             }
-            buf.push(user.strip_prefix(' ').unwrap_or(user).to_string());
+            buf.push(line.strip_prefix("#### ").unwrap_or("").to_string());
         } else if let Some(meta) = line.strip_prefix('>') {
             // aider's own notes. Sniff a model name; otherwise skip.
             if model.is_none() {

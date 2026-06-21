@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   approvePeer,
   buildContext,
@@ -69,6 +69,8 @@ export function App() {
   const [fedConfig, setFedConfig] = useState<FederationConfig | null>(null);
   const [pairCode, setPairCode] = useState("");
   const [tokenInput, setTokenInput] = useState("");
+  // Monotonic search id so a slow earlier response can't overwrite a newer one.
+  const searchGen = useRef(0);
 
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
@@ -153,6 +155,9 @@ export function App() {
       const next = new Set(sel);
       if (next.has(name)) next.delete(name);
       else next.add(name);
+      // Never leave zero selected (that would silently read as "search all");
+      // clearing the last device resets the picker to all devices.
+      if (next.size === 0) return new Set(devices.map((d) => d.name));
       return next;
     });
 
@@ -196,32 +201,36 @@ export function App() {
   }
 
   const runSearch = useCallback(
-    async (e?: React.FormEvent, lim = PAGE) => {
+    async (e?: React.FormEvent, lim = PAGE, keepSelection = false) => {
       e?.preventDefault();
       if (!query.trim()) return;
+      const gen = ++searchGen.current;
       setLoading(true);
       setError(null);
       setContext(null);
       try {
         const { hits: results, unreachable } = await search(query, mode, filters, lim, deviceArg());
+        if (gen !== searchGen.current) return; // a newer search superseded this one
         setHits(results);
         setUnreachable(unreachable);
         setLimit(lim);
-        setSelected(results.length ? 0 : -1);
+        setSelected((s) =>
+          keepSelection ? Math.min(s, results.length - 1) : results.length ? 0 : -1,
+        );
         setSearched(true);
       } catch (err) {
-        setError(String(err));
+        if (gen === searchGen.current) setError(String(err));
       } finally {
-        setLoading(false);
+        if (gen === searchGen.current) setLoading(false);
       }
     },
     [query, mode, filters, deviceArg],
   );
 
   // Fetch the next page by raising the limit and re-querying (search returns
-  // top-N, so we replace rather than append).
+  // top-N, so we replace rather than append) — keep the user's selection.
   async function loadMore() {
-    await runSearch(undefined, limit + PAGE);
+    await runSearch(undefined, limit + PAGE, true);
   }
 
   async function openConversation(id: string, device?: string | null) {
@@ -305,7 +314,9 @@ export function App() {
     a.href = url;
     a.download = name;
     a.click();
-    URL.revokeObjectURL(url);
+    // Defer revoke so the browser can start the download first (revoking
+    // synchronously after click() races it in Firefox/Safari).
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function exportConversation(c: StoredConversation, fmt: "md" | "json") {
@@ -372,7 +383,11 @@ export function App() {
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
         setSelected((s) => Math.max(s - 1, 0));
-      } else if (e.key === "Enter" && selected >= 0 && document.activeElement?.tagName !== "INPUT") {
+      } else if (
+        e.key === "Enter" &&
+        selected >= 0 &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName ?? "")
+      ) {
         openConversation(hits[selected].conversation_id, hits[selected].device);
       }
     }
@@ -388,6 +403,7 @@ export function App() {
       <button
         className={`icon ${h.pinned ? "on" : ""}`}
         title={h.pinned ? "Unpin" : "Pin to top"}
+        aria-label={h.pinned ? "Unpin" : "Pin to top"}
         onClick={() => toggleFlag(h.conversation_id, { pinned: !h.pinned })}
       >
         {h.pinned ? "📌" : "📍"}
@@ -395,12 +411,24 @@ export function App() {
       <button
         className={`icon ${h.bookmarked ? "on" : ""}`}
         title={h.bookmarked ? "Remove bookmark" : "Bookmark"}
+        aria-label={h.bookmarked ? "Remove bookmark" : "Bookmark"}
         onClick={() => toggleFlag(h.conversation_id, { bookmarked: !h.bookmarked })}
       >
         {h.bookmarked ? "🔖" : "🏷️"}
       </button>
     </span>
   );
+
+  // Filter + highlight the open transcript once per [open, find] — not twice per
+  // render (count + list) and not on every unrelated re-render.
+  const visibleTurns = useMemo(() => {
+    if (!open) return [];
+    const term = find.trim();
+    return open.messages
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => !term || matchesFind(m.content, term))
+      .map(({ m, i }) => ({ key: i, role: m.role, html: highlightFind(m.content, term) }));
+  }, [open, find]);
 
   return (
     <div className="app">
@@ -614,7 +642,7 @@ export function App() {
 
       {open && (
         <div className="overlay" onClick={() => setOpen(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <div>
                 <span className={`tool tool-${open.tool}`}>{open.tool}</span>{" "}
@@ -660,23 +688,16 @@ export function App() {
                 onChange={(e) => setFind(e.target.value)}
               />
               {find.trim() && (
-                <span className="find-count">
-                  {open.messages.filter((m) => matchesFind(m.content, find)).length} match(es)
-                </span>
+                <span className="find-count">{visibleTurns.length} match(es)</span>
               )}
             </div>
             <div className="transcript">
-              {open.messages
-                .filter((m) => !find.trim() || matchesFind(m.content, find))
-                .map((m, i) => (
-                  <div key={i} className={`turn turn-${m.role}`}>
-                    <span className="role">{m.role}</span>
-                    <div
-                      className="content"
-                      dangerouslySetInnerHTML={{ __html: highlightFind(m.content, find) }}
-                    />
-                  </div>
-                ))}
+              {visibleTurns.map((t) => (
+                <div key={t.key} className={`turn turn-${t.role}`}>
+                  <span className="role">{t.role}</span>
+                  <div className="content" dangerouslySetInnerHTML={{ __html: t.html }} />
+                </div>
+              ))}
             </div>
             <div className="meta-edit">
               <label className="meta-row">
@@ -741,7 +762,13 @@ export function App() {
 
       {showSettings && (
         <div className="overlay" onClick={() => setShowSettings(false)}>
-          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Settings"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-head">
               <div className="settings-tabs">
                 <button
@@ -1032,13 +1059,14 @@ function resumeHint(tool: string, sourcePath: string): string | null {
   return null;
 }
 
-// The daemon marks matched terms with [brackets]; render them as <mark>.
+// The daemon wraps matched terms in STX…ETX control chars (sentinels that can't
+// occur in content, unlike literal [brackets]); render those as <mark>.
 function highlight(snippet: string): string {
   const escaped = snippet
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  return escaped.replace(/\[([^\]]+)\]/g, "<mark>$1</mark>");
+  return escaped.replace(/([^]*)/g, "<mark>$1</mark>");
 }
 
 function escapeHtml(s: string): string {

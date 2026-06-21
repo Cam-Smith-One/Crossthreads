@@ -47,7 +47,9 @@ pub struct SearchHit {
     pub project: Option<String>,
     pub title: Option<String>,
     pub started_at: Option<String>,
-    /// FTS5 snippet with matched terms wrapped in `[` … `]`.
+    /// FTS5 snippet with matched terms wrapped in STX … ETX control chars
+    /// (`\u{2}`/`\u{3}`) — sentinels that can't occur in real content, so the UI
+    /// won't mistake literal `[brackets]` in code/logs for highlights.
     pub snippet: String,
     /// BM25 score (lower is a better match; we expose it as-is).
     pub score: f64,
@@ -156,7 +158,8 @@ impl Filters {
         }
         if self.since.is_some() || self.until.is_some() {
             // Compare on the date prefix so a date-only bound is day-inclusive.
-            let date = hit.started_at.as_deref().map(|s| &s[..s.len().min(10)]);
+            // `get` (not byte-slicing) avoids a panic on non-ASCII `started_at`.
+            let date = hit.started_at.as_deref().map(|s| s.get(..10).unwrap_or(s));
             let Some(date) = date else { return false };
             if let Some(since) = &self.since {
                 if date < since.as_str() {
@@ -447,7 +450,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.tool, c.kind, c.project, c.title, c.started_at, c.source_path,
                     COALESCE(us.bookmarked, 0), COALESCE(us.pinned, 0), COALESCE(us.tags, ''),
-                    snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
+                    snippet(messages_fts, 0, '\u{2}', '\u{3}', '…', 12) AS snip,
                     bm25(messages_fts) AS score
              FROM messages_fts
              JOIN messages m      ON m.rowid = messages_fts.rowid
