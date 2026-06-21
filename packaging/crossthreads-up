@@ -10,7 +10,15 @@
 # ~/.crossthreads. Ctrl-C to stop.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks so we find the real install dir even when this script is
+# invoked through a symlink on PATH (install.sh links it into ~/.local/bin).
+src="${BASH_SOURCE[0]:-$0}"
+while [ -h "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" != /* ]] && src="$dir/$src"
+done
+HERE="$(cd -P "$(dirname "$src")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 DAEMON="$ROOT/bin/crossthreadsd"
 UI="$ROOT/ui"
