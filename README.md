@@ -4,7 +4,7 @@
 
 # Crossthreads
 
-**Search, recall, and resume every AI coding conversation — across all your tools, in one place.**
+**Search, recall, and resume every AI coding conversation — across all your tools and devices, in one place.**
 
 [![CI](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml/badge.svg)](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -23,7 +23,7 @@
 
 ---
 
-Crossthreads is a **local-first session indexer and memory layer** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent. A background daemon keeps the index live, and an MCP server lets your agents query it natively.
+Crossthreads is a **local-first session indexer and memory layer** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent. A background daemon keeps the index live, and an MCP server lets your agents query it natively. And **cross-device search** lets one query span the history on your *other* machines too — federated over your own Tailscale network, with no central server.
 
 > **Where's the thread where we fixed the OAuth refresh retry?** — one query, every tool, instant answer.
 
@@ -98,6 +98,7 @@ crossthreads status                                              # index health
 |---|---|
 | 🔎 **Hybrid search** | FTS5 keyword (BM25) **+** semantic embeddings fused with Reciprocal Rank Fusion — finds threads by meaning, not just keywords. |
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
+| 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
@@ -239,9 +240,9 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP, durable bookmarks/pins, prebuilt releases
+- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP, durable bookmarks/pins, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ⏳ Native desktop app (Tauri shell scaffolded), richer resume/deeplinks, notes & tags on conversations
-- 🔭 `sqlite-vec` ANN for very large corpora, optional encrypted cross-machine sync, community connector plugins
+- 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement IDs.
 

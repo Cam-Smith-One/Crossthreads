@@ -1,6 +1,6 @@
 # Crossthreads — Status & Audit Overview
 
-_Last updated: 2026-06-20 · branch `claude/cross-agent-session-indexer-rw9e4x` · [PR #1](https://github.com/Cam-Smith-One/Crossthreads/pull/1)_
+_Last updated: 2026-06-21 · branch `claude/cross-agent-session-indexer-rw9e4x` · cross-device search (ADR-010) shipped in [PR #3](https://github.com/Cam-Smith-One/Crossthreads/pull/3)/[#4](https://github.com/Cam-Smith-One/Crossthreads/pull/4)_
 
 A snapshot of where the project stands after the end-to-end review: what's
 verified, what's a known coverage gap, and what features are worth adding next.
@@ -64,6 +64,16 @@ All seven prioritized features are now implemented, tested, and on PR #1:
 - **Antigravity home-scan.** The connector scans the whole `~/.gemini/antigravity/`
   home for Markdown instead of assuming a `brain/` subfolder, so it adapts to the
   real on-disk layout.
+- **Cross-device search shipped** ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel) ·
+  [CROSS_DEVICE_SEARCH](CROSS_DEVICE_SEARCH.md)). A search fans out to peer
+  daemons over a private Tailscale tunnel and merges the results (RRF + content-
+  hash dedup), local-first with no central server: device selection + chips,
+  on-demand "Discover my devices", opening/previewing remote transcripts,
+  serve-scope filters, and the federation token in the OS keychain with a
+  pairing-code onboarding flow. Covered by unit + two-daemon integration tests.
+  _Note: the keychain + a real multi-machine tailnet can't be exercised in this
+  sandbox; the plaintext-token fallback and the two-daemon localhost path are
+  what CI proves._
 
 ## 💡 Possible next features
 
