@@ -110,7 +110,12 @@ fn run() -> Result<()> {
     let db_path = resolve_db(db)?;
     let store = ct_store::Store::open(&db_path)?;
     let embedder = ct_embed::default_embedder();
-    let mut daemon = Daemon::new(store, embedder);
+    // A small pool of read-only connections (WAL) so concurrent searches/reads
+    // don't serialize on the single writer lock.
+    let read_pool = std::thread::available_parallelism()
+        .map(|n| n.get().clamp(2, 8))
+        .unwrap_or(4);
+    let mut daemon = Daemon::new(store, embedder).with_read_pool(&db_path, read_pool);
 
     // Federation is always available so the Settings → Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is

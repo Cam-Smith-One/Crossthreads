@@ -524,6 +524,59 @@ fn pair_with_code_adopts_token_and_peer() {
 }
 
 #[test]
+fn read_pool_serves_concurrent_searches() {
+    // A file-backed index with a read pool: concurrent searches run on separate
+    // read-only connections (WAL) and return correct results.
+    let path = std::env::temp_dir().join(format!("ct-pool-{}.db", std::process::id()));
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
+
+    let mut store = Store::open(&path).unwrap();
+    store
+        .upsert_conversation(&convo(
+            Tool::ClaudeCode,
+            "/api",
+            "add retry logic with backoff",
+        ))
+        .unwrap();
+    store
+        .upsert_conversation(&convo(
+            Tool::Cursor,
+            "/web",
+            "dark mode toggle for the navbar",
+        ))
+        .unwrap();
+    ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
+
+    let daemon = Daemon::new(store, Box::new(HashEmbedder::default())).with_read_pool(&path, 4);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    thread::spawn(move || {
+        let _ = daemon.serve(listener);
+    });
+
+    let mut handles = Vec::new();
+    for _ in 0..12 {
+        let addr = addr.clone();
+        handles.push(thread::spawn(move || {
+            let client = Client::new(addr);
+            let hits = client
+                .search("retry backoff", Mode::Hybrid, 10, Default::default())
+                .unwrap();
+            assert!(hits.iter().any(|h| h.project.as_deref() == Some("/api")));
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
+}
+
+#[test]
 fn multiple_clients_are_served() {
     let (addr, _h) = start();
     let mut handles = Vec::new();
