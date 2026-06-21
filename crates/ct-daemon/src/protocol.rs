@@ -41,7 +41,23 @@ pub enum Request {
         limit: usize,
         #[serde(default)]
         filters: Filters,
+        /// Cross-device routing (ADR-010): names of the devices to search.
+        /// `None` (or absent) ⇒ this device + all reachable peers. When set,
+        /// only the named devices are queried (this host included if named).
+        #[serde(default)]
+        devices: Option<Vec<String>>,
     },
+    /// List the devices this daemon knows about — this host plus approved peers
+    /// — with current liveness, for the device picker and Settings → Devices.
+    Devices,
+    /// One-shot scan of the tailnet for other reachable Crossthreads daemons
+    /// (the "Discover my devices" button). Never runs in the background.
+    DiscoverDevices,
+    /// Approve a peer (typically one returned by `DiscoverDevices`) and persist
+    /// it to the federation config so it survives restarts.
+    ApprovePeer { name: String, addr: String },
+    /// Remove an approved peer and persist the change.
+    RemovePeer { name: String },
     /// Search forwarded from a peer daemon during cross-device federation
     /// (ADR-010). Unlike `Search`, it runs **local-only** (never re-fans-out, so
     /// queries can't loop/amplify) and is gated by the shared `token`. The
@@ -91,7 +107,39 @@ pub enum Request {
         max_chars: usize,
         #[serde(default)]
         filters: Filters,
+        /// Cross-device routing, same semantics as `Search::devices` (ADR-010).
+        #[serde(default)]
+        devices: Option<Vec<String>>,
     },
+    /// Fetch a full conversation from a peer during cross-device context
+    /// assembly: token-gated and local-only, like `PeerSearch`.
+    PeerGetConversation {
+        #[serde(default)]
+        token: Option<String>,
+        id: String,
+    },
+}
+
+/// A device known to this daemon: this host, or an approved peer (ADR-010).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    /// Display name (this host's `device` name, or the peer's configured name).
+    pub name: String,
+    /// Peer address (`host:port`); `None` for this device.
+    pub addr: Option<String>,
+    /// Reachable right now — liveness is pinged at request time, never polled.
+    pub online: bool,
+    /// True for this machine.
+    pub local: bool,
+}
+
+/// A candidate device found on the tailnet during discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredDevice {
+    pub name: String,
+    pub addr: String,
+    /// Already in the approved-peers list (so the UI can show it as added).
+    pub already_approved: bool,
 }
 
 fn default_mode() -> Mode {
@@ -129,6 +177,17 @@ pub enum Response {
     },
     Hits {
         hits: Vec<SearchHit>,
+    },
+    /// Known devices (this host + approved peers) with liveness. `federation`
+    /// is false when cross-device search isn't configured yet, so the UI can
+    /// prompt the user to set a device name + token.
+    Devices {
+        devices: Vec<DeviceInfo>,
+        federation: bool,
+    },
+    /// Candidate devices found on the tailnet by `DiscoverDevices`.
+    DiscoveredDevices {
+        devices: Vec<DiscoveredDevice>,
     },
     Conversation {
         conversation: Option<StoredConversation>,

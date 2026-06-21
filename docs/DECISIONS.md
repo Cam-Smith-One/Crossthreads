@@ -171,9 +171,14 @@ a token-gated, local-only `Request::PeerSearch` op. Enabled via daemon flags
 matching `CROSSTHREADS_*` env vars; results carry a `device` tag and collapse
 cross-device duplicates by `conversation_id` (the content hash). The loop guard
 is the `PeerSearch` op itself (it never re-fans-out) rather than a `local_only`
-flag on `Search`. Covered by unit + two-daemon integration tests. Device-selection
-UI and the MCP `devices` argument (P-fed.1) and the Settings → Devices discovery
-panel (P-fed.2) remain to do.
+flag on `Search`. **P-fed.1 + P-fed.2 are also implemented:** device selection as
+routing (UI multiselect + `devices` arg on the daemon/HTTP/MCP search & context
+ops, default all), result device chips, a `Devices` op / `crossthreads_devices`
+tool with at-search-time liveness, cross-device `build_context` via a token-gated
+`PeerGetConversation`, and a Settings → Devices panel with on-demand
+**"Discover my devices"** (`tailscale status --json` scan → probe → approve) whose
+approved peers persist to `federation.json` and reload on start. Remaining
+hardening: per-peer scope filters and encrypted at-rest token storage.
 
 ---
 

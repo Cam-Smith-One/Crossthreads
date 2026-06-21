@@ -229,7 +229,7 @@ ui/               React + Vite frontend (web + Tauri), talks to the daemon
 | [AGENT_API](docs/AGENT_API.md) | CLI/JSON, MCP, and HTTP interface (search / recall / build_context) |
 | [PRD](docs/PRD.md) · [REQUIREMENTS](docs/REQUIREMENTS.md) · [ROADMAP](docs/ROADMAP.md) | Product intent, requirements, status |
 | [DECISIONS](docs/DECISIONS.md) | Architecture decision records (ADRs) |
-| [CROSS_DEVICE_SEARCH](docs/CROSS_DEVICE_SEARCH.md) | Proposed design: search your other machines, local-first (federation) |
+| [CROSS_DEVICE_SEARCH](docs/CROSS_DEVICE_SEARCH.md) | Search your other machines, local-first (federation over Tailscale) |
 | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) | Step-by-step: connect your devices for cross-device search |
 
 ```sh

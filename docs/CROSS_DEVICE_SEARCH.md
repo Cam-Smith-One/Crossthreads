@@ -1,6 +1,6 @@
 # Design — Cross-device search (federated, local-first)
 
-_Status: Proposed · P-fed.0 MVP implemented · 2026-06-21 · see [ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel)_
+_Status: Implemented (P-fed.0–2) · 2026-06-21 · see [ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel)_
 
 ## Problem
 
@@ -178,8 +178,7 @@ daemons. Mitigations available as options:
 
 - **Ships now (no federation dependency):** the in-app **Settings →
   Documentation** section and the step-by-step
-  [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) guide. Standalone UI + docs; the
-  **Devices** tab is present as a placeholder until P-fed.2.
+  [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) guide. Standalone UI + docs.
 - **MVP (P-fed.0) — ✅ implemented:** tailnet bind via `--addr`, static `--peer
   NAME=ADDR` list, shared `--fed-token`, parallel fan-out with a bounded
   per-peer timeout, RRF merge + `conversation_id` (content-hash) dedup, `device`
@@ -187,12 +186,18 @@ daemons. Mitigations available as options:
   guard) and token-gated. Lives in `ct-daemon` (`federation.rs` + the `Daemon`
   fan-out / `PeerSearch` handler); covered by unit + two-daemon integration
   tests.
-- **P-fed.1:** device selection as routing — UI "all devices" multiselect
-  (default all) + result device chips + "reveal on device", optional MCP/CLI
-  `devices` argument, reachable-peers status, snippet-first fetch.
-- **P-fed.2:** **Settings → Devices** panel with on-demand **"Discover my
-  devices"** (one-shot Tailscale-API scan → approve), persisted approved peers,
-  per-peer scope filters, encrypted at-rest token storage.
+- **P-fed.1 — ✅ implemented:** device selection as routing — UI "all devices"
+  multiselect (default all) beside the filters, result **device chips**, the
+  optional `devices` argument on the daemon/HTTP `Search`/`Context` ops and the
+  MCP tools, plus a `Devices` op / `crossthreads_devices` tool listing devices
+  with liveness. Cross-device `build_context` fetches remote transcripts from
+  their owning peer (token-gated `PeerGetConversation`).
+- **P-fed.2 — ✅ implemented:** **Settings → Devices** panel with on-demand
+  **"Discover my devices"** (one-shot `tailscale status --json` scan → probe →
+  approve), peers **persisted** to `federation.json` and reloaded on start, and
+  per-device remove. _Remaining hardening (not blocking): per-peer scope filters
+  and encrypted at-rest token storage — the token currently sits in the config
+  file, gated by the tailnet._
 
 ## Future connectors (openclaw / Hermes)
 

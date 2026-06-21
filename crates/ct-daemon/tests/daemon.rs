@@ -132,12 +132,12 @@ fn serve(daemon: Daemon) -> String {
 }
 
 fn fed(device: &str, token: &str, peers: Vec<Peer>) -> Federation {
-    Federation {
-        device: device.into(),
-        token: Some(token.into()),
+    Federation::new(
+        device.into(),
+        Some(token.into()),
         peers,
-        timeout: Duration::from_millis(1500),
-    }
+        Duration::from_millis(1500),
+    )
 }
 
 #[test]
@@ -268,6 +268,106 @@ fn federated_bad_token_skips_peer() {
         hits.iter().all(|h| h.tool != "cursor"),
         "unauthorized peer must not contribute results"
     );
+}
+
+#[test]
+fn device_selection_routes_to_named_devices() {
+    let b = Daemon::new(
+        seed(&[convo(
+            Tool::Cursor,
+            "/web",
+            "dark mode toggle for the navbar",
+        )]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed("linux", "s3cret", vec![]));
+    let b_addr = serve(b);
+
+    let a = Daemon::new(
+        seed(&[convo(
+            Tool::ClaudeCode,
+            "/api",
+            "add retry logic with backoff",
+        )]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "mac",
+        "s3cret",
+        vec![Peer {
+            name: "linux".into(),
+            addr: b_addr,
+        }],
+    ));
+    let client = Client::new(serve(a));
+
+    // Restricting to "linux" surfaces the peer's thread...
+    let only_linux = client
+        .search_devices(
+            "navbar",
+            Mode::Lexical,
+            10,
+            Default::default(),
+            Some(vec!["linux".into()]),
+        )
+        .unwrap();
+    assert!(only_linux.iter().any(|h| h.tool == "cursor"));
+
+    // ...but restricting to "mac" (local only) does not query the peer.
+    let only_mac = client
+        .search_devices(
+            "navbar",
+            Mode::Lexical,
+            10,
+            Default::default(),
+            Some(vec!["mac".into()]),
+        )
+        .unwrap();
+    assert!(only_mac.iter().all(|h| h.tool != "cursor"));
+}
+
+#[test]
+fn federated_build_context_includes_remote_transcript() {
+    // Only B has this conversation; A must fetch its transcript to build context.
+    let b = Daemon::new(
+        seed(&[convo(
+            Tool::Cursor,
+            "/web",
+            "the remote caching insight lives here",
+        )]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed("linux", "s3cret", vec![]));
+    let b_addr = serve(b);
+
+    let a = Daemon::new(
+        seed(&[convo(Tool::ClaudeCode, "/api", "unrelated local thread")]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "mac",
+        "s3cret",
+        vec![Peer {
+            name: "linux".into(),
+            addr: b_addr,
+        }],
+    ));
+    let client = Client::new(serve(a));
+
+    let (markdown, sources) = client
+        .build_context(
+            "caching insight",
+            Mode::Lexical,
+            3,
+            6000,
+            Default::default(),
+        )
+        .unwrap();
+    assert!(
+        markdown.contains("remote caching insight"),
+        "context should include the peer's transcript, got: {markdown}"
+    );
+    assert!(!sources.is_empty());
 }
 
 #[test]

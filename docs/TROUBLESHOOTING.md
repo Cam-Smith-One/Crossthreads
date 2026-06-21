@@ -188,12 +188,12 @@ still needs the MCP server configured and the daemon running to do anything.
 Cross-device search needs each machine set up and connected first — install
 Crossthreads on each, join them to one Tailscale network, bind each daemon to
 that network with a name and shared token (`--addr 100.x.y.z:47100
---device-name <name> --fed-token <secret>`), then point your main device at the
-others with `--peer NAME=ADDR`. The full walkthrough (and a per-step
-troubleshooting list) is in [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md). The
-federation engine ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel))
-works today via those flags; the one-click **Discover my devices** button is
-still on the way.
+--device-name <name> --fed-token <secret>`), then on your main device open
+**Settings → Devices → Discover my devices** and approve them (or list peers
+with `--peer NAME=ADDR`). The full walkthrough (and a per-step troubleshooting
+list) is in [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md). If a device is found
+but searches skip it, its daemon is likely down or the shared `--fed-token`
+doesn't match — offline peers are skipped by design, never fatal.
 
 ---
 

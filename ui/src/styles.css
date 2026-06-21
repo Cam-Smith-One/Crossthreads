@@ -382,6 +382,76 @@ body {
 .doc-desc { color: var(--muted); font-size: 12px; }
 .settings-section button:disabled { opacity: 0.55; cursor: default; }
 
+/* Settings tabs */
+.settings-tabs { display: flex; gap: 6px; }
+.settings-tabs button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.settings-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Cross-device: result chip, device picker, Devices panel */
+.device-chip {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.device-filter { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.device-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.device-toggle.on { color: var(--text); border-color: var(--accent); }
+.device-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.device-dot.online { background: #4caf72; }
+.device-dot.offline { background: var(--border-hover); }
+
+.device-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.device-row { display: flex; align-items: center; gap: 10px; }
+.device-name { font-weight: 600; font-size: 14px; }
+.device-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.device-addr { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); margin-left: auto; }
+.device-row .linklike, .device-row .secondary { flex-shrink: 0; }
+.device-row .device-addr + button { margin-left: 8px; }
+.device-discover { margin-top: 16px; }
+.discovered { margin-top: 12px; }
+.device-row .linklike {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
+  padding: 0;
+}
+
 /* Pin / bookmark toggle buttons */
 .hit-actions { display: inline-flex; gap: 4px; margin-left: 8px; }
 .hit-head .hit-actions { margin-left: 0; }

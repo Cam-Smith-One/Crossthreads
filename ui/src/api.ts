@@ -24,6 +24,20 @@ export interface Hit {
   bookmarked?: boolean;
   pinned?: boolean;
   tags?: string[];
+  device?: string | null;
+}
+
+export interface Device {
+  name: string;
+  addr?: string | null;
+  online: boolean;
+  local: boolean;
+}
+
+export interface DiscoveredDevice {
+  name: string;
+  addr: string;
+  already_approved: boolean;
 }
 
 export interface Status {
@@ -126,6 +140,7 @@ export async function search(
   mode: Mode,
   filters: Filters,
   limit = 25,
+  devices?: string[] | null,
 ): Promise<Hit[]> {
   const data = await rpc<{ hits: Hit[] }>({
     op: "search",
@@ -133,8 +148,29 @@ export async function search(
     mode,
     limit,
     filters: clean(filters),
+    ...(devices && devices.length ? { devices } : {}),
   });
   return data.hits;
+}
+
+export async function getDevices(): Promise<{ devices: Device[]; federation: boolean }> {
+  const data = await rpc<{ devices: Device[]; federation: boolean }>({ op: "devices" });
+  return { devices: data.devices ?? [], federation: !!data.federation };
+}
+
+export async function discoverDevices(): Promise<DiscoveredDevice[]> {
+  const data = await rpc<{ devices: DiscoveredDevice[] }>({ op: "discover_devices" });
+  return data.devices ?? [];
+}
+
+export async function approvePeer(name: string, addr: string): Promise<Device[]> {
+  const data = await rpc<{ devices: Device[] }>({ op: "approve_peer", name, addr });
+  return data.devices ?? [];
+}
+
+export async function removePeer(name: string): Promise<Device[]> {
+  const data = await rpc<{ devices: Device[] }>({ op: "remove_peer", name });
+  return data.devices ?? [];
 }
 
 export async function getConversation(id: string): Promise<StoredConversation | null> {
@@ -174,6 +210,7 @@ export function buildContext(
   filters: Filters,
   limit = 3,
   max_chars = 6000,
+  devices?: string[] | null,
 ): Promise<ContextBlock> {
   return rpc<ContextBlock>({
     op: "context",
@@ -182,5 +219,6 @@ export function buildContext(
     limit,
     max_chars,
     filters: clean(filters),
+    ...(devices && devices.length ? { devices } : {}),
   });
 }

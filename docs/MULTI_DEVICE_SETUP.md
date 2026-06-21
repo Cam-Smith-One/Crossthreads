@@ -6,12 +6,10 @@ on your laptop also surfaces threads from your desktop.
 
 > **Status.** Cross-device search is query **federation** over a private tunnel
 > ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel),
-> full design in [CROSS_DEVICE_SEARCH.md](CROSS_DEVICE_SEARCH.md)). The
-> **federation engine works today** — bind each daemon to your tailnet and list
-> peers with `--peer NAME=ADDR` (Step 4 below) and searches already fan out and
-> merge. The one-click **Discover my devices** button and the device multiselect
-> are still on the way; until then you wire peers up by flag/env, which this
-> guide walks through.
+> full design in [CROSS_DEVICE_SEARCH.md](CROSS_DEVICE_SEARCH.md)) and is
+> **implemented end to end**: discover and approve devices in **Settings →
+> Devices**, choose which to search with the device picker, and see each result
+> tagged with its origin. This guide is the full walkthrough.
 
 Nothing here uploads your history anywhere. Each device keeps its own index;
 searches travel only between *your* devices over *your* encrypted tunnel — no
@@ -92,31 +90,30 @@ reachable only from your own tailnet, not the open internet. The token is a
 defence-in-depth check on top of the tailnet; pick anything and reuse it
 verbatim on every device.
 
-## Step 4 — Point your main device at its peers
+## Step 4 — Discover and approve your devices
 
-On your **main** device (the one you search from), add a `--peer NAME=ADDR` for
-each *other* device — `NAME` is its label, `ADDR` is its tailnet `host:port`:
+On your **main** device (the one you search from), open Crossthreads and:
 
-```sh
-crossthreadsd \
-  --addr 100.a.b.c:47100 \
-  --device-name mac-mini \
-  --fed-token "your-shared-secret" \
-  --peer linux-desktop=100.x.y.z:47100 \
-  --peer work-laptop=100.p.q.r:47100 \
-  --http 127.0.0.1:47101 --ui ui/dist
-```
+1. Click **⚙️ Settings → Devices**.
+2. Click **Discover my devices**. Crossthreads runs a one-shot
+   `tailscale status` scan, probes each machine for a running daemon, and lists
+   the ones it finds.
+3. Click **Approve** next to each device you want to search. Approved devices are
+   **persisted** (to `federation.json`) and reloaded on restart — you approve
+   once per machine.
 
-```sh
-# env equivalent: CROSSTHREADS_PEERS is a comma-separated NAME=ADDR list
-CROSSTHREADS_PEERS="linux-desktop=100.x.y.z:47100,work-laptop=100.p.q.r:47100"
-```
+Discovery is **on-demand**: Crossthreads never scans your network in the
+background. Re-run **Discover my devices** whenever you add a machine.
 
-That's the working setup today. A one-click **Settings → Devices → "Discover my
-devices"** flow (an on-demand tailnet scan that finds and approves peers for you,
-so you don't hand-write addresses) is on the way — it will write the same peer
-list for you. Discovery will stay **on-demand**: Crossthreads never scans your
-network in the background.
+> **Prefer the command line?** You can list peers explicitly instead of
+> discovering them — add a `--peer NAME=ADDR` per device (or set
+> `CROSSTHREADS_PEERS="linux-desktop=100.x.y.z:47100,work-laptop=100.p.q.r:47100"`):
+>
+> ```sh
+> crossthreadsd --addr 100.a.b.c:47100 --device-name mac-mini \
+>   --fed-token "your-shared-secret" \
+>   --peer linux-desktop=100.x.y.z:47100 --http 127.0.0.1:47101 --ui ui/dist
+> ```
 
 ## Step 5 — Search across everything
 

@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  approvePeer,
   buildContext,
+  discoverDevices,
   forget,
   getConversation,
+  getDevices,
   getFacets,
   getSaved,
   getStatus,
   openSource,
   reindex,
+  removePeer,
   search,
   setFlags,
   setNote,
   setTags,
+  type Device,
+  type DiscoveredDevice,
   type Filters,
   type Hit,
   type Mode,
@@ -45,6 +51,15 @@ export function App() {
 
   const [reindexing, setReindexing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"docs" | "devices">("docs");
+
+  // Cross-device (ADR-010): known devices, which are selected to search, and
+  // the on-demand discovery results.
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [federation, setFederation] = useState(false);
+  const [deviceSel, setDeviceSel] = useState<Set<string>>(new Set());
+  const [discovered, setDiscovered] = useState<DiscoveredDevice[] | null>(null);
+  const [discovering, setDiscovering] = useState(false);
 
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
@@ -57,6 +72,16 @@ export function App() {
       .then((f) => {
         setTools(f.tools);
         setTagFacets(f.tags);
+      })
+      .catch(() => {});
+  }, []);
+  const refreshDevices = useCallback(() => {
+    getDevices()
+      .then(({ devices, federation }) => {
+        setDevices(devices);
+        setFederation(federation);
+        // Default the selection to every known device (= search all).
+        setDeviceSel(new Set(devices.map((d) => d.name)));
       })
       .catch(() => {});
   }, []);
@@ -91,7 +116,67 @@ export function App() {
     getStatus().then(setStatus).catch((e) => setError(String(e)));
     refreshFacets();
     refreshSaved();
-  }, [refreshSaved, refreshFacets]);
+    refreshDevices();
+  }, [refreshSaved, refreshFacets, refreshDevices]);
+
+  // The local device's name, so remote-only chips can be shown on results.
+  const localDevice = devices.find((d) => d.local)?.name;
+
+  // Device routing arg for searches: undefined (= all) unless the user has
+  // narrowed the selection to a strict, non-empty subset.
+  const deviceArg = useCallback((): string[] | undefined => {
+    if (!federation) return undefined;
+    const names = devices.map((d) => d.name);
+    if (deviceSel.size === 0 || deviceSel.size === names.length) return undefined;
+    return names.filter((n) => deviceSel.has(n));
+  }, [federation, devices, deviceSel]);
+
+  const toggleDevice = (name: string) =>
+    setDeviceSel((sel) => {
+      const next = new Set(sel);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  async function runDiscover() {
+    setDiscovering(true);
+    setError(null);
+    try {
+      setDiscovered(await discoverDevices());
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function approve(d: DiscoveredDevice) {
+    try {
+      const updated = await approvePeer(d.name, d.addr);
+      setDevices(updated);
+      setDeviceSel((sel) => new Set(sel).add(d.name));
+      setDiscovered((list) =>
+        (list ?? []).map((x) => (x.name === d.name ? { ...x, already_approved: true } : x)),
+      );
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function removeDevice(name: string) {
+    try {
+      const updated = await removePeer(name);
+      setDevices(updated);
+      setDeviceSel((sel) => {
+        const next = new Set(sel);
+        next.delete(name);
+        return next;
+      });
+    } catch (err) {
+      setError(String(err));
+    }
+  }
 
   const runSearch = useCallback(
     async (e?: React.FormEvent, lim = PAGE) => {
@@ -101,7 +186,7 @@ export function App() {
       setError(null);
       setContext(null);
       try {
-        const results = await search(query, mode, filters, lim);
+        const results = await search(query, mode, filters, lim, deviceArg());
         setHits(results);
         setLimit(lim);
         setSelected(results.length ? 0 : -1);
@@ -112,7 +197,7 @@ export function App() {
         setLoading(false);
       }
     },
-    [query, mode, filters],
+    [query, mode, filters, deviceArg],
   );
 
   // Fetch the next page by raising the limit and re-querying (search returns
@@ -137,7 +222,7 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      setContext((await buildContext(query, mode, filters)).markdown);
+      setContext((await buildContext(query, mode, filters, 3, 6000, deviceArg())).markdown);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -374,6 +459,23 @@ export function App() {
         <label>
           until <input type="date" value={filters.until ?? ""} onChange={(e) => setF({ until: e.target.value || undefined })} />
         </label>
+        {federation && devices.length > 1 && (
+          <div className="device-filter" title="Which devices to search">
+            {devices.map((d) => (
+              <button
+                key={d.name}
+                type="button"
+                className={`device-toggle ${deviceSel.has(d.name) ? "on" : ""}`}
+                onClick={() => toggleDevice(d.name)}
+                title={d.online ? "online" : "offline"}
+              >
+                <span className={`device-dot ${d.online ? "online" : "offline"}`} />
+                {d.name}
+                {d.local ? " (this)" : ""}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -438,6 +540,9 @@ export function App() {
             <div className="hit-head">
               {h.kind === "skill" && <span className="badge-skill">skill</span>}
               <span className={`tool tool-${h.tool}`}>{h.tool}</span>
+              {h.device && h.device !== localDevice && (
+                <span className="device-chip" title={`from ${h.device}`}>💻 {h.device}</span>
+              )}
               <span className="title">{h.title ?? "(untitled)"}</span>
               {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
               {flagButtons(h)}
@@ -587,61 +692,138 @@ export function App() {
         <div className="overlay" onClick={() => setShowSettings(false)}>
           <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <strong>Settings</strong>
+              <div className="settings-tabs">
+                <button
+                  className={settingsTab === "docs" ? "on" : ""}
+                  onClick={() => setSettingsTab("docs")}
+                >
+                  Documentation
+                </button>
+                <button
+                  className={settingsTab === "devices" ? "on" : ""}
+                  onClick={() => setSettingsTab("devices")}
+                >
+                  Devices
+                </button>
+              </div>
               <button className="secondary" onClick={() => setShowSettings(false)}>
                 Close
               </button>
             </div>
-            <div className="settings-body">
-              <section className="settings-section">
-                <h3>Documentation</h3>
-                <p className="settings-hint">
-                  Guides, references, and troubleshooting. Links open the docs on
-                  GitHub.
-                </p>
-                <ul className="doc-links">
-                  {DOC_LINKS.map((d) => (
-                    <li key={d.href}>
-                      <a href={d.href} target="_blank" rel="noreferrer noopener">
-                        {d.title}
+
+            {settingsTab === "docs" && (
+              <div className="settings-body">
+                <section className="settings-section">
+                  <h3>Documentation</h3>
+                  <p className="settings-hint">
+                    Guides, references, and troubleshooting. Links open the docs on
+                    GitHub.
+                  </p>
+                  <ul className="doc-links">
+                    {DOC_LINKS.map((d) => (
+                      <li key={d.href}>
+                        <a href={d.href} target="_blank" rel="noreferrer noopener">
+                          {d.title}
+                        </a>
+                        <span className="doc-desc">{d.desc}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <section className="settings-section">
+                  <h3>Set up another device</h3>
+                  <p className="settings-hint">
+                    Search the history on your other machines too. Install
+                    Crossthreads on each device, join them to one private Tailscale
+                    network, then use the <strong>Devices</strong> tab to discover
+                    and approve them. Full walkthrough:
+                  </p>
+                  <ul className="doc-links">
+                    <li>
+                      <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
+                        Multi-device setup guide
                       </a>
-                      <span className="doc-desc">{d.desc}</span>
+                      <span className="doc-desc">Step-by-step: connect your devices for cross-device search.</span>
                     </li>
-                  ))}
-                </ul>
-              </section>
+                  </ul>
+                </section>
+              </div>
+            )}
 
-              <section className="settings-section">
-                <h3>Set up another device</h3>
-                <p className="settings-hint">
-                  Search the history on your other machines too. Install
-                  Crossthreads on each device, join them to one private
-                  Tailscale network, bind each daemon to that network, then use{" "}
-                  <strong>Devices → Discover my devices</strong> to find and
-                  approve them. Full walkthrough:
-                </p>
-                <ul className="doc-links">
-                  <li>
-                    <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
-                      Multi-device setup guide
-                    </a>
-                    <span className="doc-desc">Step-by-step: connect your devices for cross-device search.</span>
-                  </li>
-                </ul>
-              </section>
-
-              <section className="settings-section">
-                <h3>Devices</h3>
-                <p className="settings-hint">
-                  Cross-device search is on the roadmap. Once it lands, you'll
-                  discover and approve your other machines here.
-                </p>
-                <button className="secondary" disabled title="Available with the cross-device release">
-                  Discover my devices
-                </button>
-                <span className="doc-desc"> Coming soon.</span>
-              </section>
-            </div>
+            {settingsTab === "devices" && (
+              <div className="settings-body">
+                <section className="settings-section">
+                  <h3>Devices</h3>
+                  {!federation ? (
+                    <p className="settings-hint">
+                      Cross-device search isn't set up on this machine yet. Give this
+                      device a name and a shared token, and join your machines to one
+                      Tailscale network — then come back here to discover them. See the{" "}
+                      <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
+                        multi-device setup guide
+                      </a>
+                      .
+                    </p>
+                  ) : (
+                    <>
+                      <p className="settings-hint">
+                        Search spans these devices. Liveness is checked when this list
+                        loads — Crossthreads never scans your network in the background.
+                      </p>
+                      <ul className="device-list">
+                        {devices.map((d) => (
+                          <li key={d.name} className="device-row">
+                            <span className={`device-dot ${d.online ? "online" : "offline"}`} />
+                            <span className="device-name">
+                              {d.name}
+                              {d.local && <span className="device-tag">this device</span>}
+                            </span>
+                            {d.addr && <code className="device-addr">{d.addr}</code>}
+                            {!d.local && (
+                              <button className="linklike" onClick={() => removeDevice(d.name)}>
+                                remove
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="device-discover">
+                        <button className="secondary" onClick={runDiscover} disabled={discovering}>
+                          {discovering ? "Discovering…" : "Discover my devices"}
+                        </button>
+                        {discovered !== null && (
+                          <div className="discovered">
+                            {discovered.length === 0 ? (
+                              <p className="settings-hint">
+                                No other Crossthreads devices found on your tailnet. Make
+                                sure each is running with a tailnet <code>--addr</code> and
+                                that Tailscale is connected.
+                              </p>
+                            ) : (
+                              <ul className="device-list">
+                                {discovered.map((d) => (
+                                  <li key={d.addr} className="device-row">
+                                    <span className="device-name">{d.name}</span>
+                                    <code className="device-addr">{d.addr}</code>
+                                    {d.already_approved ? (
+                                      <span className="device-tag">added</span>
+                                    ) : (
+                                      <button className="secondary" onClick={() => approve(d)}>
+                                        Approve
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
+            )}
           </div>
         </div>
       )}

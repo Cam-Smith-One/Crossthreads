@@ -938,13 +938,28 @@ impl Store {
     /// Render a paste-ready markdown context block from the given conversations,
     /// in order, stopping once `max_chars` is reached (FR-ACT-03 / AGENT_API §5).
     pub fn render_context(&self, ids: &[String], max_chars: usize) -> Result<ContextBlock> {
+        let mut convos = Vec::new();
+        for id in ids {
+            if let Some(convo) = self.get_conversation(id)? {
+                convos.push(convo);
+            }
+        }
+        Ok(self.render_conversations(&convos, max_chars))
+    }
+
+    /// Render already-loaded conversations into a paste-ready context block.
+    /// Shared by local id rendering and cross-device assembly, where remote
+    /// transcripts are fetched from a peer first (ADR-010). Touches no DB state.
+    pub fn render_conversations(
+        &self,
+        convos: &[StoredConversation],
+        max_chars: usize,
+    ) -> ContextBlock {
         let mut markdown = String::from("## Prior context (Crossthreads)\n");
         let mut sources = Vec::new();
 
-        for id in ids {
-            let Some(convo) = self.get_conversation(id)? else {
-                continue;
-            };
+        for convo in convos {
+            let id = &convo.id;
             let mut section = String::new();
             let when = convo
                 .started_at
@@ -1006,12 +1021,12 @@ impl Store {
         }
 
         let chars = markdown.chars().count();
-        Ok(ContextBlock {
+        ContextBlock {
             markdown,
             sources,
             chars,
             token_estimate: chars / 4, // rough heuristic
-        })
+        }
     }
 
     /// Rebuild the in-memory normalized-vector cache if a write has advanced

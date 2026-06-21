@@ -95,21 +95,38 @@ fn run() -> Result<()> {
     let embedder = ct_embed::default_embedder();
     let mut daemon = Daemon::new(store, embedder);
 
-    // Federation is opt-in: enabled when the user names this device, lists peers,
+    // Merge persisted federation config (peers approved via the Devices panel)
+    // with CLI/env. CLI/env win for device/token; peers are the union.
+    let fed_config_path = federation_config_path();
+    let saved = ct_daemon::federation::PersistedConfig::load(&fed_config_path);
+    let device_name = device_name.or(saved.device);
+    let token = token.or(saved.token);
+    let mut all_peers = saved.peers;
+    for p in peers {
+        match all_peers.iter_mut().find(|q| q.name == p.name) {
+            Some(existing) => existing.addr = p.addr,
+            None => all_peers.push(p),
+        }
+    }
+
+    // Federation is opt-in: enabled when the user names this device, has peers,
     // or sets a token. A daemon with no peers can still be a *searchable* peer.
-    if device_name.is_some() || !peers.is_empty() || token.is_some() {
+    if device_name.is_some() || !all_peers.is_empty() || token.is_some() {
         let device = device_name.unwrap_or_else(default_device_name);
         eprintln!(
             "crossthreadsd: federation on as '{device}' — {} peer(s){}",
-            peers.len(),
+            all_peers.len(),
             if token.is_some() { ", token set" } else { "" }
         );
-        daemon = daemon.with_federation(Federation {
-            device,
-            token,
-            peers,
-            timeout: Duration::from_millis(fed_timeout_ms),
-        });
+        daemon = daemon.with_federation(
+            Federation::new(
+                device,
+                token,
+                all_peers,
+                Duration::from_millis(fed_timeout_ms),
+            )
+            .with_config_path(fed_config_path),
+        );
     }
 
     // Index in the BACKGROUND so the UI/API are reachable immediately. A large
@@ -163,6 +180,18 @@ fn run() -> Result<()> {
     let listener = TcpListener::bind(&addr).with_context(|| format!("binding {addr}"))?;
     eprintln!("crossthreadsd: listening on {addr}");
     daemon.serve(listener)
+}
+
+/// Where the approved-peer list is persisted. Override with
+/// `CROSSTHREADS_FED_CONFIG`; defaults to the platform config dir.
+fn federation_config_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("CROSSTHREADS_FED_CONFIG") {
+        return PathBuf::from(p);
+    }
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("crossthreads")
+        .join("federation.json")
 }
 
 /// Parse one `NAME=ADDR` peer spec, e.g. `linux-desktop:47100` → name+addr.
