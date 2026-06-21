@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.2.1] - 2026-06-21
+
+### Fixed
+- `crossthreads-up` now resolves symlinks before locating its install directory,
+  so the launcher finds the bundled web UI (`~/.crossthreads/ui`) when it is run
+  through the `~/.local/bin` symlink that `install.sh` creates — previously it
+  pointed `--ui` at a nonexistent path and the app served a blank "not found".
+- `crossthreadsd` warns at startup when `--ui <dir>` has no `index.html`, instead
+  of silently 404ing every page.
+
 ## [0.2.0] - 2026-06-21
 
 ### Added
@@ -94,6 +104,7 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Cam-Smith-One/Crossthreads/releases/tag/v0.1.0

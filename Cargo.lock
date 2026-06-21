@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "ct-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "ct-connectors"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "ct-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -502,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "ct-daemon"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "ct-embed"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "ct-index"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "ct-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "ct-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
