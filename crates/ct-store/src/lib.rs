@@ -5,10 +5,13 @@
 //! half). Semantic search (`sqlite-vec`) layers onto this same DB next.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use ct_core::model::{Conversation, Role};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 mod schema;
@@ -185,22 +188,38 @@ impl Filters {
 /// Handle to the index database.
 pub struct Store {
     conn: Connection,
-    /// Monotonic counter bumped on every write that can affect embeddings, so
-    /// the in-memory vector cache knows when it's stale.
-    write_gen: std::cell::Cell<u64>,
-    /// L2-normalized vectors held in memory for fast semantic search. Rebuilt
-    /// lazily from the `embeddings` table when `write_gen` advances, turning the
-    /// per-query cosine scan into a cache-friendly dot product (no DB I/O, no
-    /// per-vector sqrt). Interior-mutable so `&self` search can refresh it.
-    vec_cache: std::cell::RefCell<VecCache>,
+    /// Shared, thread-safe vector cache. The writer and every read-pool
+    /// connection point at the same `VectorCache`, so the normalized vectors are
+    /// built once and reused rather than per-connection (ADR-005 read pool).
+    cache: Arc<VectorCache>,
 }
 
-/// In-memory, normalized vectors plus the `write_gen` they were built at.
+/// L2-normalized embedding vectors held in memory for fast semantic search,
+/// shared across a [`Store`] writer and its read-pool connections.
+pub struct VectorCache {
+    /// Bumped on every write that can affect embeddings; the built snapshot is
+    /// stale when its `gen` lags this.
+    generation: AtomicU64,
+    built: Mutex<Built>,
+}
+
+impl Default for VectorCache {
+    fn default() -> Self {
+        Self {
+            // Start at 1 so the empty (gen 0) snapshot is stale and built lazily.
+            generation: AtomicU64::new(1),
+            built: Mutex::new(Built::default()),
+        }
+    }
+}
+
+/// The built vector snapshot plus the `generation` it was built at. `entries`
+/// is an `Arc` so a search can clone it and release the lock before the scan.
 #[derive(Default)]
-struct VecCache {
+struct Built {
     gen: u64,
-    built: bool,
-    entries: Vec<CachedVec>,
+    ready: bool,
+    entries: Arc<Vec<CachedVec>>,
 }
 
 struct CachedVec {
@@ -211,11 +230,40 @@ struct CachedVec {
 }
 
 impl Store {
-    /// Open (creating if needed) the index at `path`, applying the schema.
+    /// Open (creating if needed) the index at `path`, applying the schema. This
+    /// is the single **writer**; pair it with [`Store::open_read`] for a read
+    /// pool. WAL mode lets readers and the writer run concurrently.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path.as_ref())
             .with_context(|| format!("opening index at {}", path.as_ref().display()))?;
+        // WAL: concurrent readers don't block the writer (and vice-versa);
+        // NORMAL sync is the standard durable-enough WAL pairing; busy_timeout
+        // makes a brief lock wait rather than error.
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.busy_timeout(Duration::from_secs(5))?;
         Self::init(conn)
+    }
+
+    /// Open an additional **read-only** connection to an already-initialized
+    /// index at `path`, sharing `cache` with the writer (from
+    /// [`Store::cache_handle`]). Used to build a read pool for true search
+    /// concurrency; never runs migrations.
+    pub fn open_read(path: impl AsRef<Path>, cache: Arc<VectorCache>) -> Result<Self> {
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_URI
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("opening read connection at {}", path.as_ref().display()))?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        Ok(Self { conn, cache })
+    }
+
+    /// The shared vector cache, to hand to [`Store::open_read`] connections.
+    pub fn cache_handle(&self) -> Arc<VectorCache> {
+        self.cache.clone()
     }
 
     /// In-memory store, for tests.
@@ -281,8 +329,7 @@ impl Store {
 
         let store = Self {
             conn,
-            write_gen: std::cell::Cell::new(1),
-            vec_cache: std::cell::RefCell::new(VecCache::default()),
+            cache: Arc::new(VectorCache::default()),
         };
         // Backfill session keys for rows indexed before v5, carrying any legacy
         // bookmark/pin flags into the durable `user_state` table.
@@ -340,7 +387,7 @@ impl Store {
 
     /// Mark the vector cache stale after a write that touched embeddings.
     fn bump_write_gen(&self) {
-        self.write_gen.set(self.write_gen.get().wrapping_add(1));
+        self.cache.generation.fetch_add(1, Ordering::Release);
     }
 
     /// Persist a conversation and its messages, skipping if an identical one
@@ -544,23 +591,22 @@ impl Store {
     /// like sqlite-vec/HNSW could drop in later). Only the top `limit` messages
     /// are then hydrated into full [`SearchHit`]s.
     pub fn search_semantic(&self, query: &[f32], limit: usize) -> Result<Vec<SearchHit>> {
-        self.refresh_vec_cache()?;
+        // Snapshot the shared vectors (cheap Arc clone) so the cosine scan runs
+        // *without* holding the cache lock — letting other readers proceed.
+        let entries = self.vectors()?;
         let qn = normalized(query);
 
         // Score in memory, collapse to the best message per conversation, keep
         // the rowids of the survivors in rank order.
-        let cache = self.vec_cache.borrow();
-        let mut scored: Vec<(f32, i64, &str)> = if cache.entries.len() >= PARALLEL_SCAN_THRESHOLD {
+        let mut scored: Vec<(f32, i64, &str)> = if entries.len() >= PARALLEL_SCAN_THRESHOLD {
             use rayon::prelude::*;
-            cache
-                .entries
+            entries
                 .par_iter()
                 .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
                 .filter(|(s, ..)| *s >= MIN_SIMILARITY)
                 .collect()
         } else {
-            cache
-                .entries
+            entries
                 .iter()
                 .map(|e| (dot(&qn, &e.norm), e.rowid, e.conversation_id.as_str()))
                 .filter(|(s, ..)| *s >= MIN_SIMILARITY)
@@ -578,7 +624,6 @@ impl Store {
                 }
             }
         }
-        drop(cache);
 
         // Hydrate only the survivors into full hits, preserving rank order.
         self.hits_for_rowids(&top)
@@ -1033,12 +1078,19 @@ impl Store {
     }
 
     /// Rebuild the in-memory normalized-vector cache if a write has advanced
-    /// `write_gen` since it was last built. Cheap no-op on the hot path.
-    fn refresh_vec_cache(&self) -> Result<()> {
-        let gen = self.write_gen.get();
-        if self.vec_cache.borrow().built && self.vec_cache.borrow().gen == gen {
-            return Ok(());
+    /// the `generation` since it was last built. The returned `Arc` lets the
+    /// caller scan without holding the cache lock. Cheap on the hot path (an
+    /// `Arc` clone when the snapshot is current).
+    fn vectors(&self) -> Result<Arc<Vec<CachedVec>>> {
+        let gen = self.cache.generation.load(Ordering::Acquire);
+        {
+            let built = self.cache.built.lock().expect("vec cache poisoned");
+            if built.ready && built.gen == gen {
+                return Ok(built.entries.clone());
+            }
         }
+        // Rebuild from the embeddings table (read-only SELECT — safe on a
+        // read-pool connection). Done without the lock held.
         let mut stmt = self.conn.prepare(
             "SELECT e.message_rowid, m.conversation_id, e.vec
              FROM embeddings e
@@ -1058,12 +1110,18 @@ impl Store {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        *self.vec_cache.borrow_mut() = VecCache {
-            gen,
-            built: true,
-            entries,
-        };
-        Ok(())
+        let entries = Arc::new(entries);
+        let mut built = self.cache.built.lock().expect("vec cache poisoned");
+        // Don't let a slower, older rebuild clobber a newer one another reader
+        // may have just stored.
+        if !built.ready || gen >= built.gen {
+            *built = Built {
+                gen,
+                ready: true,
+                entries: entries.clone(),
+            };
+        }
+        Ok(entries)
     }
 
     /// Hydrate the given message rowids (with their scores) into full hits,

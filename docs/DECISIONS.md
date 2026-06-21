@@ -68,6 +68,17 @@ real dev machine.
 - Need a stable local API contract shared by all clients (aligns with [AGENT_API.md](AGENT_API.md)).
 - Slightly more moving parts than an in-process MVP — accepted for correctness and the multi-surface story.
 
+**Update (impl).** The single-writer invariant is kept, but reads no longer
+serialize on it: the index runs in **WAL mode** with a small **pool of read-only
+connections** (`Store::open_read`, `Daemon::with_read_pool`, sized to CPU,
+clamped 2–8). Writes still go through the one writer connection; searches and
+other reads round-robin across the pool and run concurrently. The in-memory
+normalized-vector cache is **shared** across the writer and all read connections
+(`Arc<VectorCache>` with an atomic generation), so it's built once and a cosine
+scan snapshots it (`Arc`) and runs without holding the cache lock. `rusqlite`'s
+`Connection` is `!Sync`, so each connection keeps its own `Mutex` — the pool is
+what provides the concurrency.
+
 ## ADR-006 — ML runtime = pure-Rust ONNX
 **Decision.** Run embeddings (and any future reranker) via a pure-Rust ONNX runtime (`ort`/`candle`) in-process in the daemon. No Python sidecar.
 

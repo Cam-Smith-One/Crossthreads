@@ -6,9 +6,10 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -32,20 +33,72 @@ const FED_PORT: u16 = 47100;
 /// The running daemon: shared handles to the store and embedder.
 #[derive(Clone)]
 pub struct Daemon {
+    /// The single writer connection (single-writer invariant, ADR-005).
     store: Arc<Mutex<Store>>,
+    /// Read-only connections sharing the writer's vector cache, for concurrent
+    /// searches/reads (WAL). Empty ⇒ reads fall back to the writer.
+    readers: Arc<Vec<Mutex<Store>>>,
+    /// Round-robin cursor over `readers`.
+    next_reader: Arc<AtomicUsize>,
     embedder: Arc<dyn Embedder>,
     /// Cross-device federation config (ADR-010); `None` = local-only daemon.
     federation: Option<Arc<Federation>>,
 }
 
 impl Daemon {
-    /// Build a daemon around an open store and embedder.
+    /// Build a daemon around an open store and embedder. Reads use the writer
+    /// until a read pool is attached with [`Daemon::with_read_pool`].
     pub fn new(store: Store, embedder: Box<dyn Embedder>) -> Self {
         Self {
             store: Arc::new(Mutex::new(store)),
+            readers: Arc::new(Vec::new()),
+            next_reader: Arc::new(AtomicUsize::new(0)),
             embedder: Arc::from(embedder),
             federation: None,
         }
+    }
+
+    /// Attach `n` read-only connections to the index at `path` (WAL), so searches
+    /// and other reads run concurrently instead of serializing on the writer
+    /// lock. They share the writer's in-memory vector cache. Best-effort: a
+    /// connection that fails to open is skipped.
+    pub fn with_read_pool(mut self, path: impl AsRef<Path>, n: usize) -> Self {
+        let cache = self
+            .store
+            .lock()
+            .expect("store mutex poisoned")
+            .cache_handle();
+        let mut readers = Vec::new();
+        for _ in 0..n {
+            match Store::open_read(path.as_ref(), cache.clone()) {
+                Ok(s) => readers.push(Mutex::new(s)),
+                Err(e) => eprintln!("warn: read-pool connection failed: {e:#}"),
+            }
+        }
+        if !readers.is_empty() {
+            eprintln!(
+                "crossthreadsd: read pool of {} connection(s)",
+                readers.len()
+            );
+            self.readers = Arc::new(readers);
+        }
+        self
+    }
+
+    /// Lock a read connection from the pool (round-robin), or the writer when no
+    /// pool is attached. Use for read-only operations.
+    fn read_lock(&self) -> MutexGuard<'_, Store> {
+        if self.readers.is_empty() {
+            self.store.lock().expect("store mutex poisoned")
+        } else {
+            let i = self.next_reader.fetch_add(1, Ordering::Relaxed) % self.readers.len();
+            self.readers[i].lock().expect("store mutex poisoned")
+        }
+    }
+
+    /// Lock the single writer connection. Use for any operation that writes.
+    fn write_lock(&self) -> MutexGuard<'_, Store> {
+        self.store.lock().expect("store mutex poisoned")
     }
 
     /// Enable cross-device federation: stamp served hits with our device name,
@@ -68,7 +121,7 @@ impl Daemon {
 
         // Persist (fast) under a single short-lived lock.
         {
-            let mut store = self.store.lock().expect("store mutex poisoned");
+            let mut store = self.write_lock();
             for convo in &conversations {
                 match store.upsert_conversation(convo)? {
                     ct_store::Upsert::Inserted => report.inserted += 1,
@@ -82,7 +135,7 @@ impl Daemon {
         // to write vectors back — never during the (slow) embedding compute.
         loop {
             let batch = {
-                let store = self.store.lock().expect("store mutex poisoned");
+                let store = self.write_lock();
                 store.pending_embeddings(128)?
             };
             if batch.is_empty() {
@@ -93,7 +146,7 @@ impl Daemon {
             let rows: Vec<(i64, Vec<f32>)> =
                 batch.iter().map(|(rowid, _)| *rowid).zip(vecs).collect();
             {
-                let mut store = self.store.lock().expect("store mutex poisoned");
+                let mut store = self.write_lock();
                 store.store_embeddings(self.embedder.id(), &rows)?;
             }
             report.embedded += rows.len();
@@ -104,7 +157,7 @@ impl Daemon {
 
     /// Per-(tool, kind) record counts, for a coverage summary.
     pub fn counts_by_tool(&self) -> Result<Vec<(String, String, i64)>> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.read_lock();
         store.counts_by_tool()
     }
 
@@ -279,7 +332,7 @@ impl Daemon {
     }
 
     fn facets(&self) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.read_lock();
         Ok(Response::Facets {
             tools: store.facets_tools()?,
             tags: store.facets_tags()?,
@@ -287,7 +340,7 @@ impl Daemon {
     }
 
     fn status(&self) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.read_lock();
         Ok(Response::Status {
             conversations: store.conversation_count()?,
             embeddings: store.embedding_count()?,
@@ -306,17 +359,17 @@ impl Daemon {
     ) -> Result<Vec<SearchHit>> {
         Ok(match mode {
             Mode::Lexical => {
-                let store = self.store.lock().expect("store mutex poisoned");
+                let store = self.read_lock();
                 store.search_filtered(query, limit, f)?
             }
             Mode::Semantic => {
                 let q = self.embedder.embed_one(query)?;
-                let store = self.store.lock().expect("store mutex poisoned");
+                let store = self.read_lock();
                 store.search_semantic_filtered(&q, limit, f)?
             }
             Mode::Hybrid => {
                 let q = self.embedder.embed_one(query)?;
-                let store = self.store.lock().expect("store mutex poisoned");
+                let store = self.read_lock();
                 store.search_hybrid_filtered(query, &q, limit, f)?
             }
         })
@@ -572,13 +625,13 @@ impl Daemon {
         bookmarked: Option<bool>,
         pinned: Option<bool>,
     ) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.write_lock();
         let ok = store.set_flags(id, bookmarked, pinned)?;
         Ok(Response::Ok { ok })
     }
 
     fn saved(&self) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.read_lock();
         Ok(Response::Hits {
             hits: store.saved()?,
             unreachable: Vec::new(),
@@ -586,20 +639,20 @@ impl Daemon {
     }
 
     fn forget(&self, id: &str) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.write_lock();
         let ok = store.forget(id)?;
         Ok(Response::Ok { ok })
     }
 
     fn set_note(&self, id: &str, note: &str) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.write_lock();
         Ok(Response::Ok {
             ok: store.set_note(id, note)?,
         })
     }
 
     fn set_tags(&self, id: &str, tags: &[String]) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+        let store = self.write_lock();
         Ok(Response::Ok {
             ok: store.set_tags(id, tags)?,
         })
@@ -610,7 +663,7 @@ impl Daemon {
     /// this works for the web UI and the native shell alike.
     fn open_source(&self, id: &str) -> Result<Response> {
         let path = {
-            let store = self.store.lock().expect("store mutex poisoned");
+            let store = self.read_lock();
             store.get_conversation(id)?.map(|c| c.source_path)
         };
         let Some(path) = path.filter(|p| !p.is_empty()) else {
@@ -652,7 +705,7 @@ impl Daemon {
         indexed.sort_by_key(|(i, _)| *i); // keep ranked order
         let convos: Vec<StoredConversation> = indexed.into_iter().map(|(_, c)| c).collect();
         let block = {
-            let store = self.store.lock().expect("store mutex poisoned");
+            let store = self.read_lock();
             store.render_conversations(&convos, max_chars)
         };
         Ok(Response::Context {
@@ -676,7 +729,7 @@ impl Daemon {
             (Some(d), Some(me)) => d == me,
         };
         if is_local {
-            let store = self.store.lock().expect("store mutex poisoned");
+            let store = self.read_lock();
             return store.get_conversation(id).ok().flatten();
         }
         let fed = self.federation.as_ref()?;
@@ -710,7 +763,7 @@ impl Daemon {
             }
         }
         let convo = {
-            let store = self.store.lock().expect("store mutex poisoned");
+            let store = self.read_lock();
             store.get_conversation(id).ok().flatten()
         };
         let convo = convo.filter(|c| fed.serves(&c.tool, c.project.as_deref()));
