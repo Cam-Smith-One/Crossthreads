@@ -162,7 +162,18 @@ so we don't build (and own the security of) a mesh.
   fetch and per-peer scope filters as opt-in tighteners.
 - Tailscale is the recommended default, not a hard dependency: a raw `host:port`
   peer list still works on a LAN (user owns NAT/firewall).
-- Status: **Proposed** — not yet implemented; phased MVP→P2 in the design doc.
+- Status: **Proposed** — phased MVP→P2 in the design doc.
+
+**Update (impl).** The **P-fed.0 MVP is implemented** in `ct-daemon`: a
+`federation` module (config types + RRF merge/dedup) plus a `Daemon` fan-out and
+a token-gated, local-only `Request::PeerSearch` op. Enabled via daemon flags
+(`--device-name`, `--peer NAME=ADDR`, `--fed-token`, `--fed-timeout-ms`) or the
+matching `CROSSTHREADS_*` env vars; results carry a `device` tag and collapse
+cross-device duplicates by `conversation_id` (the content hash). The loop guard
+is the `PeerSearch` op itself (it never re-fans-out) rather than a `local_only`
+flag on `Search`. Covered by unit + two-daemon integration tests. Device-selection
+UI and the MCP `devices` argument (P-fed.1) and the Settings → Devices discovery
+panel (P-fed.2) remain to do.
 
 ---
 

@@ -1,6 +1,6 @@
 # Design — Cross-device search (federated, local-first)
 
-_Status: Proposed · 2026-06-21 · see [ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel)_
+_Status: Proposed · P-fed.0 MVP implemented · 2026-06-21 · see [ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel)_
 
 ## Problem
 
@@ -73,11 +73,13 @@ The daemon already exposes a `Request`/`Response` protocol over loopback TCP
    timeout_ms = 1500
    ```
 2. **Fan-out.** On a `Search`, the daemon runs the local query and, in
-   parallel, sends the *same* request to each peer — but with a new
-   `local_only: true` flag set so peers **do not** re-fan-out (prevents query
-   loops/amplification). Each peer call has a bounded timeout; a peer that is
-   offline, slow, or rejects the token is skipped, and the search still returns
-   local + reachable-peer results.
+   parallel, sends a dedicated **`PeerSearch`** request to each peer. `PeerSearch`
+   is inherently local-only — a peer answering it never re-fans-out, so queries
+   can't loop or amplify — and carries the shared token. Each peer call has a
+   bounded timeout; a peer that is offline, slow, or rejects the token is
+   skipped, and the search still returns local + reachable-peer results.
+   _(Implemented as the `Request::PeerSearch` op rather than a `local_only` flag
+   on `Search`, so the public local API stays untouched.)_
 3. **Merge.** Reuse the existing hybrid/RRF scoring to interleave local and
    remote hits, then **dedup by `content_hash`** — a nice bonus: the same repo
    cloned on two machines, or a thread that exists identically on both, collapses
@@ -178,9 +180,13 @@ daemons. Mitigations available as options:
   Documentation** section and the step-by-step
   [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) guide. Standalone UI + docs; the
   **Devices** tab is present as a placeholder until P-fed.2.
-- **MVP (P-fed.0):** loopback + tailnet bind, static `peers` list, shared token,
-  parallel fan-out with timeout, RRF merge + dedup, `device` tag in results,
-  `local_only` loop guard. CLI/`--peers` flag to try it before any UI.
+- **MVP (P-fed.0) — ✅ implemented:** tailnet bind via `--addr`, static `--peer
+  NAME=ADDR` list, shared `--fed-token`, parallel fan-out with a bounded
+  per-peer timeout, RRF merge + `conversation_id` (content-hash) dedup, `device`
+  tag in results, and a dedicated `PeerSearch` op that is local-only (the loop
+  guard) and token-gated. Lives in `ct-daemon` (`federation.rs` + the `Daemon`
+  fan-out / `PeerSearch` handler); covered by unit + two-daemon integration
+  tests.
 - **P-fed.1:** device selection as routing — UI "all devices" multiselect
   (default all) + result device chips + "reveal on device", optional MCP/CLI
   `devices` argument, reachable-peers status, snippet-first fetch.

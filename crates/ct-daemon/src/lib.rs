@@ -5,7 +5,7 @@
 //! thin [`Client`]s over the [`protocol`].
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -16,9 +16,11 @@ use anyhow::{Context, Result};
 use ct_embed::Embedder;
 use ct_store::Store;
 
+pub mod federation;
 mod http;
 pub mod protocol;
 pub use ct_store::{Filters, SearchHit};
+pub use federation::{Federation, Peer};
 pub use protocol::{Mode, Request, Response, DEFAULT_ADDR};
 
 /// How long to wait for the filesystem to settle before re-indexing.
@@ -29,6 +31,8 @@ const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 pub struct Daemon {
     store: Arc<Mutex<Store>>,
     embedder: Arc<dyn Embedder>,
+    /// Cross-device federation config (ADR-010); `None` = local-only daemon.
+    federation: Option<Arc<Federation>>,
 }
 
 impl Daemon {
@@ -37,7 +41,15 @@ impl Daemon {
         Self {
             store: Arc::new(Mutex::new(store)),
             embedder: Arc::from(embedder),
+            federation: None,
         }
+    }
+
+    /// Enable cross-device federation: stamp served hits with our device name,
+    /// fan local searches out to `peers`, and answer authenticated `PeerSearch`.
+    pub fn with_federation(mut self, fed: Federation) -> Self {
+        self.federation = Some(Arc::new(fed));
+        self
     }
 
     /// Run one indexing pass. The store lock is taken only briefly (per upsert
@@ -211,6 +223,13 @@ impl Daemon {
             } => self
                 .search(&query, mode, limit, &filters)
                 .unwrap_or_else(err),
+            Request::PeerSearch {
+                token,
+                query,
+                mode,
+                limit,
+                filters,
+            } => self.peer_search(token.as_deref(), &query, mode, limit, &filters),
             Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
             Request::SetFlags {
                 id,
@@ -251,28 +270,141 @@ impl Daemon {
         })
     }
 
-    fn search(&self, query: &str, mode: Mode, limit: usize, f: &Filters) -> Result<Response> {
-        let hits: Vec<SearchHit> = {
-            // Embed outside the store lock where possible; keep it simple and
-            // correct by embedding first, then locking for the query.
-            match mode {
-                Mode::Lexical => {
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_filtered(query, limit, f)?
-                }
-                Mode::Semantic => {
-                    let q = self.embedder.embed_one(query)?;
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_semantic_filtered(&q, limit, f)?
-                }
-                Mode::Hybrid => {
-                    let q = self.embedder.embed_one(query)?;
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_hybrid_filtered(query, &q, limit, f)?
-                }
+    /// Run a search against the local index only. Embedding happens outside the
+    /// store lock; we then lock just for the query.
+    fn local_search(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Result<Vec<SearchHit>> {
+        Ok(match mode {
+            Mode::Lexical => {
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_filtered(query, limit, f)?
             }
+            Mode::Semantic => {
+                let q = self.embedder.embed_one(query)?;
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_semantic_filtered(&q, limit, f)?
+            }
+            Mode::Hybrid => {
+                let q = self.embedder.embed_one(query)?;
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_hybrid_filtered(query, &q, limit, f)?
+            }
+        })
+    }
+
+    /// Top-level search. Local-only unless federation is configured, in which
+    /// case it fans out to peer daemons in parallel and merges the results
+    /// (ADR-010). An offline/slow/unauthorized peer is skipped, never fatal.
+    fn search(&self, query: &str, mode: Mode, limit: usize, f: &Filters) -> Result<Response> {
+        let mut local = self.local_search(query, mode, limit, f)?;
+
+        let Some(fed) = &self.federation else {
+            return Ok(Response::Hits { hits: local });
         };
-        Ok(Response::Hits { hits })
+        // Stamp local hits with our own device name so the UI can label them.
+        for h in &mut local {
+            h.device = Some(fed.device.clone());
+        }
+        if fed.peers.is_empty() {
+            return Ok(Response::Hits { hits: local });
+        }
+
+        let mut lists = vec![local];
+        lists.extend(self.fan_out(fed, query, mode, limit, f));
+        Ok(Response::Hits {
+            hits: federation::rrf_merge(lists, limit),
+        })
+    }
+
+    /// Query every peer in parallel and collect the lists that came back in
+    /// time. Each peer's hits are tagged with that peer's configured name.
+    fn fan_out(
+        &self,
+        fed: &Federation,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Vec<Vec<SearchHit>> {
+        let timeout = fed.timeout;
+        let handles: Vec<_> = fed
+            .peers
+            .clone()
+            .into_iter()
+            .map(|peer| {
+                let req = Request::PeerSearch {
+                    token: fed.token.clone(),
+                    query: query.to_string(),
+                    mode,
+                    limit,
+                    filters: f.clone(),
+                };
+                thread::spawn(move || {
+                    let client = Client::new(peer.addr.clone());
+                    match client.call_timeout(&req, timeout) {
+                        Ok(Response::Hits { mut hits }) => {
+                            for h in &mut hits {
+                                h.device = Some(peer.name.clone());
+                            }
+                            Some(hits)
+                        }
+                        Ok(Response::Error { message }) => {
+                            eprintln!("warn: peer {} rejected search: {message}", peer.name);
+                            None
+                        }
+                        Ok(_) => None,
+                        Err(e) => {
+                            eprintln!("warn: peer {} unreachable: {e:#}", peer.name);
+                            None
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .collect()
+    }
+
+    /// Answer a search forwarded from a peer: authenticate, run **local-only**
+    /// (no re-fan-out, so queries can't loop), and stamp our device name.
+    fn peer_search(
+        &self,
+        token: Option<&str>,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "federation not enabled on this device".into(),
+            };
+        };
+        // Constant work either way; a configured token must match.
+        if let Some(expected) = &fed.token {
+            if token != Some(expected.as_str()) {
+                return Response::Error {
+                    message: "unauthorized peer (bad or missing token)".into(),
+                };
+            }
+        }
+        match self.local_search(query, mode, limit, f) {
+            Ok(mut hits) => {
+                for h in &mut hits {
+                    h.device = Some(fed.device.clone());
+                }
+                Response::Hits { hits }
+            }
+            Err(e) => err(e),
+        }
     }
 
     fn get_conversation(&self, id: &str) -> Result<Response> {
@@ -413,6 +545,29 @@ impl Client {
     pub fn call(&self, req: &Request) -> Result<Response> {
         let stream = TcpStream::connect(&self.addr)
             .with_context(|| format!("connecting to daemon at {}", self.addr))?;
+        self.exchange(stream, req)
+    }
+
+    /// Like [`call`], but bounded by `timeout` on connect, read, and write — for
+    /// fanning a search out to peer daemons that may be slow or offline
+    /// (ADR-010). Resolves the address (so MagicDNS / hostnames work) and
+    /// connects to the first candidate.
+    pub fn call_timeout(&self, req: &Request, timeout: Duration) -> Result<Response> {
+        let sock = self
+            .addr
+            .to_socket_addrs()
+            .with_context(|| format!("resolving peer {}", self.addr))?
+            .next()
+            .with_context(|| format!("no address for peer {}", self.addr))?;
+        let stream = TcpStream::connect_timeout(&sock, timeout)
+            .with_context(|| format!("connecting to peer {}", self.addr))?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        self.exchange(stream, req)
+    }
+
+    /// Write one request line and read one response line on `stream`.
+    fn exchange(&self, stream: TcpStream, req: &Request) -> Result<Response> {
         let mut writer = stream.try_clone()?;
         let mut bytes = serde_json::to_vec(req)?;
         bytes.push(b'\n');

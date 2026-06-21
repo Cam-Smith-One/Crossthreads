@@ -61,6 +61,11 @@ pub struct SearchHit {
     /// User-set tags (lowercased).
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Origin device for cross-device (federated) results. `None` for local
+    /// hits; set to a peer's configured name when a result came from another
+    /// device. See ADR-010 / CROSS_DEVICE_SEARCH.md.
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 /// One message of a stored conversation.
@@ -467,6 +472,7 @@ impl Store {
                 tags: split_tags(&row.get::<_, String>(9)?),
                 snippet: row.get(10)?,
                 score: row.get(11)?,
+                device: None,
             })
         })?;
 
@@ -923,6 +929,7 @@ impl Store {
                 tags: split_tags(&row.get::<_, String>(9)?),
                 snippet: String::new(),
                 score: 0.0,
+                device: None,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -1070,6 +1077,7 @@ impl Store {
                     tags: split_tags(&row.get::<_, String>(10)?),
                     snippet: snippet_of(&content, 160),
                     score: *score as f64,
+                    device: None,
                 })
             });
             match hit {

@@ -42,6 +42,23 @@ pub enum Request {
         #[serde(default)]
         filters: Filters,
     },
+    /// Search forwarded from a peer daemon during cross-device federation
+    /// (ADR-010). Unlike `Search`, it runs **local-only** (never re-fans-out, so
+    /// queries can't loop/amplify) and is gated by the shared `token`. The
+    /// querying device merges the returned hits into its own results.
+    PeerSearch {
+        /// Shared federation secret; required if the receiving daemon configured
+        /// one. Carried per-request so it never has to be logged.
+        #[serde(default)]
+        token: Option<String>,
+        query: String,
+        #[serde(default = "default_mode")]
+        mode: Mode,
+        #[serde(default = "default_limit")]
+        limit: usize,
+        #[serde(default)]
+        filters: Filters,
+    },
     /// Fetch a full conversation by id.
     GetConversation { id: String },
     /// Set/clear the bookmark and/or pin flag on a conversation.
