@@ -241,7 +241,17 @@ impl Daemon {
             Request::PeerGetConversation { token, id } => {
                 self.peer_get_conversation(token.as_deref(), &id)
             }
-            Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
+            Request::GetConversation { id, device } => self
+                .get_conversation(&id, device.as_deref())
+                .unwrap_or_else(err),
+            Request::GetFederationConfig => self.federation_config(),
+            Request::SetFederationConfig {
+                device,
+                token,
+                exclude_tools,
+                exclude_projects,
+            } => self.set_federation_config(device, token, exclude_tools, exclude_projects),
+            Request::PairWithCode { code } => self.pair_with_code(&code),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -318,14 +328,14 @@ impl Daemon {
         f: &Filters,
         devices: Option<&[String]>,
     ) -> Result<Response> {
-        Ok(Response::Hits {
-            hits: self.federated_hits(query, mode, limit, f, devices)?,
-        })
+        let (hits, unreachable) = self.federated_hits(query, mode, limit, f, devices)?;
+        Ok(Response::Hits { hits, unreachable })
     }
 
     /// Local-only unless federation is configured, in which case it fans out to
     /// peer daemons in parallel and merges the results (ADR-010). An offline/
-    /// slow/unauthorized peer is skipped, never fatal.
+    /// slow/unauthorized peer is skipped, never fatal — its name is returned in
+    /// the second tuple element so the UI can surface "N devices unreachable".
     ///
     /// `devices` selects which devices to search (routing, not filtering): `None`
     /// = this host + all peers; otherwise only the named devices are queried.
@@ -336,40 +346,38 @@ impl Daemon {
         limit: usize,
         f: &Filters,
         devices: Option<&[String]>,
-    ) -> Result<Vec<SearchHit>> {
+    ) -> Result<(Vec<SearchHit>, Vec<String>)> {
         let Some(fed) = &self.federation else {
             // No federation: device selection is moot, return local results.
-            return self.local_search(query, mode, limit, f);
+            return Ok((self.local_search(query, mode, limit, f)?, Vec::new()));
         };
 
         // Which peers to query, and whether to include local results.
+        let device = fed.device();
         let want = |name: &str| devices.map_or(true, |d| d.iter().any(|n| n == name));
         let peers: Vec<Peer> = fed.peers().into_iter().filter(|p| want(&p.name)).collect();
 
         let mut lists: Vec<Vec<SearchHit>> = Vec::new();
-        if want(&fed.device) {
+        if want(&device) {
             let mut local = self.local_search(query, mode, limit, f)?;
             for h in &mut local {
-                h.device = Some(fed.device.clone());
+                h.device = Some(device.clone());
             }
             lists.push(local);
         }
+        let mut unreachable = Vec::new();
         if !peers.is_empty() {
-            lists.extend(self.fan_out(
-                fed.token.clone(),
-                fed.timeout,
-                peers,
-                query,
-                mode,
-                limit,
-                f,
-            ));
+            let (peer_lists, un) =
+                self.fan_out(fed.token(), fed.timeout, peers, query, mode, limit, f);
+            lists.extend(peer_lists);
+            unreachable = un;
         }
-        Ok(federation::rrf_merge(lists, limit))
+        Ok((federation::rrf_merge(lists, limit), unreachable))
     }
 
-    /// Query the given peers in parallel and collect the lists that came back in
-    /// time. Each peer's hits are tagged with that peer's configured name.
+    /// Query the given peers in parallel; return the hit lists that came back in
+    /// time, plus the names of peers that didn't (offline/timeout/rejected) so
+    /// the caller can surface them. Each peer's hits are tagged with its name.
     #[allow(clippy::too_many_arguments)]
     fn fan_out(
         &self,
@@ -380,7 +388,7 @@ impl Daemon {
         mode: Mode,
         limit: usize,
         f: &Filters,
-    ) -> Vec<Vec<SearchHit>> {
+    ) -> (Vec<Vec<SearchHit>>, Vec<String>) {
         let handles: Vec<_> = peers
             .into_iter()
             .map(|peer| {
@@ -391,33 +399,40 @@ impl Daemon {
                     limit,
                     filters: f.clone(),
                 };
+                // Ok(hits) on success; Err(name) when the peer didn't contribute.
                 thread::spawn(move || {
                     let client = Client::new(peer.addr.clone());
                     match client.call_timeout(&req, timeout) {
-                        Ok(Response::Hits { mut hits }) => {
+                        Ok(Response::Hits { mut hits, .. }) => {
                             for h in &mut hits {
                                 h.device = Some(peer.name.clone());
                             }
-                            Some(hits)
+                            Ok(hits)
                         }
                         Ok(Response::Error { message }) => {
                             eprintln!("warn: peer {} rejected search: {message}", peer.name);
-                            None
+                            Err(peer.name)
                         }
-                        Ok(_) => None,
+                        Ok(_) => Err(peer.name),
                         Err(e) => {
                             eprintln!("warn: peer {} unreachable: {e:#}", peer.name);
-                            None
+                            Err(peer.name)
                         }
                     }
                 })
             })
             .collect();
 
-        handles
-            .into_iter()
-            .filter_map(|h| h.join().ok().flatten())
-            .collect()
+        let mut lists = Vec::new();
+        let mut unreachable = Vec::new();
+        for h in handles {
+            match h.join() {
+                Ok(Ok(hits)) => lists.push(hits),
+                Ok(Err(name)) => unreachable.push(name),
+                Err(_) => {} // worker panicked; treat as no contribution
+            }
+        }
+        (lists, unreachable)
     }
 
     /// Answer a search forwarded from a peer: authenticate, run **local-only**
@@ -436,7 +451,7 @@ impl Daemon {
             };
         };
         // Constant work either way; a configured token must match.
-        if let Some(expected) = &fed.token {
+        if let Some(expected) = fed.token() {
             if token != Some(expected.as_str()) {
                 return Response::Error {
                     message: "unauthorized peer (bad or missing token)".into(),
@@ -445,10 +460,16 @@ impl Daemon {
         }
         match self.local_search(query, mode, limit, f) {
             Ok(mut hits) => {
+                // Serve-scope: don't expose excluded tools/projects to peers.
+                hits.retain(|h| fed.serves(&h.tool, h.project.as_deref()));
+                let device = fed.device();
                 for h in &mut hits {
-                    h.device = Some(fed.device.clone());
+                    h.device = Some(device.clone());
                 }
-                Response::Hits { hits }
+                Response::Hits {
+                    hits,
+                    unreachable: Vec::new(),
+                }
             }
             Err(e) => err(e),
         }
@@ -469,7 +490,7 @@ impl Daemon {
             };
         };
         let mut devices = vec![DeviceInfo {
-            name: fed.device.clone(),
+            name: fed.device(),
             addr: None,
             online: true,
             local: true,
@@ -533,10 +554,12 @@ impl Daemon {
         }
     }
 
-    fn get_conversation(&self, id: &str) -> Result<Response> {
-        let store = self.store.lock().expect("store mutex poisoned");
+    /// Fetch a conversation for a local client, routing to the owning peer when
+    /// `device` names another machine (ADR-010) — so the UI can open a remote
+    /// search hit's transcript.
+    fn get_conversation(&self, id: &str, device: Option<&str>) -> Result<Response> {
         Ok(Response::Conversation {
-            conversation: store.get_conversation(id)?,
+            conversation: self.fetch_conversation(id, device),
         })
     }
 
@@ -555,6 +578,7 @@ impl Daemon {
         let store = self.store.lock().expect("store mutex poisoned");
         Ok(Response::Hits {
             hits: store.saved()?,
+            unreachable: Vec::new(),
         })
     }
 
@@ -605,7 +629,7 @@ impl Daemon {
         f: &Filters,
         devices: Option<&[String]>,
     ) -> Result<Response> {
-        let hits = self.federated_hits(query, mode, limit, f, devices)?;
+        let (hits, _unreachable) = self.federated_hits(query, mode, limit, f, devices)?;
         let convos: Vec<StoredConversation> = hits
             .iter()
             .filter_map(|h| self.fetch_conversation_for(h))
@@ -621,27 +645,31 @@ impl Daemon {
         })
     }
 
-    /// Fetch a hit's full conversation from whichever device owns it: locally if
-    /// it's ours (or untagged), otherwise via a token-gated `PeerGetConversation`
-    /// to the tagged peer.
     fn fetch_conversation_for(&self, hit: &SearchHit) -> Option<StoredConversation> {
-        let local_name = self.federation.as_ref().map(|f| f.device.as_str());
-        let is_local = match (hit.device.as_deref(), local_name) {
+        self.fetch_conversation(&hit.conversation_id, hit.device.as_deref())
+    }
+
+    /// Fetch a conversation from whichever device owns it: locally if it's ours
+    /// (or untagged), otherwise via a token-gated `PeerGetConversation` to the
+    /// named peer.
+    fn fetch_conversation(&self, id: &str, device: Option<&str>) -> Option<StoredConversation> {
+        let local_name = self.federation.as_ref().map(|f| f.device());
+        let is_local = match (device, local_name.as_deref()) {
             (None, _) | (Some(_), None) => true,
             (Some(d), Some(me)) => d == me,
         };
         if is_local {
             let store = self.store.lock().expect("store mutex poisoned");
-            return store.get_conversation(&hit.conversation_id).ok().flatten();
+            return store.get_conversation(id).ok().flatten();
         }
         let fed = self.federation.as_ref()?;
         let peer = fed
             .peers()
             .into_iter()
-            .find(|p| Some(p.name.as_str()) == hit.device.as_deref())?;
+            .find(|p| Some(p.name.as_str()) == device)?;
         let req = Request::PeerGetConversation {
-            token: fed.token.clone(),
-            id: hit.conversation_id.clone(),
+            token: fed.token(),
+            id: id.to_string(),
         };
         match Client::new(peer.addr).call_timeout(&req, fed.timeout) {
             Ok(Response::Conversation { conversation }) => conversation,
@@ -649,21 +677,90 @@ impl Daemon {
         }
     }
 
-    /// Answer a peer's request for one conversation: token-gated, local fetch.
+    /// Answer a peer's request for one conversation: token-gated, local fetch,
+    /// honouring the serve-scope (an excluded thread isn't served either).
     fn peer_get_conversation(&self, token: Option<&str>, id: &str) -> Response {
         let Some(fed) = &self.federation else {
             return Response::Error {
                 message: "federation not enabled on this device".into(),
             };
         };
-        if let Some(expected) = &fed.token {
+        if let Some(expected) = fed.token() {
             if token != Some(expected.as_str()) {
                 return Response::Error {
                     message: "unauthorized peer (bad or missing token)".into(),
                 };
             }
         }
-        self.get_conversation(id).unwrap_or_else(err)
+        let convo = {
+            let store = self.store.lock().expect("store mutex poisoned");
+            store.get_conversation(id).ok().flatten()
+        };
+        let convo = convo.filter(|c| fed.serves(&c.tool, c.project.as_deref()));
+        Response::Conversation {
+            conversation: convo,
+        }
+    }
+
+    /// Read this device's federation identity + serve-scope (Settings panel).
+    fn federation_config(&self) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::FederationConfig {
+                device: "this device".into(),
+                has_token: false,
+                token_in_keyring: false,
+                listen_addr: None,
+                exclude_tools: Vec::new(),
+                exclude_projects: Vec::new(),
+                pairing_code: None,
+            };
+        };
+        let (device, has_token, token_in_keyring, exclude_tools, exclude_projects) =
+            fed.config_snapshot();
+        Response::FederationConfig {
+            device,
+            has_token,
+            token_in_keyring,
+            listen_addr: fed.listen_addr.clone(),
+            exclude_tools,
+            exclude_projects,
+            pairing_code: fed.pairing_code(),
+        }
+    }
+
+    /// Update identity / serve-scope and return the refreshed config.
+    fn set_federation_config(
+        &self,
+        device: Option<String>,
+        token: Option<String>,
+        exclude_tools: Option<Vec<String>>,
+        exclude_projects: Option<Vec<String>>,
+    ) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "cross-device search isn't enabled on this device".into(),
+            };
+        };
+        fed.set_config(device, token, exclude_tools, exclude_projects);
+        self.federation_config()
+    }
+
+    /// One-paste onboarding: decode a pairing code, adopt its token if we have
+    /// none, approve the embedded peer, and return the refreshed device list.
+    fn pair_with_code(&self, code: &str) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "enable cross-device search first (set a device name)".into(),
+            };
+        };
+        let Some((token, peer)) = federation::decode_pairing(code) else {
+            return Response::Error {
+                message: "that doesn't look like a valid pairing code".into(),
+            };
+        };
+        fed.adopt_token_if_absent(&token);
+        fed.add_peer(peer);
+        self.devices_list()
     }
 }
 
@@ -776,7 +873,7 @@ impl Client {
             filters,
             devices,
         })? {
-            Response::Hits { hits } => Ok(hits),
+            Response::Hits { hits, .. } => Ok(hits),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
             other => Err(anyhow::anyhow!("unexpected response: {other:?}")),
         }

@@ -30,6 +30,8 @@ anyhow = { workspace = true }
 dirs = { workspace = true }
 notify = "6"
 tiny_http = "0.12"
+base64 = "0.22"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
 
 [dev-dependencies]
 ct-core = { workspace = true }

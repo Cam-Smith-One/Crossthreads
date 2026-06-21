@@ -7,17 +7,21 @@ import {
   getConversation,
   getDevices,
   getFacets,
+  getFederationConfig,
   getSaved,
   getStatus,
   openSource,
+  pairWithCode,
   reindex,
   removePeer,
   search,
+  setFederationConfig,
   setFlags,
   setNote,
   setTags,
   type Device,
   type DiscoveredDevice,
+  type FederationConfig,
   type Filters,
   type Hit,
   type Mode,
@@ -60,6 +64,11 @@ export function App() {
   const [deviceSel, setDeviceSel] = useState<Set<string>>(new Set());
   const [discovered, setDiscovered] = useState<DiscoveredDevice[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  const [unreachable, setUnreachable] = useState<string[]>([]);
+  const [openDevice, setOpenDevice] = useState<string | null>(null);
+  const [fedConfig, setFedConfig] = useState<FederationConfig | null>(null);
+  const [pairCode, setPairCode] = useState("");
+  const [tokenInput, setTokenInput] = useState("");
 
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
@@ -84,6 +93,9 @@ export function App() {
         setDeviceSel(new Set(devices.map((d) => d.name)));
       })
       .catch(() => {});
+  }, []);
+  const refreshFedConfig = useCallback(() => {
+    getFederationConfig().then(setFedConfig).catch(() => {});
   }, []);
 
   async function runReindex() {
@@ -118,6 +130,11 @@ export function App() {
     refreshSaved();
     refreshDevices();
   }, [refreshSaved, refreshFacets, refreshDevices]);
+
+  // Load the federation identity/scope lazily when the Devices tab is shown.
+  useEffect(() => {
+    if (showSettings && settingsTab === "devices") refreshFedConfig();
+  }, [showSettings, settingsTab, refreshFedConfig]);
 
   // The local device's name, so remote-only chips can be shown on results.
   const localDevice = devices.find((d) => d.local)?.name;
@@ -186,8 +203,9 @@ export function App() {
       setError(null);
       setContext(null);
       try {
-        const results = await search(query, mode, filters, lim, deviceArg());
+        const { hits: results, unreachable } = await search(query, mode, filters, lim, deviceArg());
         setHits(results);
+        setUnreachable(unreachable);
         setLimit(lim);
         setSelected(results.length ? 0 : -1);
         setSearched(true);
@@ -206,13 +224,35 @@ export function App() {
     await runSearch(undefined, limit + PAGE);
   }
 
-  async function openConversation(id: string) {
+  async function openConversation(id: string, device?: string | null) {
     try {
-      const convo = await getConversation(id);
+      const convo = await getConversation(id, device);
       if (convo) {
         setFind("");
+        setOpenDevice(device && device !== localDevice ? device : null);
         setOpen(convo);
       }
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function saveFedConfig(patch: Parameters<typeof setFederationConfig>[0]) {
+    try {
+      setFedConfig(await setFederationConfig(patch));
+      refreshDevices();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function submitPairCode() {
+    const code = pairCode.trim();
+    if (!code) return;
+    try {
+      setDevices(await pairWithCode(code));
+      setPairCode("");
+      refreshFedConfig();
     } catch (err) {
       setError(String(err));
     }
@@ -333,7 +373,7 @@ export function App() {
         e.preventDefault();
         setSelected((s) => Math.max(s - 1, 0));
       } else if (e.key === "Enter" && selected >= 0 && document.activeElement?.tagName !== "INPUT") {
-        openConversation(hits[selected].conversation_id);
+        openConversation(hits[selected].conversation_id, hits[selected].device);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -526,6 +566,13 @@ export function App() {
         </section>
       )}
 
+      {searched && unreachable.length > 0 && (
+        <div className="unreachable-banner">
+          ⚠ {unreachable.length} device{unreachable.length > 1 ? "s" : ""} unreachable (
+          {unreachable.join(", ")}) — results may be incomplete.
+        </div>
+      )}
+
       <section className="results">
         {searched && hits.length === 0 && !loading && <p className="empty">No matches.</p>}
         {hits.map((h, i) => (
@@ -534,7 +581,7 @@ export function App() {
             className={`hit ${i === selected ? "selected" : ""}`}
             onClick={() => {
               setSelected(i);
-              openConversation(h.conversation_id);
+              openConversation(h.conversation_id, h.device);
             }}
           >
             <div className="hit-head">
@@ -653,17 +700,21 @@ export function App() {
             {open.source_path && (
               <div className="modal-foot">
                 <div className="source">
-                  <span className="source-label">source</span>
+                  <span className="source-label">
+                    {openDevice ? `source on ${openDevice}` : "source"}
+                  </span>
                   <code>{open.source_path}</code>
                 </div>
                 <div className="source-actions">
-                  <button
-                    className="secondary"
-                    title="Reveal the original chat file in your file manager"
-                    onClick={() => reveal(open.id)}
-                  >
-                    Reveal
-                  </button>
+                  {!openDevice && (
+                    <button
+                      className="secondary"
+                      title="Reveal the original chat file in your file manager"
+                      onClick={() => reveal(open.id)}
+                    >
+                      Reveal
+                    </button>
+                  )}
                   {resumeHint(open.tool, open.source_path) && (
                     <button
                       className="secondary"
@@ -822,6 +873,121 @@ export function App() {
                     </>
                   )}
                 </section>
+
+                {federation && fedConfig && (
+                  <>
+                    <section className="settings-section">
+                      <h3>This device</h3>
+                      <label className="fed-row">
+                        <span className="fed-label">name</span>
+                        <input
+                          defaultValue={fedConfig.device}
+                          key={`name-${fedConfig.device}`}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            if (v && v !== fedConfig.device) saveFedConfig({ device: v });
+                          }}
+                        />
+                      </label>
+                      <div className="fed-row">
+                        <span className="fed-label">token</span>
+                        <span className="fed-token-state">
+                          {fedConfig.has_token
+                            ? `set${fedConfig.token_in_keyring ? " · in keychain" : " · in config file"}`
+                            : "not set"}
+                        </span>
+                        <input
+                          type="password"
+                          placeholder="new shared token"
+                          value={tokenInput}
+                          onChange={(e) => setTokenInput(e.target.value)}
+                        />
+                        <button
+                          className="secondary"
+                          disabled={!tokenInput.trim()}
+                          onClick={() => {
+                            saveFedConfig({ token: tokenInput.trim() });
+                            setTokenInput("");
+                          }}
+                        >
+                          Set
+                        </button>
+                        {fedConfig.has_token && (
+                          <button className="linklike" onClick={() => saveFedConfig({ token: "" })}>
+                            clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="fed-row">
+                        <span className="fed-label">pairing</span>
+                        {fedConfig.pairing_code ? (
+                          <button
+                            className="secondary"
+                            title="Copy a code another device can paste to join"
+                            onClick={() => navigator.clipboard?.writeText(fedConfig.pairing_code!)}
+                          >
+                            Copy pairing code
+                          </button>
+                        ) : (
+                          <span className="doc-desc">
+                            Set a token and bind to your tailnet address to generate a pairing code.
+                          </span>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="settings-section">
+                      <h3>Don't share with peers</h3>
+                      <p className="settings-hint">
+                        Tools or projects this device won't serve to your other devices.
+                        Comma-separated.
+                      </p>
+                      <label className="fed-row">
+                        <span className="fed-label">tools</span>
+                        <input
+                          defaultValue={fedConfig.exclude_tools.join(", ")}
+                          key={`et-${fedConfig.exclude_tools.join(",")}`}
+                          placeholder="e.g. cursor, codex"
+                          onBlur={(e) =>
+                            saveFedConfig({ exclude_tools: splitCsv(e.target.value) })
+                          }
+                        />
+                      </label>
+                      <label className="fed-row">
+                        <span className="fed-label">projects</span>
+                        <input
+                          defaultValue={fedConfig.exclude_projects.join(", ")}
+                          key={`ep-${fedConfig.exclude_projects.join(",")}`}
+                          placeholder="path substrings"
+                          onBlur={(e) =>
+                            saveFedConfig({ exclude_projects: splitCsv(e.target.value) })
+                          }
+                        />
+                      </label>
+                    </section>
+
+                    <section className="settings-section">
+                      <h3>Add a device by code</h3>
+                      <p className="settings-hint">
+                        Paste a pairing code from another device to adopt its token and add it.
+                      </p>
+                      <div className="fed-row">
+                        <input
+                          placeholder="pairing code…"
+                          value={pairCode}
+                          onChange={(e) => setPairCode(e.target.value)}
+                        />
+                        <button
+                          className="secondary"
+                          disabled={!pairCode.trim()}
+                          onClick={submitPairCode}
+                        >
+                          Add device
+                        </button>
+                      </div>
+                    </section>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -829,6 +995,14 @@ export function App() {
       )}
     </div>
   );
+}
+
+// Split a comma-separated input into trimmed, non-empty values.
+function splitCsv(s: string): string[] {
+  return s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 // GitHub base for the repo's docs, so in-app links resolve from the

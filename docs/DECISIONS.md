@@ -177,8 +177,15 @@ ops, default all), result device chips, a `Devices` op / `crossthreads_devices`
 tool with at-search-time liveness, cross-device `build_context` via a token-gated
 `PeerGetConversation`, and a Settings → Devices panel with on-demand
 **"Discover my devices"** (`tailscale status --json` scan → probe → approve) whose
-approved peers persist to `federation.json` and reload on start. Remaining
-hardening: per-peer scope filters and encrypted at-rest token storage.
+approved peers persist to `federation.json` and reload on start. **P-fed.3
+completes the ADR:** opening a remote result's transcript (device-routed
+`GetConversation`), an "N devices unreachable" banner, serve-scope filters
+(`--serve-exclude-tool/-project`, applied in `PeerSearch`/`PeerGetConversation`),
+the token stored in the **OS keychain** (plaintext-config fallback on headless
+machines), and a Settings → Devices identity + **pairing-code** flow
+(`GetFederationConfig`/`SetFederationConfig`/`PairWithCode`). Status: **all of
+ADR-010 implemented**; the only deferred item is `recall` LLM-synthesis placement,
+which is moot until synthesis exists.
 
 ---
 

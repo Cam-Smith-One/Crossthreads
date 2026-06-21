@@ -125,10 +125,28 @@ ranked list. Each result shows a **device chip** so you know where it came from:
 ```
 
 - A device that's **offline** is skipped automatically — your search still
-  returns instantly from the devices that are up.
+  returns instantly from the devices that are up, and a small **"N devices
+  unreachable"** banner tells you results may be partial.
+- Click a result from another device to read its **full transcript** (fetched on
+  demand); its source row shows "source on `<device>`".
 - The same thread that exists on two machines collapses to a single result.
 - Agent tools (`crossthreads_search`, `recall`, `build_context`) span devices
   too — see [AGENT_API](AGENT_API.md).
+
+## More in Settings → Devices
+
+- **Pair a device the easy way.** Instead of discovery, copy the **pairing code**
+  from one device (it encodes the shared token + that device's address) and paste
+  it into **"Add a device by code"** on another. The second device adopts the
+  token and approves the first in one step. (A pairing code only appears once the
+  device has a token and is bound to a tailnet address.)
+- **Set your name + token in the app.** You don't have to use flags — set this
+  device's name and shared token right in the panel. The token is stored in your
+  **OS keychain** when available (it falls back to the config file on headless
+  machines), never shown again after it's set.
+- **Don't share everything.** Under "Don't share with peers", list tools or
+  project substrings this device should keep private; peers won't see those
+  threads in search *or* be able to open them.
 
 ---
 

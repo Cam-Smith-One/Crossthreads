@@ -141,8 +141,8 @@ export async function search(
   filters: Filters,
   limit = 25,
   devices?: string[] | null,
-): Promise<Hit[]> {
-  const data = await rpc<{ hits: Hit[] }>({
+): Promise<{ hits: Hit[]; unreachable: string[] }> {
+  const data = await rpc<{ hits: Hit[]; unreachable?: string[] }>({
     op: "search",
     query,
     mode,
@@ -150,7 +150,35 @@ export async function search(
     filters: clean(filters),
     ...(devices && devices.length ? { devices } : {}),
   });
-  return data.hits;
+  return { hits: data.hits, unreachable: data.unreachable ?? [] };
+}
+
+export interface FederationConfig {
+  device: string;
+  has_token: boolean;
+  token_in_keyring: boolean;
+  listen_addr?: string | null;
+  exclude_tools: string[];
+  exclude_projects: string[];
+  pairing_code?: string | null;
+}
+
+export function getFederationConfig(): Promise<FederationConfig> {
+  return rpc<FederationConfig>({ op: "get_federation_config" });
+}
+
+export function setFederationConfig(patch: {
+  device?: string;
+  token?: string;
+  exclude_tools?: string[];
+  exclude_projects?: string[];
+}): Promise<FederationConfig> {
+  return rpc<FederationConfig>({ op: "set_federation_config", ...patch });
+}
+
+export async function pairWithCode(code: string): Promise<Device[]> {
+  const data = await rpc<{ devices: Device[] }>({ op: "pair_with_code", code });
+  return data.devices ?? [];
 }
 
 export async function getDevices(): Promise<{ devices: Device[]; federation: boolean }> {
@@ -173,10 +201,14 @@ export async function removePeer(name: string): Promise<Device[]> {
   return data.devices ?? [];
 }
 
-export async function getConversation(id: string): Promise<StoredConversation | null> {
+export async function getConversation(
+  id: string,
+  device?: string | null,
+): Promise<StoredConversation | null> {
   const data = await rpc<{ conversation: StoredConversation | null }>({
     op: "get_conversation",
     id,
+    ...(device ? { device } : {}),
   });
   return data.conversation;
 }

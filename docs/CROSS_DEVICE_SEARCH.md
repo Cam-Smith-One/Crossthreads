@@ -96,11 +96,13 @@ query layer over the indexes that already exist.
 ## UX
 
 - Results show a device chip: `📁 linux-desktop · Cursor · 2026-05-20`.
-- "Open original" becomes **"Reveal on `<device>`"** for remote hits (the file
-  lives on that machine); local hits keep the existing reveal-in-file-manager
-  action. `build_context`/recall work uniformly across devices.
-- A status indicator lists reachable vs unreachable peers so a missing device is
-  visible, not silent.
+- Clicking a remote hit opens its transcript (fetched on demand from the owning
+  peer). Its source row reads **"source on `<device>`"** with copy-path/resume —
+  the local **Reveal** action is hidden because the file lives on that machine;
+  local hits keep reveal-in-file-manager. `build_context`/recall work across
+  devices uniformly.
+- When a selected device doesn't answer, a **"N devices unreachable"** banner
+  appears over the results, so a missing device is visible, not silent.
 
 ### Device selection (which devices to search)
 
@@ -157,11 +159,16 @@ encrypted tailnet — no third party, no telemetry — but the docs must state
 plainly: enabling federation means you trust your tailnet and your peer
 daemons. Mitigations available as options:
 
-- **Snippet-first:** peers return metadata + a short snippet by default; the
-  full transcript is fetched only when you open a result.
-- **Scope filters:** allow a peer to restrict what it will serve (e.g. exclude a
-  tool or a project) so a shared/work machine can expose less.
-- The shared token + tailnet ACLs gate *who* can query at all.
+- **Snippet-first (implemented):** `PeerSearch` returns metadata + a short
+  snippet; the full transcript is fetched (token-gated `PeerGetConversation`)
+  only when you open a result or build context.
+- **Scope filters (implemented):** a device restricts what it serves —
+  `--serve-exclude-tool` / `--serve-exclude-project` or the Settings → Devices
+  "Don't share with peers" controls — applied in both `PeerSearch` and
+  `PeerGetConversation`, so an excluded thread can't even be fetched.
+- The shared token + tailnet ACLs gate *who* can query at all. The token is
+  stored in the **OS keychain** when available (plaintext config-file fallback
+  on headless machines).
 
 ## Failure modes & robustness
 
@@ -195,9 +202,13 @@ daemons. Mitigations available as options:
 - **P-fed.2 — ✅ implemented:** **Settings → Devices** panel with on-demand
   **"Discover my devices"** (one-shot `tailscale status --json` scan → probe →
   approve), peers **persisted** to `federation.json` and reloaded on start, and
-  per-device remove. _Remaining hardening (not blocking): per-peer scope filters
-  and encrypted at-rest token storage — the token currently sits in the config
-  file, gated by the tailnet._
+  per-device remove.
+- **P-fed.3 — ✅ implemented:** open/preview a **remote** result's transcript
+  (device-routed `GetConversation` + "source on `<device>`"); the
+  **unreachable-peers banner**; **serve-scope** filters; the federation token in
+  the **OS keychain** (plaintext fallback); and a Settings → Devices **identity +
+  pairing-code** flow (`GetFederationConfig`/`SetFederationConfig`/`PairWithCode`)
+  so a device can be set up and onboarded without flags.
 
 ## Future connectors (openclaw / Hermes)
 
@@ -223,9 +234,11 @@ on-disk location and format. **Noted as future work, not scoped here.**
 
 ## Open questions
 
-- Default for offline peers: skip silently vs. surface "N devices unreachable"
-  prominently (leaning: surface, so results never look complete when they aren't).
-- Token bootstrap UX — copy/paste a token between devices vs. a short pairing
-  code; keep it out of telemetry/logs either way.
+- ~~Default for offline peers: skip silently vs. surface prominently.~~
+  **Resolved — surfaced** as a "N devices unreachable" banner over the results.
+- ~~Token bootstrap UX — copy/paste a token vs. a pairing code.~~ **Resolved —**
+  a copy-paste **pairing code** (base64 of token + peer address) that another
+  device adopts via `PairWithCode`; the token is never logged.
 - Should `recall` synthesis run on the querying device over merged hits, or ask
-  each peer to pre-summarize? (Leaning: merge raw hits locally, synthesize once.)
+  each peer to pre-summarize? (Still open; moot until LLM-synthesis recall lands
+  — today `recall` is retrieval-only and already spans devices via search.)

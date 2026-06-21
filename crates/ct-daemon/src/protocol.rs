@@ -75,8 +75,13 @@ pub enum Request {
         #[serde(default)]
         filters: Filters,
     },
-    /// Fetch a full conversation by id.
-    GetConversation { id: String },
+    /// Fetch a full conversation by id. `device` routes the fetch to a peer
+    /// when the conversation lives on another machine (ADR-010).
+    GetConversation {
+        id: String,
+        #[serde(default)]
+        device: Option<String>,
+    },
     /// Set/clear the bookmark and/or pin flag on a conversation.
     SetFlags {
         id: String,
@@ -118,6 +123,26 @@ pub enum Request {
         token: Option<String>,
         id: String,
     },
+    /// Read this device's federation identity + serve-scope, for the Settings →
+    /// Devices panel (ADR-010). Includes a copy-paste pairing code.
+    GetFederationConfig,
+    /// Update this device's federation identity / serve-scope. Each field is
+    /// optional (omitted = leave unchanged). For `token`: an empty string clears
+    /// it; any other value sets it; omitting leaves it.
+    SetFederationConfig {
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        token: Option<String>,
+        #[serde(default)]
+        exclude_tools: Option<Vec<String>>,
+        #[serde(default)]
+        exclude_projects: Option<Vec<String>>,
+    },
+    /// Onboard a second device in one paste: decode a pairing code (from another
+    /// device's `GetFederationConfig`), adopt its token if we have none, and
+    /// approve the embedded peer.
+    PairWithCode { code: String },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -177,6 +202,10 @@ pub enum Response {
     },
     Hits {
         hits: Vec<SearchHit>,
+        /// Names of selected peers that didn't answer (offline/timeout/rejected),
+        /// so the UI can show "N devices unreachable" (ADR-010).
+        #[serde(default)]
+        unreachable: Vec<String>,
     },
     /// Known devices (this host + approved peers) with liveness. `federation`
     /// is false when cross-device search isn't configured yet, so the UI can
@@ -188,6 +217,21 @@ pub enum Response {
     /// Candidate devices found on the tailnet by `DiscoverDevices`.
     DiscoveredDevices {
         devices: Vec<DiscoveredDevice>,
+    },
+    /// This device's federation identity + serve-scope (ADR-010).
+    FederationConfig {
+        device: String,
+        /// A shared token is set (never returned in the clear).
+        has_token: bool,
+        /// The token is stored in the OS keychain (vs. the plaintext config file).
+        token_in_keyring: bool,
+        /// This daemon's peer-reachable address, if known (for the pairing code).
+        listen_addr: Option<String>,
+        exclude_tools: Vec<String>,
+        exclude_projects: Vec<String>,
+        /// Copy-paste code another device can `PairWithCode` to join. `None` until
+        /// both a token and a reachable address are known.
+        pairing_code: Option<String>,
     },
     Conversation {
         conversation: Option<StoredConversation>,
