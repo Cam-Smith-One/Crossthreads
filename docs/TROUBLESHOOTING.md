@@ -182,6 +182,19 @@ still needs the MCP server configured and the daemon running to do anything.
 
 ---
 
+## Searching across devices
+
+### A search only returns hits from this machine
+Cross-device search needs each machine set up and connected first — install
+Crossthreads on each, join them to one Tailscale network, bind each daemon to
+that network (`--addr 100.x.y.z:47100`), then **Settings → Devices → Discover my
+devices** and approve them. The full walkthrough (and a per-step troubleshooting
+list) is in [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md). Note this is on the
+roadmap ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel)) —
+steps 1–3 work today; discovery/fan-out land with the federation release.
+
+---
+
 ## Data, privacy & reset
 
 ### Where is the index stored?

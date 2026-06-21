@@ -79,6 +79,18 @@ body {
   cursor: pointer;
 }
 .theme-toggle:hover { border-color: var(--border-hover); }
+.settings-toggle {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-toggle:hover { border-color: var(--border-hover); }
 .tagline { margin: 8px 0 0; color: var(--muted); }
 .status { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 .status .linklike {
@@ -355,6 +367,20 @@ body {
   cursor: pointer;
   font-size: 13px;
 }
+
+/* Settings / documentation modal */
+.settings-modal { width: min(620px, 100%); }
+.settings-body { overflow: auto; padding: 4px 16px 16px; }
+.settings-section { padding: 16px 0; border-bottom: 1px solid var(--turn-border); }
+.settings-section:last-child { border-bottom: none; }
+.settings-section h3 { margin: 0 0 6px; font-size: 15px; }
+.settings-hint { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.doc-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.doc-links li { display: flex; flex-direction: column; gap: 2px; }
+.doc-links a { color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none; }
+.doc-links a:hover { text-decoration: underline; }
+.doc-desc { color: var(--muted); font-size: 12px; }
+.settings-section button:disabled { opacity: 0.55; cursor: default; }
 
 /* Pin / bookmark toggle buttons */
 .hit-actions { display: inline-flex; gap: 4px; margin-left: 8px; }

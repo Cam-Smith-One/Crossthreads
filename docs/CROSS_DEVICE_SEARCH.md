@@ -99,8 +99,53 @@ query layer over the indexes that already exist.
   action. `build_context`/recall work uniformly across devices.
 - A status indicator lists reachable vs unreachable peers so a missing device is
   visible, not silent.
-- MCP: the agent tools (`crossthreads_search` / `recall` / `build_context`)
-  transparently span devices once federation is enabled — no new tools.
+
+### Device selection (which devices to search)
+
+Choosing devices is a **routing** decision (which daemons receive the query),
+not a post-hoc result filter like `tool`/`project`/`tag`. It therefore lives
+next to the search controls, sourced from the **approved-peers config** (this
+host + approved peers, each with a live/offline dot), **not** from the index.
+
+- **UI:** an "all devices" multiselect beside the tool dropdown. **Default =
+  all** approved + reachable devices; narrowing is opt-in. Each result already
+  carries its `device` chip so the origin is obvious.
+- **MCP/CLI:** an optional `devices: string[]` argument on
+  `crossthreads_search` / `recall` / `build_context`. Omitted ⇒ all reachable
+  devices (the common case stays zero-config). An optional `crossthreads_devices`
+  tool lists the names an agent can pass. No behavioural change for callers that
+  don't set it.
+
+### Discovery & device management (Settings → Devices)
+
+Discovery is **on-demand, not continuous** — Crossthreads never scans your
+network in the background. A **Settings → Devices** panel holds:
+
+- the list of approved devices, each with an online/offline dot;
+- a **"Discover my devices"** button that runs a *one-shot* tailnet scan (via the
+  local Tailscale API) and offers found Crossthreads daemons to **approve**;
+- per-device remove/disable.
+
+Approved peers are **persisted** to the config and static afterwards — you
+discover once per machine, not every search. **Liveness** is a cheap, bounded
+ping done **only at search time** (the same graceful-degradation skip the
+fan-out already needs), so the panel and results reflect what's actually up
+without any polling loop.
+
+### In-app documentation
+
+The same Settings surface carries a **Documentation** section linking the README,
+this design, the step-by-step [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md),
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md), and [AGENT_API.md](AGENT_API.md) — so a
+user can go from "I have two machines" to a working cross-device search without
+leaving the app. (The Documentation section ships independently of federation;
+the **Devices** tab is wired up with the milestone below.)
+
+### Agent tools
+
+MCP: the agent tools (`crossthreads_search` / `recall` / `build_context`)
+transparently span devices once federation is enabled — the only addition is the
+optional `devices` argument above; default behaviour is all-devices.
 
 ## Trust boundary (be explicit)
 
@@ -129,13 +174,27 @@ daemons. Mitigations available as options:
 
 ## Phasing
 
+- **Ships now (no federation dependency):** the in-app **Settings →
+  Documentation** section and the step-by-step
+  [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) guide. Standalone UI + docs; the
+  **Devices** tab is present as a placeholder until P-fed.2.
 - **MVP (P-fed.0):** loopback + tailnet bind, static `peers` list, shared token,
   parallel fan-out with timeout, RRF merge + dedup, `device` tag in results,
   `local_only` loop guard. CLI/`--peers` flag to try it before any UI.
-- **P-fed.1:** UI device chips + "reveal on device", reachable-peers status,
-  snippet-first fetch.
-- **P-fed.2:** scope filters per peer; optional Tailscale-API auto-discovery of
-  peers; encrypted at-rest token storage.
+- **P-fed.1:** device selection as routing — UI "all devices" multiselect
+  (default all) + result device chips + "reveal on device", optional MCP/CLI
+  `devices` argument, reachable-peers status, snippet-first fetch.
+- **P-fed.2:** **Settings → Devices** panel with on-demand **"Discover my
+  devices"** (one-shot Tailscale-API scan → approve), persisted approved peers,
+  per-peer scope filters, encrypted at-rest token storage.
+
+## Future connectors (openclaw / Hermes)
+
+New agent tools — e.g. openclaw, Hermes — are **orthogonal** to federation: once
+a standard `Connector` indexes a tool on a device, that tool's threads federate
+for free with no extra work. Adding one is the normal connector path (a
+`ct-connectors` module + a `Tool` variant + a fixture), gated only on the tool's
+on-disk location and format. **Noted as future work, not scoped here.**
 
 ## Alternatives considered
 

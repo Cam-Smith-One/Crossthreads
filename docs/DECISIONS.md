@@ -149,6 +149,14 @@ so we don't build (and own the security of) a mesh.
   requests to prevent query loops.
 - Results carry a `device` tag; cross-device duplicates collapse by
   `content_hash`. No index/schema change — it's purely a query-time layer.
+- **Device selection is routing, not filtering:** a UI "all devices" multiselect
+  (default = all) and an optional `devices` argument on the MCP/CLI tools choose
+  which daemons receive the query, sourced from the approved-peers config, not
+  the index.
+- **Discovery is on-demand, not continuous:** a Settings → Devices "Discover my
+  devices" button runs a one-shot tailnet scan; approved peers are persisted and
+  static afterwards, and liveness is a bounded ping at search time — no
+  background network scanning.
 - New trust boundary: peers return matching content to the querying device over
   the user's own encrypted tailnet — documented explicitly, with snippet-first
   fetch and per-peer scope filters as opt-in tighteners.

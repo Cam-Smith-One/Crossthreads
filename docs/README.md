@@ -5,6 +5,8 @@ End-to-end docs for the project, from product intent down to how the code runs.
 ## Start here
 - [DEVELOPMENT.md](DEVELOPMENT.md) — build, test, run the daemon/UI/MCP, the
   `onnx` feature, and the crate layout.
+- [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) — step-by-step guide to connect
+  several of your machines so one search spans all of them.
 
 ## Product
 - [PRD.md](PRD.md) — vision, users, scope, metrics, GTM, risks, open questions.

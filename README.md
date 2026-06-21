@@ -230,6 +230,7 @@ ui/               React + Vite frontend (web + Tauri), talks to the daemon
 | [PRD](docs/PRD.md) · [REQUIREMENTS](docs/REQUIREMENTS.md) · [ROADMAP](docs/ROADMAP.md) | Product intent, requirements, status |
 | [DECISIONS](docs/DECISIONS.md) | Architecture decision records (ADRs) |
 | [CROSS_DEVICE_SEARCH](docs/CROSS_DEVICE_SEARCH.md) | Proposed design: search your other machines, local-first (federation) |
+| [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) | Step-by-step: connect your devices for cross-device search |
 
 ```sh
 scripts/check.sh   # everything CI runs: fmt + clippy + tests + UI build

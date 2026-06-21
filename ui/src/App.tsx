@@ -44,6 +44,7 @@ export function App() {
   );
 
   const [reindexing, setReindexing] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const refreshSaved = useCallback(() => {
     getSaved().then(setSaved).catch(() => {});
@@ -231,6 +232,10 @@ export function App() {
   // Keyboard navigation over results (j/k or arrows; Enter opens; Esc closes).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (showSettings) {
+        if (e.key === "Escape") setShowSettings(false);
+        return;
+      }
       if (open) {
         if (e.key === "Escape") setOpen(null);
         return;
@@ -248,7 +253,7 @@ export function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hits, selected, open]);
+  }, [hits, selected, open, showSettings]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -288,6 +293,14 @@ export function App() {
             aria-label="Toggle theme"
           >
             {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => setShowSettings(true)}
+            title="Documentation &amp; settings"
+            aria-label="Open settings"
+          >
+            ⚙️
           </button>
         </div>
         <p className="tagline">Search every AI coding conversation, across tools.</p>
@@ -569,9 +582,86 @@ export function App() {
           </div>
         </div>
       )}
+
+      {showSettings && (
+        <div className="overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <strong>Settings</strong>
+              <button className="secondary" onClick={() => setShowSettings(false)}>
+                Close
+              </button>
+            </div>
+            <div className="settings-body">
+              <section className="settings-section">
+                <h3>Documentation</h3>
+                <p className="settings-hint">
+                  Guides, references, and troubleshooting. Links open the docs on
+                  GitHub.
+                </p>
+                <ul className="doc-links">
+                  {DOC_LINKS.map((d) => (
+                    <li key={d.href}>
+                      <a href={d.href} target="_blank" rel="noreferrer noopener">
+                        {d.title}
+                      </a>
+                      <span className="doc-desc">{d.desc}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="settings-section">
+                <h3>Set up another device</h3>
+                <p className="settings-hint">
+                  Search the history on your other machines too. Install
+                  Crossthreads on each device, join them to one private
+                  Tailscale network, bind each daemon to that network, then use{" "}
+                  <strong>Devices → Discover my devices</strong> to find and
+                  approve them. Full walkthrough:
+                </p>
+                <ul className="doc-links">
+                  <li>
+                    <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
+                      Multi-device setup guide
+                    </a>
+                    <span className="doc-desc">Step-by-step: connect your devices for cross-device search.</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section className="settings-section">
+                <h3>Devices</h3>
+                <p className="settings-hint">
+                  Cross-device search is on the roadmap. Once it lands, you'll
+                  discover and approve your other machines here.
+                </p>
+                <button className="secondary" disabled title="Available with the cross-device release">
+                  Discover my devices
+                </button>
+                <span className="doc-desc"> Coming soon.</span>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// GitHub base for the repo's docs, so in-app links resolve from the
+// locally-served UI. The daemon serves the UI from a file:// or 127.0.0.1
+// origin where relative doc paths wouldn't exist, so we link out.
+const DOCS_BASE = "https://github.com/Cam-Smith-One/Crossthreads/blob/main/docs/";
+const REPO_BASE = "https://github.com/Cam-Smith-One/Crossthreads/blob/main/";
+const DOC_LINKS: { title: string; href: string; desc: string }[] = [
+  { title: "Getting started (README)", href: `${REPO_BASE}README.md`, desc: "Install, index, and run your first search." },
+  { title: "Multi-device setup", href: `${DOCS_BASE}MULTI_DEVICE_SETUP.md`, desc: "Connect your other machines for cross-device search." },
+  { title: "Troubleshooting", href: `${DOCS_BASE}TROUBLESHOOTING.md`, desc: "Common issues, fixes, and a bug-report checklist." },
+  { title: "Agents & MCP (Agent API)", href: `${DOCS_BASE}AGENT_API.md`, desc: "Wire Crossthreads into Claude Code, Codex, and other agents." },
+  { title: "Architecture", href: `${DOCS_BASE}ARCHITECTURE.md`, desc: "How the daemon, index, and connectors fit together." },
+  { title: "Report an issue", href: "https://github.com/Cam-Smith-One/Crossthreads/issues", desc: "Found a bug or missing a tool? Let us know." },
+];
 
 // A copy-pasteable command to reopen a session in its original tool, when one
 // exists. Claude Code and Codex both key resume off the session UUID, which is
