@@ -8,6 +8,8 @@ set "ROOT=%HERE%.."
 set "DAEMON=%ROOT%\bin\crossthreadsd.exe"
 set "UI=%ROOT%\ui"
 if not defined CT_HTTP set "CT_HTTP=127.0.0.1:47101"
+rem Federation bind: 'auto' uses this device's Tailscale IP once a token is set.
+if not defined CT_ADDR set "CT_ADDR=auto"
 
 if not exist "%DAEMON%" (
   echo crossthreadsd.exe not found at "%DAEMON%"
@@ -16,5 +18,5 @@ if not exist "%DAEMON%" (
 
 echo Crossthreads is starting - it will open at http://%CT_HTTP%
 start "" "http://%CT_HTTP%"
-"%DAEMON%" --http "%CT_HTTP%" --ui "%UI%"
+"%DAEMON%" --addr "%CT_ADDR%" --http "%CT_HTTP%" --ui "%UI%"
 endlocal

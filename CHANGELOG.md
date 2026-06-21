@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.3.0] - 2026-06-21
+
+### Added
+- **Automatic tailnet binding**: `crossthreadsd --addr auto` (and the
+  `crossthreads-up` launcher, which now passes it) binds federation to this
+  device's Tailscale IP so cross-device search works out of the box — **only
+  once a federation token is set**, so the daemon is never exposed on the tailnet
+  without authentication. Falls back to loopback when there's no token or
+  Tailscale isn't connected.
+- **Show this device's pairing code** in Settings → Devices: the code is masked
+  by default with a **Show/Hide** reveal and a **Copy** button, so you can read
+  it before pasting it on another device. (Previously the panel offered only a
+  blind "Copy" and no way to see the code.)
+
+### Changed
+- Settings → Devices "pairing" hint now explains that the code appears
+  automatically once a token is set and Tailscale is connected.
+
 ## [0.2.1] - 2026-06-21
 
 ### Fixed
@@ -104,7 +122,8 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Cam-Smith-One/Crossthreads/releases/tag/v0.1.0

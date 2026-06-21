@@ -476,6 +476,22 @@ body {
 }
 .fed-row input:focus { outline: none; border-color: var(--accent); }
 .fed-token-state { font-size: 12px; color: var(--muted); }
+.fed-pairing { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.fed-pairing-code {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.fed-pairing .doc-desc { flex-basis: 100%; }
 .device-row .linklike {
   background: none;
   border: none;

@@ -64,9 +64,19 @@ free for personal use.
 ## Step 3 — Make each device searchable on the tailnet
 
 By default the daemon listens on loopback only (`127.0.0.1:47100`), which other
-devices can't reach. On every device you want to be **searchable**, bind it to
-that device's tailnet address with `--addr`, give it a `--device-name` (shown on
-results), and set a shared `--fed-token` (the same secret on every device):
+devices can't reach.
+
+**The easy way (recommended).** Set a shared token once in **Settings →
+Devices**, then just run `crossthreads-up`. The launcher passes `--addr auto`,
+which binds to this device's Tailscale IP **automatically — but only once a
+token is set** (so the daemon is never exposed on the tailnet unauthenticated).
+This device's **pairing code** then appears in Settings → Devices; reveal it with
+**Show** and paste it on your other device's "Add a device by code".
+
+**The manual way.** If you run the daemon yourself, bind it to that device's
+tailnet address with `--addr` (or `--addr auto`), give it a `--device-name`
+(shown on results), and set a shared `--fed-token` (the same secret on every
+device):
 
 ```sh
 # replace with this device's own Tailscale IP from `tailscale status`

@@ -463,6 +463,33 @@ fn tailscale_peers() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// Best-effort: this device's own tailnet IPv4 address, read from the `Self`
+/// node of `tailscale status --json`. `None` when Tailscale isn't installed or
+/// connected — callers then fall back to a loopback bind.
+pub fn detect_self_tailnet_ip() -> Option<String> {
+    let out = Command::new("tailscale")
+        .arg("status")
+        .arg("--json")
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    self_tailnet_ip(&v)
+}
+
+/// Pull the `Self` node's first IPv4 tailnet address. Pure, so it's testable.
+pub fn self_tailnet_ip(v: &Value) -> Option<String> {
+    v.get("Self")?
+        .get("TailscaleIPs")?
+        .as_array()?
+        .iter()
+        .filter_map(|s| s.as_str())
+        .find(|s| !s.contains(':')) // IPv4 only (skip the IPv6 tailnet address)
+        .map(str::to_string)
+}
+
 /// Pull `(short-name, first-tailnet-ip)` for each peer out of `tailscale status
 /// --json` output. Pure, so it's unit-testable against a fixture.
 pub fn parse_tailscale_peers(v: &Value) -> Vec<(String, String)> {
@@ -643,6 +670,20 @@ mod tests {
                 ("linux-desktop".to_string(), "100.10.20.30".to_string()),
                 ("work-laptop".to_string(), "100.40.50.60".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn reads_self_tailnet_ipv4() {
+        let v = serde_json::json!({
+            "Self": { "TailscaleIPs": ["100.99.1.2", "fd7a::99"] }
+        });
+        assert_eq!(self_tailnet_ip(&v), Some("100.99.1.2".to_string()));
+        // No Self / no IPs → None (callers fall back to loopback).
+        assert_eq!(self_tailnet_ip(&serde_json::json!({})), None);
+        assert_eq!(
+            self_tailnet_ip(&serde_json::json!({ "Self": { "TailscaleIPs": ["fd7a::1"] } })),
+            None
         );
     }
 }

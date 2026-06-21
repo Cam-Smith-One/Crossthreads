@@ -23,6 +23,9 @@ ROOT="$(cd "$HERE/.." && pwd)"
 DAEMON="$ROOT/bin/crossthreadsd"
 UI="$ROOT/ui"
 HTTP_ADDR="${CT_HTTP:-127.0.0.1:47101}"
+# Federation bind: `auto` binds to this device's Tailscale IP (only once a token
+# is set) so cross-device search works out of the box. Override with CT_ADDR.
+PROTO_ADDR="${CT_ADDR:-auto}"
 URL="http://${HTTP_ADDR}"
 
 [[ -x "$DAEMON" ]] || { echo "crossthreadsd not found at $DAEMON" >&2; exit 1; }
@@ -43,4 +46,4 @@ URL="http://${HTTP_ADDR}"
 
 echo "▸ Crossthreads is starting — it will open at ${URL}"
 echo "  (the first index of a large history can take a minute; search fills in live)"
-exec "$DAEMON" --http "$HTTP_ADDR" --ui "$UI"
+exec "$DAEMON" --addr "$PROTO_ADDR" --http "$HTTP_ADDR" --ui "$UI"
