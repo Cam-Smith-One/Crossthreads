@@ -149,6 +149,13 @@ impl Server {
                             "project": {
                                 "type": "string",
                                 "description": "Filter to projects whose path contains this substring."
+                            },
+                            "devices": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Cross-device search: names of the devices to search \
+                                    (from crossthreads_devices). Omit to search this device and all \
+                                    reachable peers."
                             }
                         },
                         "required": ["query"]
@@ -191,6 +198,13 @@ impl Server {
                     "description": "Report Crossthreads index health: how many \
                         conversations and embeddings are indexed.",
                     "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_devices",
+                    "description": "List the devices available to search (this machine \
+                        plus approved peers) and whether each is online. Use to discover \
+                        the device names accepted by the other tools' `devices` argument.",
+                    "inputSchema": { "type": "object", "properties": {} }
                 }
             ]
         })
@@ -209,6 +223,7 @@ impl Server {
             "crossthreads_recall" => Ok(self.call_recall(&args)),
             "crossthreads_build_context" => Ok(self.call_build_context(&args)),
             "crossthreads_status" => Ok(self.call_status()),
+            "crossthreads_devices" => Ok(self.call_devices()),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -224,7 +239,10 @@ impl Server {
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
 
-        match self.client.search(query, mode, limit, filters_from(args)) {
+        match self
+            .client
+            .search_devices(query, mode, limit, filters_from(args), devices_from(args))
+        {
             Ok(hits) => tool_text(format_hits(query, &hits)),
             Err(e) => tool_error(format!("search failed ({e:#}). Is crossthreadsd running?")),
         }
@@ -235,10 +253,13 @@ impl Server {
             return tool_error("missing required argument: question");
         };
         let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(5) as usize;
-        match self
-            .client
-            .search(question, Mode::Hybrid, limit, filters_from(args))
-        {
+        match self.client.search_devices(
+            question,
+            Mode::Hybrid,
+            limit,
+            filters_from(args),
+            devices_from(args),
+        ) {
             Ok(hits) if hits.is_empty() => {
                 tool_text(format!("No past sessions found about \"{question}\"."))
             }
@@ -278,10 +299,14 @@ impl Server {
             .and_then(|l| l.as_u64())
             .unwrap_or(6000) as usize;
 
-        match self
-            .client
-            .build_context(query, mode, limit, max_chars, filters_from(args))
-        {
+        match self.client.build_context_devices(
+            query,
+            mode,
+            limit,
+            max_chars,
+            filters_from(args),
+            devices_from(args),
+        ) {
             Ok((markdown, sources)) if sources.is_empty() => tool_text(format!(
                 "No prior context found for \"{query}\".\n{markdown}"
             )),
@@ -289,6 +314,35 @@ impl Server {
             Err(e) => tool_error(format!(
                 "build_context failed ({e:#}). Is crossthreadsd running?"
             )),
+        }
+    }
+
+    fn call_devices(&self) -> Value {
+        match self.client.call(&Request::Devices) {
+            Ok(Response::Devices {
+                devices,
+                federation,
+            }) => {
+                if !federation {
+                    return tool_text(
+                        "Cross-device search isn't enabled on this machine, so only \
+                         this device is searched."
+                            .to_string(),
+                    );
+                }
+                let mut out = format!("{} device(s) available to search:\n", devices.len());
+                for d in &devices {
+                    out.push_str(&format!(
+                        "\n- {}{} — {}",
+                        d.name,
+                        if d.local { " (this device)" } else { "" },
+                        if d.online { "online" } else { "offline" },
+                    ));
+                }
+                tool_text(out)
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("devices failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 
@@ -301,6 +355,17 @@ impl Server {
             Err(e) => tool_error(format!("status failed ({e:#}). Is crossthreadsd running?")),
         }
     }
+}
+
+/// Optional `devices` routing arg (ADR-010): the device names to search.
+/// Absent ⇒ this device + all reachable peers.
+fn devices_from(args: &Value) -> Option<Vec<String>> {
+    let arr = args.get("devices")?.as_array()?;
+    let names: Vec<String> = arr
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    (!names.is_empty()).then_some(names)
 }
 
 /// Optional `tool` / `project` filter args, shared by the search-style tools.

@@ -61,6 +61,11 @@ pub struct SearchHit {
     /// User-set tags (lowercased).
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Origin device for cross-device (federated) results. `None` for local
+    /// hits; set to a peer's configured name when a result came from another
+    /// device. See ADR-010 / CROSS_DEVICE_SEARCH.md.
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 /// One message of a stored conversation.
@@ -467,6 +472,7 @@ impl Store {
                 tags: split_tags(&row.get::<_, String>(9)?),
                 snippet: row.get(10)?,
                 score: row.get(11)?,
+                device: None,
             })
         })?;
 
@@ -923,6 +929,7 @@ impl Store {
                 tags: split_tags(&row.get::<_, String>(9)?),
                 snippet: String::new(),
                 score: 0.0,
+                device: None,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -931,13 +938,28 @@ impl Store {
     /// Render a paste-ready markdown context block from the given conversations,
     /// in order, stopping once `max_chars` is reached (FR-ACT-03 / AGENT_API §5).
     pub fn render_context(&self, ids: &[String], max_chars: usize) -> Result<ContextBlock> {
+        let mut convos = Vec::new();
+        for id in ids {
+            if let Some(convo) = self.get_conversation(id)? {
+                convos.push(convo);
+            }
+        }
+        Ok(self.render_conversations(&convos, max_chars))
+    }
+
+    /// Render already-loaded conversations into a paste-ready context block.
+    /// Shared by local id rendering and cross-device assembly, where remote
+    /// transcripts are fetched from a peer first (ADR-010). Touches no DB state.
+    pub fn render_conversations(
+        &self,
+        convos: &[StoredConversation],
+        max_chars: usize,
+    ) -> ContextBlock {
         let mut markdown = String::from("## Prior context (Crossthreads)\n");
         let mut sources = Vec::new();
 
-        for id in ids {
-            let Some(convo) = self.get_conversation(id)? else {
-                continue;
-            };
+        for convo in convos {
+            let id = &convo.id;
             let mut section = String::new();
             let when = convo
                 .started_at
@@ -999,12 +1021,12 @@ impl Store {
         }
 
         let chars = markdown.chars().count();
-        Ok(ContextBlock {
+        ContextBlock {
             markdown,
             sources,
             chars,
             token_estimate: chars / 4, // rough heuristic
-        })
+        }
     }
 
     /// Rebuild the in-memory normalized-vector cache if a write has advanced
@@ -1070,6 +1092,7 @@ impl Store {
                     tags: split_tags(&row.get::<_, String>(10)?),
                     snippet: snippet_of(&content, 160),
                     score: *score as f64,
+                    device: None,
                 })
             });
             match hit {

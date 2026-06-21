@@ -50,9 +50,17 @@ Hybrid lexical + semantic search with optional filters and reranking (FR-SRCH-01
   },
   "mode":  "hybrid",   // "hybrid" | "lexical" | "semantic"  (default: hybrid)
   "limit": 10,          // default 10, max 100
-  "rerank": true        // default true
+  "rerank": true,       // default true
+  "devices": ["linux-desktop"]  // optional cross-device routing (ADR-010);
+                                //   omit to search this device + all reachable peers
 }
 ```
+
+Cross-device (ADR-010): when federation is configured, `search` fans out to peer
+daemons and merges the results; each result carries a `device` field naming its
+origin. `devices` restricts which devices are queried (names from the `devices`
+op / `crossthreads_devices` tool). `build_context` and `recall` span devices the
+same way.
 
 ### Response
 ```jsonc
@@ -206,6 +214,7 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_recall` | §3 — **implemented** (retrieval-only digest) |
 | `crossthreads_build_context` | §5 — **implemented** |
 | `crossthreads_status` | index health — **implemented** |
+| `crossthreads_devices` | list searchable devices (this host + peers) with liveness — **implemented** (ADR-010) |
 | `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
 | `crossthreads.resume` | §6 — planned |
 | `crossthreads.list_facets` | filter discovery — planned |

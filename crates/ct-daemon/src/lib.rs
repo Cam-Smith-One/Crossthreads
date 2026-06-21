@@ -5,7 +5,7 @@
 //! thin [`Client`]s over the [`protocol`].
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -16,19 +16,26 @@ use anyhow::{Context, Result};
 use ct_embed::Embedder;
 use ct_store::Store;
 
+pub mod federation;
 mod http;
 pub mod protocol;
-pub use ct_store::{Filters, SearchHit};
-pub use protocol::{Mode, Request, Response, DEFAULT_ADDR};
+pub use ct_store::{Filters, SearchHit, StoredConversation};
+pub use federation::{Federation, Peer};
+pub use protocol::{DeviceInfo, Mode, Request, Response, DEFAULT_ADDR};
 
 /// How long to wait for the filesystem to settle before re-indexing.
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
+
+/// Default port a peer daemon listens on, used when discovering tailnet devices.
+const FED_PORT: u16 = 47100;
 
 /// The running daemon: shared handles to the store and embedder.
 #[derive(Clone)]
 pub struct Daemon {
     store: Arc<Mutex<Store>>,
     embedder: Arc<dyn Embedder>,
+    /// Cross-device federation config (ADR-010); `None` = local-only daemon.
+    federation: Option<Arc<Federation>>,
 }
 
 impl Daemon {
@@ -37,7 +44,15 @@ impl Daemon {
         Self {
             store: Arc::new(Mutex::new(store)),
             embedder: Arc::from(embedder),
+            federation: None,
         }
+    }
+
+    /// Enable cross-device federation: stamp served hits with our device name,
+    /// fan local searches out to `peers`, and answer authenticated `PeerSearch`.
+    pub fn with_federation(mut self, fed: Federation) -> Self {
+        self.federation = Some(Arc::new(fed));
+        self
     }
 
     /// Run one indexing pass. The store lock is taken only briefly (per upsert
@@ -208,9 +223,24 @@ impl Daemon {
                 mode,
                 limit,
                 filters,
+                devices,
             } => self
-                .search(&query, mode, limit, &filters)
+                .search(&query, mode, limit, &filters, devices.as_deref())
                 .unwrap_or_else(err),
+            Request::Devices => self.devices_list(),
+            Request::DiscoverDevices => self.discover_devices(),
+            Request::ApprovePeer { name, addr } => self.approve_peer(name, addr),
+            Request::RemovePeer { name } => self.remove_peer(&name),
+            Request::PeerSearch {
+                token,
+                query,
+                mode,
+                limit,
+                filters,
+            } => self.peer_search(token.as_deref(), &query, mode, limit, &filters),
+            Request::PeerGetConversation { token, id } => {
+                self.peer_get_conversation(token.as_deref(), &id)
+            }
             Request::GetConversation { id } => self.get_conversation(&id).unwrap_or_else(err),
             Request::SetFlags {
                 id,
@@ -228,8 +258,9 @@ impl Daemon {
                 limit,
                 max_chars,
                 filters,
+                devices,
             } => self
-                .context(&query, mode, limit, max_chars, &filters)
+                .context(&query, mode, limit, max_chars, &filters, devices.as_deref())
                 .unwrap_or_else(err),
         }
     }
@@ -251,28 +282,255 @@ impl Daemon {
         })
     }
 
-    fn search(&self, query: &str, mode: Mode, limit: usize, f: &Filters) -> Result<Response> {
-        let hits: Vec<SearchHit> = {
-            // Embed outside the store lock where possible; keep it simple and
-            // correct by embedding first, then locking for the query.
-            match mode {
-                Mode::Lexical => {
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_filtered(query, limit, f)?
-                }
-                Mode::Semantic => {
-                    let q = self.embedder.embed_one(query)?;
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_semantic_filtered(&q, limit, f)?
-                }
-                Mode::Hybrid => {
-                    let q = self.embedder.embed_one(query)?;
-                    let store = self.store.lock().expect("store mutex poisoned");
-                    store.search_hybrid_filtered(query, &q, limit, f)?
-                }
+    /// Run a search against the local index only. Embedding happens outside the
+    /// store lock; we then lock just for the query.
+    fn local_search(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Result<Vec<SearchHit>> {
+        Ok(match mode {
+            Mode::Lexical => {
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_filtered(query, limit, f)?
             }
+            Mode::Semantic => {
+                let q = self.embedder.embed_one(query)?;
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_semantic_filtered(&q, limit, f)?
+            }
+            Mode::Hybrid => {
+                let q = self.embedder.embed_one(query)?;
+                let store = self.store.lock().expect("store mutex poisoned");
+                store.search_hybrid_filtered(query, &q, limit, f)?
+            }
+        })
+    }
+
+    /// Top-level search response. Wraps [`Self::federated_hits`].
+    fn search(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+        devices: Option<&[String]>,
+    ) -> Result<Response> {
+        Ok(Response::Hits {
+            hits: self.federated_hits(query, mode, limit, f, devices)?,
+        })
+    }
+
+    /// Local-only unless federation is configured, in which case it fans out to
+    /// peer daemons in parallel and merges the results (ADR-010). An offline/
+    /// slow/unauthorized peer is skipped, never fatal.
+    ///
+    /// `devices` selects which devices to search (routing, not filtering): `None`
+    /// = this host + all peers; otherwise only the named devices are queried.
+    fn federated_hits(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+        devices: Option<&[String]>,
+    ) -> Result<Vec<SearchHit>> {
+        let Some(fed) = &self.federation else {
+            // No federation: device selection is moot, return local results.
+            return self.local_search(query, mode, limit, f);
         };
-        Ok(Response::Hits { hits })
+
+        // Which peers to query, and whether to include local results.
+        let want = |name: &str| devices.map_or(true, |d| d.iter().any(|n| n == name));
+        let peers: Vec<Peer> = fed.peers().into_iter().filter(|p| want(&p.name)).collect();
+
+        let mut lists: Vec<Vec<SearchHit>> = Vec::new();
+        if want(&fed.device) {
+            let mut local = self.local_search(query, mode, limit, f)?;
+            for h in &mut local {
+                h.device = Some(fed.device.clone());
+            }
+            lists.push(local);
+        }
+        if !peers.is_empty() {
+            lists.extend(self.fan_out(
+                fed.token.clone(),
+                fed.timeout,
+                peers,
+                query,
+                mode,
+                limit,
+                f,
+            ));
+        }
+        Ok(federation::rrf_merge(lists, limit))
+    }
+
+    /// Query the given peers in parallel and collect the lists that came back in
+    /// time. Each peer's hits are tagged with that peer's configured name.
+    #[allow(clippy::too_many_arguments)]
+    fn fan_out(
+        &self,
+        token: Option<String>,
+        timeout: std::time::Duration,
+        peers: Vec<Peer>,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Vec<Vec<SearchHit>> {
+        let handles: Vec<_> = peers
+            .into_iter()
+            .map(|peer| {
+                let req = Request::PeerSearch {
+                    token: token.clone(),
+                    query: query.to_string(),
+                    mode,
+                    limit,
+                    filters: f.clone(),
+                };
+                thread::spawn(move || {
+                    let client = Client::new(peer.addr.clone());
+                    match client.call_timeout(&req, timeout) {
+                        Ok(Response::Hits { mut hits }) => {
+                            for h in &mut hits {
+                                h.device = Some(peer.name.clone());
+                            }
+                            Some(hits)
+                        }
+                        Ok(Response::Error { message }) => {
+                            eprintln!("warn: peer {} rejected search: {message}", peer.name);
+                            None
+                        }
+                        Ok(_) => None,
+                        Err(e) => {
+                            eprintln!("warn: peer {} unreachable: {e:#}", peer.name);
+                            None
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .collect()
+    }
+
+    /// Answer a search forwarded from a peer: authenticate, run **local-only**
+    /// (no re-fan-out, so queries can't loop), and stamp our device name.
+    fn peer_search(
+        &self,
+        token: Option<&str>,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        f: &Filters,
+    ) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "federation not enabled on this device".into(),
+            };
+        };
+        // Constant work either way; a configured token must match.
+        if let Some(expected) = &fed.token {
+            if token != Some(expected.as_str()) {
+                return Response::Error {
+                    message: "unauthorized peer (bad or missing token)".into(),
+                };
+            }
+        }
+        match self.local_search(query, mode, limit, f) {
+            Ok(mut hits) => {
+                for h in &mut hits {
+                    h.device = Some(fed.device.clone());
+                }
+                Response::Hits { hits }
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// List this host + approved peers, pinging peers for current liveness
+    /// (ADR-010). Powers the device picker and Settings → Devices.
+    fn devices_list(&self) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Devices {
+                devices: vec![DeviceInfo {
+                    name: "this device".into(),
+                    addr: None,
+                    online: true,
+                    local: true,
+                }],
+                federation: false,
+            };
+        };
+        let mut devices = vec![DeviceInfo {
+            name: fed.device.clone(),
+            addr: None,
+            online: true,
+            local: true,
+        }];
+        // Probe peers in parallel so one slow peer doesn't stall the list.
+        let timeout = fed.timeout;
+        let handles: Vec<_> = fed
+            .peers()
+            .into_iter()
+            .map(|p| {
+                thread::spawn(move || DeviceInfo {
+                    online: federation::probe(&p.addr, timeout),
+                    name: p.name,
+                    addr: Some(p.addr),
+                    local: false,
+                })
+            })
+            .collect();
+        for h in handles {
+            if let Ok(d) = h.join() {
+                devices.push(d);
+            }
+        }
+        Response::Devices {
+            devices,
+            federation: true,
+        }
+    }
+
+    /// One-shot tailnet scan for other reachable Crossthreads daemons.
+    fn discover_devices(&self) -> Response {
+        let (approved, timeout) = match &self.federation {
+            Some(fed) => (fed.peers(), fed.timeout),
+            None => (Vec::new(), std::time::Duration::from_millis(1500)),
+        };
+        Response::DiscoveredDevices {
+            devices: federation::discover(&approved, FED_PORT, timeout),
+        }
+    }
+
+    /// Approve (persist) a peer, then return the refreshed device list.
+    fn approve_peer(&self, name: String, addr: String) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "enable cross-device search first (set a device name and shared token)"
+                    .into(),
+            };
+        };
+        fed.add_peer(Peer { name, addr });
+        self.devices_list()
+    }
+
+    /// Remove (persist) a peer, then return the refreshed device list.
+    fn remove_peer(&self, name: &str) -> Response {
+        match &self.federation {
+            Some(fed) => {
+                fed.remove_peer(name);
+                self.devices_list()
+            }
+            None => Response::Ok { ok: false },
+        }
     }
 
     fn get_conversation(&self, id: &str) -> Result<Response> {
@@ -335,8 +593,9 @@ impl Daemon {
         Ok(Response::Ok { ok })
     }
 
-    /// Search for the top matches and render them into a paste-ready context
-    /// block (AGENT_API §5). Embedding happens before the store lock.
+    /// Search for the top matches (across devices) and render them into a
+    /// paste-ready context block (AGENT_API §5). Remote transcripts are fetched
+    /// from their owning peer so the block spans devices (ADR-010).
     fn context(
         &self,
         query: &str,
@@ -344,25 +603,67 @@ impl Daemon {
         limit: usize,
         max_chars: usize,
         f: &Filters,
+        devices: Option<&[String]>,
     ) -> Result<Response> {
-        let qv = match mode {
-            Mode::Lexical => None,
-            _ => Some(self.embedder.embed_one(query)?),
+        let hits = self.federated_hits(query, mode, limit, f, devices)?;
+        let convos: Vec<StoredConversation> = hits
+            .iter()
+            .filter_map(|h| self.fetch_conversation_for(h))
+            .collect();
+        let block = {
+            let store = self.store.lock().expect("store mutex poisoned");
+            store.render_conversations(&convos, max_chars)
         };
-        let store = self.store.lock().expect("store mutex poisoned");
-        let hits = match (mode, &qv) {
-            (Mode::Lexical, _) => store.search_filtered(query, limit, f)?,
-            (Mode::Semantic, Some(q)) => store.search_semantic_filtered(q, limit, f)?,
-            (_, Some(q)) => store.search_hybrid_filtered(query, q, limit, f)?,
-            (_, None) => store.search_filtered(query, limit, f)?,
-        };
-        let ids: Vec<String> = hits.into_iter().map(|h| h.conversation_id).collect();
-        let block = store.render_context(&ids, max_chars)?;
         Ok(Response::Context {
             markdown: block.markdown,
             sources: block.sources,
             token_estimate: block.token_estimate,
         })
+    }
+
+    /// Fetch a hit's full conversation from whichever device owns it: locally if
+    /// it's ours (or untagged), otherwise via a token-gated `PeerGetConversation`
+    /// to the tagged peer.
+    fn fetch_conversation_for(&self, hit: &SearchHit) -> Option<StoredConversation> {
+        let local_name = self.federation.as_ref().map(|f| f.device.as_str());
+        let is_local = match (hit.device.as_deref(), local_name) {
+            (None, _) | (Some(_), None) => true,
+            (Some(d), Some(me)) => d == me,
+        };
+        if is_local {
+            let store = self.store.lock().expect("store mutex poisoned");
+            return store.get_conversation(&hit.conversation_id).ok().flatten();
+        }
+        let fed = self.federation.as_ref()?;
+        let peer = fed
+            .peers()
+            .into_iter()
+            .find(|p| Some(p.name.as_str()) == hit.device.as_deref())?;
+        let req = Request::PeerGetConversation {
+            token: fed.token.clone(),
+            id: hit.conversation_id.clone(),
+        };
+        match Client::new(peer.addr).call_timeout(&req, fed.timeout) {
+            Ok(Response::Conversation { conversation }) => conversation,
+            _ => None,
+        }
+    }
+
+    /// Answer a peer's request for one conversation: token-gated, local fetch.
+    fn peer_get_conversation(&self, token: Option<&str>, id: &str) -> Response {
+        let Some(fed) = &self.federation else {
+            return Response::Error {
+                message: "federation not enabled on this device".into(),
+            };
+        };
+        if let Some(expected) = &fed.token {
+            if token != Some(expected.as_str()) {
+                return Response::Error {
+                    message: "unauthorized peer (bad or missing token)".into(),
+                };
+            }
+        }
+        self.get_conversation(id).unwrap_or_else(err)
     }
 }
 
@@ -413,6 +714,29 @@ impl Client {
     pub fn call(&self, req: &Request) -> Result<Response> {
         let stream = TcpStream::connect(&self.addr)
             .with_context(|| format!("connecting to daemon at {}", self.addr))?;
+        self.exchange(stream, req)
+    }
+
+    /// Like [`call`], but bounded by `timeout` on connect, read, and write — for
+    /// fanning a search out to peer daemons that may be slow or offline
+    /// (ADR-010). Resolves the address (so MagicDNS / hostnames work) and
+    /// connects to the first candidate.
+    pub fn call_timeout(&self, req: &Request, timeout: Duration) -> Result<Response> {
+        let sock = self
+            .addr
+            .to_socket_addrs()
+            .with_context(|| format!("resolving peer {}", self.addr))?
+            .next()
+            .with_context(|| format!("no address for peer {}", self.addr))?;
+        let stream = TcpStream::connect_timeout(&sock, timeout)
+            .with_context(|| format!("connecting to peer {}", self.addr))?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        self.exchange(stream, req)
+    }
+
+    /// Write one request line and read one response line on `stream`.
+    fn exchange(&self, stream: TcpStream, req: &Request) -> Result<Response> {
         let mut writer = stream.try_clone()?;
         let mut bytes = serde_json::to_vec(req)?;
         bytes.push(b'\n');
@@ -432,11 +756,25 @@ impl Client {
         limit: usize,
         filters: Filters,
     ) -> Result<Vec<SearchHit>> {
+        self.search_devices(query, mode, limit, filters, None)
+    }
+
+    /// Search, optionally restricting which devices are queried (ADR-010).
+    /// `devices = None` searches this device + all reachable peers.
+    pub fn search_devices(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        filters: Filters,
+        devices: Option<Vec<String>>,
+    ) -> Result<Vec<SearchHit>> {
         match self.call(&Request::Search {
             query: query.into(),
             mode,
             limit,
             filters,
+            devices,
         })? {
             Response::Hits { hits } => Ok(hits),
             Response::Error { message } => Err(anyhow::anyhow!(message)),
@@ -454,12 +792,27 @@ impl Client {
         max_chars: usize,
         filters: Filters,
     ) -> Result<(String, Vec<String>)> {
+        self.build_context_devices(query, mode, limit, max_chars, filters, None)
+    }
+
+    /// Build context, optionally restricting which devices contribute (ADR-010).
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_context_devices(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        max_chars: usize,
+        filters: Filters,
+        devices: Option<Vec<String>>,
+    ) -> Result<(String, Vec<String>)> {
         match self.call(&Request::Context {
             query: query.into(),
             mode,
             limit,
             max_chars,
             filters,
+            devices,
         })? {
             Response::Context {
                 markdown, sources, ..
