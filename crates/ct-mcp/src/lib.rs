@@ -66,7 +66,7 @@ impl Server {
         if self.client.call(&Request::Ping).is_ok() {
             return;
         }
-        // Spawn at most once; later calls fall back to the fast-path ping above.
+        // Spawn at most one at a time; later calls take the fast-path ping above.
         if self.ensured.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -77,6 +77,9 @@ impl Server {
                 return;
             }
         }
+        // The spawn didn't come up; clear the latch so a later call can retry
+        // (otherwise a one-time failed spawn would wedge autostart for good).
+        self.ensured.store(false, Ordering::SeqCst);
     }
 
     /// Handle one incoming JSON-RPC message. Returns `Some(response)` for

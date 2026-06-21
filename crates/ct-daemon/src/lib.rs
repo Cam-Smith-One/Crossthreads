@@ -167,6 +167,9 @@ impl Daemon {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
+                    // Bound half-open/idle connections so they can't pin a thread
+                    // forever (clients send a request immediately, then we reply).
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
                     let this = self.clone();
                     thread::spawn(move || {
                         if let Err(e) = this.handle_conn(stream) {
@@ -450,9 +453,9 @@ impl Daemon {
                 message: "federation not enabled on this device".into(),
             };
         };
-        // Constant work either way; a configured token must match.
+        // A configured token must match (compared in constant time).
         if let Some(expected) = fed.token() {
-            if token != Some(expected.as_str()) {
+            if !token.is_some_and(|t| token_eq(t, &expected)) {
                 return Response::Error {
                     message: "unauthorized peer (bad or missing token)".into(),
                 };
@@ -630,10 +633,24 @@ impl Daemon {
         devices: Option<&[String]>,
     ) -> Result<Response> {
         let (hits, _unreachable) = self.federated_hits(query, mode, limit, f, devices)?;
-        let convos: Vec<StoredConversation> = hits
+        // Fetch transcripts concurrently — remote ones are network round-trips, so
+        // doing them serially would cost up to one timeout *per* remote hit.
+        let handles: Vec<_> = hits
             .iter()
-            .filter_map(|h| self.fetch_conversation_for(h))
+            .cloned()
+            .enumerate()
+            .map(|(i, h)| {
+                let this = self.clone();
+                thread::spawn(move || (i, this.fetch_conversation_for(&h)))
+            })
             .collect();
+        let mut indexed: Vec<(usize, StoredConversation)> = handles
+            .into_iter()
+            .filter_map(|j| j.join().ok())
+            .filter_map(|(i, c)| c.map(|c| (i, c)))
+            .collect();
+        indexed.sort_by_key(|(i, _)| *i); // keep ranked order
+        let convos: Vec<StoredConversation> = indexed.into_iter().map(|(_, c)| c).collect();
         let block = {
             let store = self.store.lock().expect("store mutex poisoned");
             store.render_conversations(&convos, max_chars)
@@ -686,7 +703,7 @@ impl Daemon {
             };
         };
         if let Some(expected) = fed.token() {
-            if token != Some(expected.as_str()) {
+            if !token.is_some_and(|t| token_eq(t, &expected)) {
                 return Response::Error {
                     message: "unauthorized peer (bad or missing token)".into(),
                 };
@@ -768,6 +785,16 @@ fn err(e: anyhow::Error) -> Response {
     Response::Error {
         message: format!("{e:#}"),
     }
+}
+
+/// Constant-time string compare for the shared federation token, so verifying it
+/// doesn't leak its contents through response timing. (Length is not secret.)
+fn token_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Reveal `path` in the platform file manager (best effort). Returns whether the

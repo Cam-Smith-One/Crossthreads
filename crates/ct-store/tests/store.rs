@@ -84,7 +84,10 @@ fn keyword_search_finds_and_ranks() {
         "only one conversation mentions token refresh"
     );
     assert_eq!(hits[0].project.as_deref(), Some("/acme-api"));
-    assert!(hits[0].snippet.contains('['), "snippet should mark matches");
+    assert!(
+        hits[0].snippet.contains('\u{2}'),
+        "snippet should mark matches"
+    );
 
     // Unrelated query hits the other conversation.
     let hits = store.search("dark mode", 10).unwrap();

@@ -86,7 +86,14 @@ async function rpc<T>(body: unknown): Promise<T> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    data = await res.json();
+    if (!res.ok) {
+      throw new Error(`daemon unreachable (HTTP ${res.status} ${res.statusText})`);
+    }
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error("daemon returned a malformed (non-JSON) response");
+    }
   }
   if (data && data.type === "error") {
     throw new Error(data.message ?? "daemon error");

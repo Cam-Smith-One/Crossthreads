@@ -51,6 +51,12 @@ fn rules() -> &'static [Rule] {
             ),
             // `Authorization: Bearer <token>` / `Bearer <token>`.
             r(r"(?i)bearer\s+[A-Za-z0-9._\-]{16,}", "Bearer [REDACTED]"),
+            // Credentials in a connection-string / URL userinfo:
+            // `scheme://user:password@host` → `scheme://user:[REDACTED]@host`.
+            r(
+                r"(?i)\b([a-z][a-z0-9+.\-]*://[^\s/:@]+):[^\s/@]+@",
+                "${1}:[REDACTED]@",
+            ),
             // Explicit secret assignments: KEY=value / KEY: value (env, configs).
             r(
                 r#"(?i)(?P<key>\b(?:api[_-]?key|secret|access[_-]?token|auth[_-]?token|token|password|passwd|pwd|client[_-]?secret)\b)\s*[:=]\s*["']?[A-Za-z0-9._\-/+]{8,}["']?"#,
@@ -90,11 +96,25 @@ mod tests {
             "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123",
             "password = hunter2hunter2",
             "GOOGLE=AIzaSyA1234567890abcdefghijklmnopqrstuvw",
+            "DATABASE_URL=postgres://admin:s3cretpass@db.example.com:5432/app",
         ];
         for c in cases {
             let red = redact(c);
             assert!(red.contains("[REDACTED]"), "not redacted: {c} -> {red}");
         }
+    }
+
+    #[test]
+    fn redacts_connection_string_password_but_keeps_host() {
+        let red = redact("redis://default:supersecretvalue@cache.internal:6379");
+        assert!(red.contains("[REDACTED]"));
+        assert!(!red.contains("supersecretvalue"));
+        assert!(red.contains("cache.internal")); // host preserved
+                                                 // A plain URL with no credentials is left alone.
+        assert_eq!(
+            redact("see https://example.com:8080/docs"),
+            std::borrow::Cow::Borrowed("see https://example.com:8080/docs")
+        );
     }
 
     #[test]

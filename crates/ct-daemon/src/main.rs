@@ -122,16 +122,21 @@ fn run() -> Result<()> {
         .or(saved.device)
         .unwrap_or_else(default_device_name);
 
-    // Token precedence: CLI/env > OS keychain > plaintext config file. Then store
-    // the resolved token in the keychain (encrypt at rest) when one is available.
+    // Token precedence: CLI/env > OS keychain > plaintext config file.
     let file_token = saved.token.clone();
-    let token = token
-        .or_else(ct_daemon::federation::token_store::get)
-        .or(file_token.clone());
-    let token_in_keyring = token
-        .as_deref()
-        .map(ct_daemon::federation::token_store::set)
-        .unwrap_or(false);
+    let keyring_token = ct_daemon::federation::token_store::get();
+    let from_keyring = token.is_none() && keyring_token.is_some();
+    let token = token.or(keyring_token).or(file_token.clone());
+    // Store the token in the keychain to encrypt at rest — but only when it isn't
+    // already there, so we don't re-write (and re-prompt) on every startup.
+    let token_in_keyring = if from_keyring {
+        true
+    } else {
+        token
+            .as_deref()
+            .map(ct_daemon::federation::token_store::set)
+            .unwrap_or(false)
+    };
 
     let mut all_peers = saved.peers;
     for p in peers {
