@@ -44,6 +44,7 @@ Covers all **Must / P1** requirements:
 
 - TUI surface over the same core (FR-UI-01).
 - ✅ MCP server (FR-UI-04) — `ct-mcp` exposes search/status to agents over stdio→daemon (landed early).
+- ✅ **Cross-device search** ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel) · [CROSS_DEVICE_SEARCH](CROSS_DEVICE_SEARCH.md)) — query the history on your other machines via daemon-to-daemon **federation** over a private Tailscale tunnel: device selection, on-demand discovery, result device chips, open/preview remote transcripts, serve-scope filters, and an OS-keychain token + pairing-code onboarding. Local-first, no central server (landed post-MVP).
 - Timeline + analytics (FR-UI-06).
 - Resume/handoff action, HTML export (FR-ACT-04/05).
 - More connectors: Gemini CLI, Windsurf, Claude.ai web import (FR-ING-09/10).
@@ -55,7 +56,7 @@ Covers all **Must / P1** requirements:
 - Memory layers: semantic + procedural (FR-MEM-02/03).
 - Outcome tracking — link sessions to git/PRs/tests, "what worked" (FR-MEM-04).
 - Proactive memory & suggestions (FR-MEM-05); knowledge graph / visualization (FR-MEM-06).
-- Multi-machine sync (encrypted) (FR-SYNC-01); team sharing, audit/SSO (FR-SYNC-02/03).
+- Multi-machine **sync/replication** (encrypted, for offline access to a device that's currently *off*) (FR-SYNC-01) — note cross-device *search* already ships via federation (Phase 1.x); team sharing, audit/SSO (FR-SYNC-02/03).
 - Export ecosystem (Obsidian/Notion/`AGENTS.md`/`CLAUDE.md`) (FR-ACT-06).
 - Connector plugin system (FR-ING-11); optional Postgres backend (FR-STO-05).
 
