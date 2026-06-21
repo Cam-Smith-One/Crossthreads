@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.3.1] - 2026-06-21
+
+### Fixed
+- Locate the **Tailscale CLI inside the macOS app bundle** when it isn't on
+  PATH (`/Applications/Tailscale.app/Contents/MacOS/Tailscale`, plus Homebrew
+  paths), so `--addr auto` and "Discover my devices" work for users who
+  installed the Tailscale app rather than the standalone CLI.
+
 ## [0.3.0] - 2026-06-21
 
 ### Added
@@ -122,7 +130,8 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.1.0...v0.2.0

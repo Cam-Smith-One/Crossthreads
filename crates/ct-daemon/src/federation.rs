@@ -446,19 +446,52 @@ pub fn discover(approved: &[Peer], port: u16, timeout: Duration) -> Vec<Discover
         .collect()
 }
 
-/// Run `tailscale status --json` and extract `(name, tailnet-ip)` per peer.
-fn tailscale_peers() -> Vec<(String, String)> {
-    let Ok(out) = Command::new("tailscale")
+/// Locate the Tailscale CLI. The macOS app (App Store or the standalone GUI)
+/// doesn't put `tailscale` on PATH — its binary lives inside the app bundle — so
+/// when a bare `tailscale` isn't runnable, fall back to well-known locations.
+fn tailscale_bin() -> String {
+    let on_path = Command::new("tailscale")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if on_path {
+        return "tailscale".into();
+    }
+    first_existing(TAILSCALE_FALLBACKS).unwrap_or_else(|| "tailscale".into())
+}
+
+const TAILSCALE_FALLBACKS: &[&str] = &[
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
+];
+
+/// First path in `candidates` that exists on disk. Pure, so it's testable.
+fn first_existing(candidates: &[&str]) -> Option<String> {
+    candidates
+        .iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .map(|p| p.to_string())
+}
+
+/// Run `tailscale status --json` (locating the CLI via [`tailscale_bin`]) and
+/// parse it. `None` when Tailscale isn't installed or connected.
+fn tailscale_status_json() -> Option<Value> {
+    let out = Command::new(tailscale_bin())
         .arg("status")
         .arg("--json")
         .output()
-    else {
-        return Vec::new();
-    };
+        .ok()?;
     if !out.status.success() {
-        return Vec::new();
+        return None;
     }
-    serde_json::from_slice::<Value>(&out.stdout)
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// Run `tailscale status --json` and extract `(name, tailnet-ip)` per peer.
+fn tailscale_peers() -> Vec<(String, String)> {
+    tailscale_status_json()
         .map(|v| parse_tailscale_peers(&v))
         .unwrap_or_default()
 }
@@ -467,16 +500,7 @@ fn tailscale_peers() -> Vec<(String, String)> {
 /// node of `tailscale status --json`. `None` when Tailscale isn't installed or
 /// connected — callers then fall back to a loopback bind.
 pub fn detect_self_tailnet_ip() -> Option<String> {
-    let out = Command::new("tailscale")
-        .arg("status")
-        .arg("--json")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
-    self_tailnet_ip(&v)
+    self_tailnet_ip(&tailscale_status_json()?)
 }
 
 /// Pull the `Self` node's first IPv4 tailnet address. Pure, so it's testable.
@@ -684,6 +708,18 @@ mod tests {
         assert_eq!(
             self_tailnet_ip(&serde_json::json!({ "Self": { "TailscaleIPs": ["fd7a::1"] } })),
             None
+        );
+    }
+
+    #[test]
+    fn first_existing_picks_present_path() {
+        assert_eq!(first_existing(&["/definitely/not/here/xyz"]), None);
+        // temp_dir() exists on every platform, so it stands in for the bundle path.
+        let tmp = std::env::temp_dir();
+        let tmp = tmp.to_str().unwrap();
+        assert_eq!(
+            first_existing(&["/definitely/not/here", tmp]),
+            Some(tmp.to_string())
         );
     }
 }
