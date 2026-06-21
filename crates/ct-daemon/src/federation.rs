@@ -17,6 +17,8 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,37 +40,201 @@ pub struct Peer {
 /// is purely local and refuses `PeerSearch`.
 #[derive(Debug)]
 pub struct Federation {
-    /// This device's name, stamped on the hits it serves to peers.
-    pub device: String,
-    /// Shared secret. When set, incoming `PeerSearch` must present a match;
-    /// when `None`, the tailnet itself is the access boundary.
-    pub token: Option<String>,
     /// Per-peer connect/read budget; a slow or offline peer is skipped after
     /// this, never hung on.
     pub timeout: Duration,
-    /// Approved peers to fan a local search out to. Behind a lock so the
-    /// Settings → Devices panel can add/remove them at runtime.
+    /// This daemon's own peer-reachable address (the `--addr` it binds), used to
+    /// build a pairing code. `None` when only loopback-bound.
+    pub listen_addr: Option<String>,
+    /// Mutable identity + serve-scope, so the Settings → Devices panel can edit
+    /// the device name, token, and what this device exposes at runtime.
+    inner: Mutex<Identity>,
+    /// Approved peers to fan a local search out to. Behind a lock so the panel
+    /// can add/remove them at runtime.
     peers: Mutex<Vec<Peer>>,
-    /// Where the approved-peer list is persisted, if anywhere.
+    /// Where the approved-peer list + scope are persisted, if anywhere.
     config_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct Identity {
+    /// This device's name, stamped on the hits it serves to peers.
+    device: String,
+    /// Shared secret. When set, incoming `PeerSearch` must present a match;
+    /// when `None`, the tailnet itself is the access boundary.
+    token: Option<String>,
+    /// The token lives in the OS keychain (vs. the plaintext config file).
+    token_in_keyring: bool,
+    /// Tools this device will not serve to peers (serve-scope).
+    exclude_tools: Vec<String>,
+    /// Project substrings this device will not serve to peers.
+    exclude_projects: Vec<String>,
 }
 
 impl Federation {
     /// Build federation config with a fixed peer set and no persistence.
     pub fn new(device: String, token: Option<String>, peers: Vec<Peer>, timeout: Duration) -> Self {
         Self {
-            device,
-            token,
             timeout,
+            listen_addr: None,
+            inner: Mutex::new(Identity {
+                device,
+                token,
+                token_in_keyring: false,
+                exclude_tools: Vec::new(),
+                exclude_projects: Vec::new(),
+            }),
             peers: Mutex::new(peers),
             config_path: None,
         }
     }
 
-    /// Persist approve/remove changes to `path` (rewritten as JSON).
+    /// Persist approve/remove/scope changes to `path` (rewritten as JSON).
     pub fn with_config_path(mut self, path: PathBuf) -> Self {
         self.config_path = Some(path);
         self
+    }
+
+    /// Record this daemon's peer-reachable bind address (for pairing codes).
+    pub fn with_listen_addr(mut self, addr: Option<String>) -> Self {
+        self.listen_addr = addr;
+        self
+    }
+
+    /// Set the serve-scope (tools/projects this device won't expose to peers).
+    pub fn with_scope(self, exclude_tools: Vec<String>, exclude_projects: Vec<String>) -> Self {
+        {
+            let mut id = self.inner.lock().expect("identity mutex poisoned");
+            id.exclude_tools = exclude_tools;
+            id.exclude_projects = exclude_projects;
+        }
+        self
+    }
+
+    /// Mark the token as living in the OS keychain rather than the config file.
+    pub fn with_token_in_keyring(self, yes: bool) -> Self {
+        self.inner
+            .lock()
+            .expect("identity mutex poisoned")
+            .token_in_keyring = yes;
+        self
+    }
+
+    /// This device's name.
+    pub fn device(&self) -> String {
+        self.inner
+            .lock()
+            .expect("identity mutex poisoned")
+            .device
+            .clone()
+    }
+
+    /// The shared token, if set.
+    pub fn token(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .expect("identity mutex poisoned")
+            .token
+            .clone()
+    }
+
+    /// Whether this device would serve a conversation in `tool`/`project` to a
+    /// peer — the serve-scope from ADR-010's trust boundary.
+    pub fn serves(&self, tool: &str, project: Option<&str>) -> bool {
+        let id = self.inner.lock().expect("identity mutex poisoned");
+        if id.exclude_tools.iter().any(|t| t == tool) {
+            return false;
+        }
+        if let Some(p) = project {
+            if id
+                .exclude_projects
+                .iter()
+                .any(|x| !x.is_empty() && p.contains(x.as_str()))
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Snapshot for the Settings panel: (device, has_token, token_in_keyring,
+    /// exclude_tools, exclude_projects).
+    pub fn config_snapshot(&self) -> (String, bool, bool, Vec<String>, Vec<String>) {
+        let id = self.inner.lock().expect("identity mutex poisoned");
+        (
+            id.device.clone(),
+            id.token.is_some(),
+            id.token_in_keyring,
+            id.exclude_tools.clone(),
+            id.exclude_projects.clone(),
+        )
+    }
+
+    /// A copy-paste code another device can `PairWithCode` to join us: it carries
+    /// the shared token and our peer address. `None` until both are known.
+    pub fn pairing_code(&self) -> Option<String> {
+        let addr = self.listen_addr.clone()?;
+        let id = self.inner.lock().expect("identity mutex poisoned");
+        let token = id.token.clone()?;
+        let payload = PairingPayload {
+            token,
+            peer: Peer {
+                name: id.device.clone(),
+                addr,
+            },
+        };
+        Some(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).ok()?))
+    }
+
+    /// Apply a `SetFederationConfig` update (any subset of fields) and persist.
+    /// For `token`: `Some("")` clears, `Some(x)` sets, `None` leaves unchanged.
+    pub fn set_config(
+        &self,
+        device: Option<String>,
+        token: Option<String>,
+        exclude_tools: Option<Vec<String>>,
+        exclude_projects: Option<Vec<String>>,
+    ) {
+        {
+            let mut id = self.inner.lock().expect("identity mutex poisoned");
+            if let Some(d) = device {
+                if !d.trim().is_empty() {
+                    id.device = d;
+                }
+            }
+            if let Some(t) = token {
+                if t.is_empty() {
+                    token_store::delete();
+                    id.token = None;
+                    id.token_in_keyring = false;
+                } else {
+                    id.token_in_keyring = token_store::set(&t);
+                    id.token = Some(t);
+                }
+            }
+            if let Some(et) = exclude_tools {
+                id.exclude_tools = et;
+            }
+            if let Some(ep) = exclude_projects {
+                id.exclude_projects = ep;
+            }
+        }
+        self.save();
+    }
+
+    /// Adopt a shared token only if we don't already have one (pairing). Returns
+    /// whether it was set. Persisted.
+    pub fn adopt_token_if_absent(&self, token: &str) -> bool {
+        {
+            let mut id = self.inner.lock().expect("identity mutex poisoned");
+            if id.token.is_some() || token.is_empty() {
+                return false;
+            }
+            id.token_in_keyring = token_store::set(token);
+            id.token = Some(token.to_string());
+        }
+        self.save();
+        true
     }
 
     /// Snapshot of the approved peers.
@@ -108,15 +274,30 @@ impl Federation {
         removed
     }
 
-    /// Write the current device/token/peers to the config file (best effort).
+    /// Rewrite the config file now (e.g. to migrate a plaintext token into the
+    /// keychain on startup).
+    pub fn persist(&self) {
+        self.save();
+    }
+
+    /// Write the current device/scope/peers to the config file (best effort).
+    /// The token is written **only** when it isn't in the keychain.
     fn save(&self) {
         let Some(path) = &self.config_path else {
             return;
         };
+        let peers = self.peers();
+        let id = self.inner.lock().expect("identity mutex poisoned");
         let cfg = PersistedConfig {
-            device: Some(self.device.clone()),
-            token: self.token.clone(),
-            peers: self.peers(),
+            device: Some(id.device.clone()),
+            token: if id.token_in_keyring {
+                None
+            } else {
+                id.token.clone()
+            },
+            peers,
+            exclude_tools: id.exclude_tools.clone(),
+            exclude_projects: id.exclude_projects.clone(),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&cfg) {
             if let Some(parent) = path.parent() {
@@ -132,6 +313,44 @@ impl Federation {
     }
 }
 
+/// Pairing-code payload: the shared token + the issuing device as a peer.
+#[derive(Debug, Serialize, Deserialize)]
+struct PairingPayload {
+    token: String,
+    peer: Peer,
+}
+
+/// Decode a pairing code into `(token, peer)`. `None` if it isn't a valid code.
+pub fn decode_pairing(code: &str) -> Option<(String, Peer)> {
+    let bytes = URL_SAFE_NO_PAD.decode(code.trim()).ok()?;
+    let p: PairingPayload = serde_json::from_slice(&bytes).ok()?;
+    Some((p.token, p.peer))
+}
+
+/// OS keychain storage for the federation token (ADR-010). Best-effort: every
+/// call degrades to `false`/`None` when no keychain backend is available (e.g.
+/// headless CI), so callers fall back to the plaintext config file.
+pub mod token_store {
+    const SERVICE: &str = "crossthreads";
+    const USER: &str = "federation-token";
+
+    pub fn get() -> Option<String> {
+        keyring::Entry::new(SERVICE, USER).ok()?.get_password().ok()
+    }
+
+    pub fn set(token: &str) -> bool {
+        keyring::Entry::new(SERVICE, USER)
+            .and_then(|e| e.set_password(token))
+            .is_ok()
+    }
+
+    pub fn delete() {
+        if let Ok(e) = keyring::Entry::new(SERVICE, USER) {
+            let _ = e.delete_credential();
+        }
+    }
+}
+
 /// On-disk federation config (`federation.json`). Merged with CLI/env on start.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct PersistedConfig {
@@ -141,6 +360,10 @@ pub struct PersistedConfig {
     pub token: Option<String>,
     #[serde(default)]
     pub peers: Vec<Peer>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+    #[serde(default)]
+    pub exclude_projects: Vec<String>,
 }
 
 impl PersistedConfig {
@@ -359,6 +582,41 @@ mod tests {
         assert!(fed.remove_peer("linux"));
         assert!(fed.peers().is_empty());
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn pairing_code_round_trips() {
+        let fed = Federation::new(
+            "mac".into(),
+            Some("sec".into()),
+            vec![],
+            Duration::from_millis(1),
+        )
+        .with_listen_addr(Some("100.1.2.3:47100".into()));
+        let code = fed.pairing_code().expect("code with token + addr");
+        let (token, peer) = decode_pairing(&code).expect("decodes");
+        assert_eq!(token, "sec");
+        assert_eq!(peer.name, "mac");
+        assert_eq!(peer.addr, "100.1.2.3:47100");
+
+        // No code without a reachable address, and garbage doesn't decode.
+        let no_addr = Federation::new(
+            "mac".into(),
+            Some("s".into()),
+            vec![],
+            Duration::from_millis(1),
+        );
+        assert!(no_addr.pairing_code().is_none());
+        assert!(decode_pairing("not-a-code").is_none());
+    }
+
+    #[test]
+    fn serve_scope_excludes_tools_and_projects() {
+        let fed = Federation::new("mac".into(), None, vec![], Duration::from_millis(1))
+            .with_scope(vec!["cursor".into()], vec!["secret".into()]);
+        assert!(fed.serves("claude-code", Some("/work/api")));
+        assert!(!fed.serves("cursor", Some("/work/api"))); // excluded tool
+        assert!(!fed.serves("claude-code", Some("/home/secret-proj"))); // excluded project substr
     }
 
     #[test]

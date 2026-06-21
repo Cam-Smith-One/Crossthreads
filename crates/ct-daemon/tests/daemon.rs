@@ -371,6 +371,159 @@ fn federated_build_context_includes_remote_transcript() {
 }
 
 #[test]
+fn opens_a_remote_conversation() {
+    // The conversation lives only on B; A must fetch it via GetConversation{device}.
+    let remote = convo(Tool::Cursor, "/web", "remote navbar thread to open");
+    let b = Daemon::new(
+        seed(std::slice::from_ref(&remote)),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed("linux", "s3cret", vec![]));
+    let b_addr = serve(b);
+
+    let a = Daemon::new(
+        seed(&[convo(Tool::ClaudeCode, "/api", "unrelated local")]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "mac",
+        "s3cret",
+        vec![Peer {
+            name: "linux".into(),
+            addr: b_addr,
+        }],
+    ));
+    let client = Client::new(serve(a));
+
+    let resp = client
+        .call(&Request::GetConversation {
+            id: remote.id.clone(),
+            device: Some("linux".into()),
+        })
+        .unwrap();
+    match resp {
+        Response::Conversation { conversation } => {
+            let c = conversation.expect("remote conversation fetched");
+            assert_eq!(c.id, remote.id);
+            assert!(c.messages.iter().any(|m| m.content.contains("navbar")));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn search_reports_unreachable_peers() {
+    // A peers a daemon that isn't there; the search still returns local hits and
+    // names the dead peer as unreachable.
+    let a = Daemon::new(
+        seed(&[convo(Tool::ClaudeCode, "/api", "local retry backoff")]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "mac",
+        "s3cret",
+        vec![Peer {
+            name: "ghost".into(),
+            addr: "127.0.0.1:9".into(),
+        }],
+    ));
+    let client = Client::new(serve(a));
+
+    let resp = client
+        .call(&Request::Search {
+            query: "retry".into(),
+            mode: Mode::Hybrid,
+            limit: 10,
+            filters: Default::default(),
+            devices: None,
+        })
+        .unwrap();
+    match resp {
+        Response::Hits { hits, unreachable } => {
+            assert!(!hits.is_empty(), "local hits still returned");
+            assert!(unreachable.contains(&"ghost".to_string()));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn serve_scope_hides_excluded_tool_from_peers() {
+    // B excludes `cursor` from what it serves, so A never sees B's cursor thread
+    // — neither in search nor when trying to open it.
+    let scoped = convo(Tool::Cursor, "/web", "navbar thread that is scoped out");
+    let b = Daemon::new(
+        seed(std::slice::from_ref(&scoped)),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed("linux", "s3cret", vec![]).with_scope(vec!["cursor".into()], vec![]));
+    let b_addr = serve(b);
+
+    let a = Daemon::new(
+        seed(&[convo(Tool::ClaudeCode, "/api", "local thread")]),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "mac",
+        "s3cret",
+        vec![Peer {
+            name: "linux".into(),
+            addr: b_addr,
+        }],
+    ));
+    let client = Client::new(serve(a));
+
+    let hits = client
+        .search("navbar", Mode::Lexical, 10, Default::default())
+        .unwrap();
+    assert!(
+        hits.iter().all(|h| h.tool != "cursor"),
+        "excluded tool hidden"
+    );
+
+    // Direct fetch of the excluded conversation is refused too.
+    let resp = client
+        .call(&Request::GetConversation {
+            id: scoped.id.clone(),
+            device: Some("linux".into()),
+        })
+        .unwrap();
+    assert!(matches!(
+        resp,
+        Response::Conversation { conversation: None }
+    ));
+}
+
+#[test]
+fn pair_with_code_adopts_token_and_peer() {
+    // B has no token yet; pairing with a code from "mac" adopts it + approves mac.
+    let b = Daemon::new(seed(&[]), Box::new(HashEmbedder::default())).with_federation(
+        Federation::new("linux".into(), None, vec![], Duration::from_millis(500)),
+    );
+    let client = Client::new(serve(b));
+
+    let mac = Federation::new(
+        "mac".into(),
+        Some("sec".into()),
+        vec![],
+        Duration::from_millis(1),
+    )
+    .with_listen_addr(Some("100.9.9.9:47100".into()));
+    let code = mac.pairing_code().expect("mac issues a pairing code");
+
+    match client.call(&Request::PairWithCode { code }).unwrap() {
+        Response::Devices {
+            devices,
+            federation,
+        } => {
+            assert!(federation);
+            assert!(devices.iter().any(|d| d.name == "mac"));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn multiple_clients_are_served() {
     let (addr, _h) = start();
     let mut handles = Vec::new();

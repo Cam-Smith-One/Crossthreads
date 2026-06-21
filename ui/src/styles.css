@@ -442,6 +442,40 @@ body {
 .device-row .device-addr + button { margin-left: 8px; }
 .device-discover { margin-top: 16px; }
 .discovered { margin-top: 12px; }
+
+/* "N devices unreachable" banner over results */
+.unreachable-banner {
+  margin: 4px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #d8a657;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Identity / scope / pairing rows in the Devices panel */
+.fed-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.fed-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  min-width: 64px;
+}
+.fed-row input {
+  flex: 1;
+  min-width: 140px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.fed-row input:focus { outline: none; border-color: var(--accent); }
+.fed-token-state { font-size: 12px; color: var(--muted); }
 .device-row .linklike {
   background: none;
   border: none;

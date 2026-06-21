@@ -32,8 +32,11 @@ OPTIONS:
     --peer <NAME=ADDR>     A peer daemon to also search; repeatable. ADDR is a
                            tailnet host:port, e.g. --peer linux-desktop:47100
                            (env CROSSTHREADS_PEERS = comma-separated NAME=ADDR list)
-    --fed-token <TOKEN>    Shared secret peers must present (env CROSSTHREADS_FED_TOKEN)
+    --fed-token <TOKEN>    Shared secret peers must present (env CROSSTHREADS_FED_TOKEN).
+                           Stored in the OS keychain when available.
     --fed-timeout-ms <MS>  Per-peer timeout (default 1500)
+    --serve-exclude-tool <TOOL>      Don't serve this tool's threads to peers; repeatable
+    --serve-exclude-project <SUBSTR> Don't serve projects matching this substring; repeatable
 
     --help          Show this help
 ";
@@ -60,6 +63,10 @@ fn run() -> Result<()> {
     let mut peers: Vec<Peer> =
         parse_peers(&std::env::var("CROSSTHREADS_PEERS").unwrap_or_default())?;
     let mut fed_timeout_ms: u64 = 1500;
+    let mut exclude_tools: Vec<String> =
+        csv(&std::env::var("CROSSTHREADS_SERVE_EXCLUDE_TOOLS").unwrap_or_default());
+    let mut exclude_projects: Vec<String> =
+        csv(&std::env::var("CROSSTHREADS_SERVE_EXCLUDE_PROJECTS").unwrap_or_default());
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut it = args.iter();
@@ -82,6 +89,16 @@ fn run() -> Result<()> {
                     .parse()
                     .context("--fed-timeout-ms must be a number")?
             }
+            "--serve-exclude-tool" => exclude_tools.push(
+                it.next()
+                    .context("--serve-exclude-tool needs a value")?
+                    .clone(),
+            ),
+            "--serve-exclude-project" => exclude_projects.push(
+                it.next()
+                    .context("--serve-exclude-project needs a value")?
+                    .clone(),
+            ),
             "--help" | "-h" => {
                 print!("{USAGE}");
                 return Ok(());
@@ -95,12 +112,27 @@ fn run() -> Result<()> {
     let embedder = ct_embed::default_embedder();
     let mut daemon = Daemon::new(store, embedder);
 
-    // Merge persisted federation config (peers approved via the Devices panel)
-    // with CLI/env. CLI/env win for device/token; peers are the union.
+    // Federation is always available so the Settings → Devices panel can set it
+    // up; with no peers/token it just answers locally (the default bind is
+    // loopback). Merge CLI/env with the persisted config (CLI/env win for
+    // device; peers and scope are the union).
     let fed_config_path = federation_config_path();
     let saved = ct_daemon::federation::PersistedConfig::load(&fed_config_path);
-    let device_name = device_name.or(saved.device);
-    let token = token.or(saved.token);
+    let device = device_name
+        .or(saved.device)
+        .unwrap_or_else(default_device_name);
+
+    // Token precedence: CLI/env > OS keychain > plaintext config file. Then store
+    // the resolved token in the keychain (encrypt at rest) when one is available.
+    let file_token = saved.token.clone();
+    let token = token
+        .or_else(ct_daemon::federation::token_store::get)
+        .or(file_token.clone());
+    let token_in_keyring = token
+        .as_deref()
+        .map(ct_daemon::federation::token_store::set)
+        .unwrap_or(false);
+
     let mut all_peers = saved.peers;
     for p in peers {
         match all_peers.iter_mut().find(|q| q.name == p.name) {
@@ -108,26 +140,33 @@ fn run() -> Result<()> {
             None => all_peers.push(p),
         }
     }
+    extend_unique(&mut exclude_tools, saved.exclude_tools);
+    extend_unique(&mut exclude_projects, saved.exclude_projects);
 
-    // Federation is opt-in: enabled when the user names this device, has peers,
-    // or sets a token. A daemon with no peers can still be a *searchable* peer.
-    if device_name.is_some() || !all_peers.is_empty() || token.is_some() {
-        let device = device_name.unwrap_or_else(default_device_name);
-        eprintln!(
-            "crossthreadsd: federation on as '{device}' — {} peer(s){}",
-            all_peers.len(),
-            if token.is_some() { ", token set" } else { "" }
-        );
-        daemon = daemon.with_federation(
-            Federation::new(
-                device,
-                token,
-                all_peers,
-                Duration::from_millis(fed_timeout_ms),
-            )
-            .with_config_path(fed_config_path),
-        );
+    eprintln!(
+        "crossthreadsd: federation on as '{device}' — {} peer(s){}",
+        all_peers.len(),
+        if token.is_some() { ", token set" } else { "" }
+    );
+    // A pairing code is only meaningful when bound to a non-loopback (tailnet)
+    // address that a peer could actually reach.
+    let peer_addr =
+        (!addr.starts_with("127.") && !addr.starts_with("localhost")).then(|| addr.clone());
+    let fed = Federation::new(
+        device,
+        token,
+        all_peers,
+        Duration::from_millis(fed_timeout_ms),
+    )
+    .with_config_path(fed_config_path)
+    .with_listen_addr(peer_addr)
+    .with_scope(exclude_tools, exclude_projects)
+    .with_token_in_keyring(token_in_keyring);
+    // Migrate a plaintext file token into the keychain: rewrite the file w/o it.
+    if token_in_keyring && file_token.is_some() {
+        fed.persist();
     }
+    daemon = daemon.with_federation(fed);
 
     // Index in the BACKGROUND so the UI/API are reachable immediately. A large
     // first index (hundreds of sessions + embeddings) can take a while; the
@@ -207,6 +246,24 @@ fn parse_peer(spec: &str) -> Result<Peer> {
         name: name.to_string(),
         addr: addr.to_string(),
     })
+}
+
+/// Split a comma-separated list, trimming and dropping empties.
+fn csv(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Append items from `extra` not already in `base`.
+fn extend_unique(base: &mut Vec<String>, extra: Vec<String>) {
+    for s in extra {
+        if !base.contains(&s) {
+            base.push(s);
+        }
+    }
 }
 
 /// Parse a comma-separated `NAME=ADDR,NAME=ADDR` list (empty string → none).

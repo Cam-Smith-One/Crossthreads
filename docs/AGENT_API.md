@@ -134,6 +134,10 @@ Fetch a full normalized conversation (FR-ACT-01, FR-SCH-01).
 { "conversation_id": "cv_8f3a...", "range": { "from_message": 0, "to_message": 40 } }
 ```
 
+Cross-device (ADR-010): pass the result's `device` to fetch a transcript that
+lives on another machine — `{ "id": "cv_8f3a...", "device": "linux-desktop" }`.
+The owning peer serves it (token-gated), subject to that device's serve-scope.
+
 ### Response — normalized `Conversation` (matches ARCHITECTURE §4)
 ```jsonc
 {
