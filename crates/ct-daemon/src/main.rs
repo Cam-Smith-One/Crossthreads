@@ -213,6 +213,15 @@ fn run() -> Result<()> {
     }
 
     if let Some(http_addr) = http {
+        if let Some(dir) = &ui {
+            if !dir.join("index.html").is_file() {
+                eprintln!(
+                    "crossthreadsd: warning: --ui {} has no index.html; \
+                     the web app will 404 (pass the built UI directory)",
+                    dir.display()
+                );
+            }
+        }
         let ui_label = if ui.is_some() { " + UI" } else { "" };
         eprintln!("crossthreadsd: HTTP API{ui_label} on {http_addr}");
         let d = daemon.clone();
