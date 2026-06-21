@@ -5,7 +5,43 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
-## [Unreleased]
+## [0.2.0] - 2026-06-21
+
+### Added
+- **Cross-device search** (ADR-010): search the history on your other machines,
+  federated daemon-to-daemon over a private Tailscale/WireGuard tunnel —
+  local-first, no central server. Includes device selection (a default-all
+  picker + an optional `devices` argument on the search/recall/build_context
+  tools), on-demand **"Discover my devices"** (a one-shot `tailscale status`
+  scan), result **device chips**, opening/previewing a remote result's
+  transcript, cross-device `build_context`, per-device **serve-scope** filters,
+  the shared token stored in the **OS keychain**, and a copy-paste **pairing
+  code** to onboard a second device.
+- **In-app Settings panel** with a **Documentation** section and a **Devices**
+  tab (discover/approve, identity, serve-scope), plus a step-by-step
+  **multi-device setup guide** (`docs/MULTI_DEVICE_SETUP.md`).
+- New MCP tool **`crossthreads_devices`** and an optional `devices` argument on
+  the existing search-style tools.
+
+### Changed
+- **Concurrent reads**: the index runs in **WAL mode** with a pool of read-only
+  connections sharing one vector cache, so a heavy search no longer blocks other
+  searches, status, or background indexing (single-writer invariant preserved).
+- UI responsiveness: search responses are guarded against out-of-order overwrite,
+  the open transcript is filtered/highlighted once per change (memoized), and
+  "Load more" keeps the selection.
+
+### Fixed
+- Panic on a non-ASCII `started_at` in the date filter; connection-string /
+  URL-userinfo credentials are now redacted; the Aider `####` user delimiter no
+  longer misreads assistant Markdown headings; the federation token is compared
+  in constant time; accepted connections get a read timeout (no thread-pinning
+  half-open clients); the keychain token is written once (no per-startup
+  re-prompt); MCP autostart retries after a failed spawn; FTS match markers use
+  control-char sentinels so literal `[brackets]` in code aren't mis-highlighted;
+  the UI surfaces HTTP / non-JSON RPC errors; assorted accessibility fixes.
+
+## [0.1.0] - 2026-06-20
 
 Local-first cross-agent session indexer: search, recall, and resume every AI
 coding conversation across tools. Backend, web UI, and MCP server are
@@ -58,4 +94,6 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/commits/main
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/Cam-Smith-One/Crossthreads/releases/tag/v0.1.0
