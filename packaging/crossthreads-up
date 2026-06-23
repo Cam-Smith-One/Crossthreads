@@ -30,6 +30,20 @@ URL="http://${HTTP_ADDR}"
 
 [[ -x "$DAEMON" ]] || { echo "crossthreadsd not found at $DAEMON" >&2; exit 1; }
 
+# Reclaim the ports: stop any crossthreadsd already running (a previous launch
+# left open, or one auto-started by the MCP server) so this launch doesn't fail
+# to bind. Best effort; skip our own future child. Set CT_NO_KILL=1 to opt out.
+if [[ "${CT_NO_KILL:-0}" != "1" ]] && command -v pkill >/dev/null 2>&1; then
+  if pkill -x crossthreadsd >/dev/null 2>&1; then
+    echo "▸ stopped an existing crossthreadsd to reclaim the port"
+    # wait (up to ~3s) for the listening sockets to be released
+    for _ in $(seq 1 15); do
+      pgrep -x crossthreadsd >/dev/null 2>&1 || break
+      sleep 0.2
+    done
+  fi
+fi
+
 # Open the browser once the server answers (best effort, background).
 (
   for _ in $(seq 1 60); do

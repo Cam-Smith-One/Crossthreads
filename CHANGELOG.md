@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.3.2] - 2026-06-21
+
+### Fixed
+- `crossthreads-up` now **stops any crossthreadsd already running before it
+  starts** (a previous launch left open, or one auto-started by the MCP server),
+  so relaunching no longer fails with `Address already in use` and silently keeps
+  serving the stale daemon. Opt out with `CT_NO_KILL=1`. Same for the Windows
+  `.cmd` launcher.
+
 ## [0.3.1] - 2026-06-21
 
 ### Fixed
@@ -130,7 +139,8 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.0...v0.2.1

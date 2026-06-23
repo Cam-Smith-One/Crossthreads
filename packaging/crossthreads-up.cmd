@@ -16,6 +16,12 @@ if not exist "%DAEMON%" (
   exit /b 1
 )
 
+rem Reclaim the ports: stop any crossthreadsd already running so this launch can
+rem bind. Best effort; set CT_NO_KILL=1 to opt out.
+if not "%CT_NO_KILL%"=="1" (
+  taskkill /F /IM crossthreadsd.exe >nul 2>&1
+)
+
 echo Crossthreads is starting - it will open at http://%CT_HTTP%
 start "" "http://%CT_HTTP%"
 "%DAEMON%" --addr "%CT_ADDR%" --http "%CT_HTTP%" --ui "%UI%"
