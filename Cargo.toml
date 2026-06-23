@@ -9,6 +9,7 @@ members = [
     "crates/ct-daemon",
     "crates/ct-cli",
     "crates/ct-mcp",
+    "crates/ct-llm",
 ]
 # The native Tauri shell lives in `src-tauri/` and is intentionally EXCLUDED
 # from the workspace: it needs platform webview libs (e.g. webkit2gtk) that
@@ -25,6 +26,8 @@ rust-version = "1.80"
 
 [workspace.dependencies]
 ct-core = { path = "crates/ct-core" }
+ct-llm = { path = "crates/ct-llm" }
+ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

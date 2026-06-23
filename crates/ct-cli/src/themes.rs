@@ -15,10 +15,12 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let mut db: Option<PathBuf> = None;
     let mut k: usize = 8;
     let mut samples: usize = 3;
+    let mut name = false;
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
+            "--name" => name = true,
             "--db" => {
                 db = Some(PathBuf::from(
                     it.next()
@@ -71,13 +73,27 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let doc_freq = global_doc_freq(&convos);
     let total = convos.len() as f64;
 
+    // `--name` uses the user's local Codex/OpenAI login to name each cluster;
+    // it degrades to the offline keyword label if no auth or the call fails.
+    if name && !ct_llm::available() {
+        eprintln!(
+            "note: --name needs Codex/OpenAI auth (set OPENAI_API_KEY, run `codex login`, \
+             or install the codex CLI) — falling back to keyword labels.\n"
+        );
+    }
+
     println!(
         "Themes across {} conversations ({} clusters):\n",
         convos.len(),
         clusters.iter().filter(|c| !c.is_empty()).count()
     );
     for cluster in clusters.iter().filter(|c| !c.is_empty()) {
-        let label = label_cluster(cluster, &convos, &doc_freq, total);
+        let keywords = label_cluster(cluster, &convos, &doc_freq, total);
+        let label = if name {
+            llm_name(cluster, &convos, &keywords).unwrap_or(keywords)
+        } else {
+            keywords
+        };
         let tools = tool_mix(cluster, &convos);
         println!("▸ {label}  ({} conversations · {tools})", cluster.len());
         for &i in cluster.iter().take(samples) {
@@ -214,6 +230,39 @@ fn label_cluster(
         "(mixed)".to_string()
     } else {
         label.join(" · ")
+    }
+}
+
+/// Ask the LLM (via the user's local Codex/OpenAI login) for a concise theme
+/// name, given the cluster's distinctive keywords and a few sample titles.
+/// `None` on any error, so the caller falls back to the keyword label.
+fn llm_name(cluster: &[usize], convos: &[ConversationVec], keywords: &str) -> Option<String> {
+    let titles: Vec<&str> = cluster
+        .iter()
+        .take(8)
+        .map(|&i| convos[i].title.as_deref().unwrap_or("").trim())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let user = format!(
+        "These AI coding-session titles form one cluster (keywords: {keywords}).\n\
+         Give a 2-4 word theme name. Reply with only the name.\n\n- {}",
+        titles.join("\n- ")
+    );
+    let system =
+        "You label clusters of software-engineering chat sessions with a short, specific theme.";
+    let raw = ct_llm::complete(system, &user).ok()?;
+    // Keep it to one tidy line.
+    let name = raw
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches('"')
+        .trim();
+    if name.is_empty() || name.len() > 60 {
+        None
+    } else {
+        Some(name.to_string())
     }
 }
 
