@@ -13,3 +13,4 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 ureq = { workspace = true }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }

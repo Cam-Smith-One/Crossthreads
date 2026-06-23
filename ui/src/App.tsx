@@ -15,14 +15,18 @@ import {
   reindex,
   removePeer,
   search,
+  getLlmConfig,
   setFederationConfig,
   setFlags,
+  setLlmKey,
+  setLlmProvider,
   setNote,
   setTags,
   type Device,
   type DiscoveredDevice,
   type FederationConfig,
   type Filters,
+  type LlmConfig,
   type Hit,
   type Mode,
   type Status,
@@ -55,7 +59,7 @@ export function App() {
 
   const [reindexing, setReindexing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"docs" | "devices">("docs");
+  const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "models">("docs");
 
   // Cross-device (ADR-010): known devices, which are selected to search, and
   // the on-demand discovery results.
@@ -70,6 +74,8 @@ export function App() {
   const [pairCode, setPairCode] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [showPairing, setShowPairing] = useState(false);
+  const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null);
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   // Monotonic search id so a slow earlier response can't overwrite a newer one.
   const searchGen = useRef(0);
 
@@ -99,6 +105,9 @@ export function App() {
   }, []);
   const refreshFedConfig = useCallback(() => {
     getFederationConfig().then(setFedConfig).catch(() => {});
+  }, []);
+  const refreshLlmConfig = useCallback(() => {
+    getLlmConfig().then(setLlmConfig).catch(() => {});
   }, []);
 
   async function runReindex() {
@@ -137,7 +146,8 @@ export function App() {
   // Load the federation identity/scope lazily when the Devices tab is shown.
   useEffect(() => {
     if (showSettings && settingsTab === "devices") refreshFedConfig();
-  }, [showSettings, settingsTab, refreshFedConfig]);
+    if (showSettings && settingsTab === "models") refreshLlmConfig();
+  }, [showSettings, settingsTab, refreshFedConfig, refreshLlmConfig]);
 
   // The local device's name, so remote-only chips can be shown on results.
   const localDevice = devices.find((d) => d.local)?.name;
@@ -784,6 +794,12 @@ export function App() {
                 >
                   Devices
                 </button>
+                <button
+                  className={settingsTab === "models" ? "on" : ""}
+                  onClick={() => setSettingsTab("models")}
+                >
+                  Models
+                </button>
               </div>
               <button className="secondary" onClick={() => setShowSettings(false)}>
                 Close
@@ -825,6 +841,86 @@ export function App() {
                       <span className="doc-desc">Step-by-step: connect your devices for cross-device search.</span>
                     </li>
                   </ul>
+                </section>
+              </div>
+            )}
+
+            {settingsTab === "models" && (
+              <div className="settings-body">
+                <section className="settings-section">
+                  <h3>Models</h3>
+                  <p className="settings-hint">
+                    Optional AI features (e.g. naming themes) reuse your existing
+                    Claude Code / Codex login when possible. Or paste an API key
+                    below to bring your own — stored in your OS keychain, never
+                    sent anywhere but the provider.
+                  </p>
+                  {!llmConfig && <p className="doc-desc">Loading…</p>}
+                  {llmConfig?.providers.map((p) => (
+                    <div className="settings-section" key={p.id}>
+                      <label className="fed-row">
+                        <span className="fed-label">{p.label}</span>
+                        <span className="fed-token-state">
+                          {p.methods.length > 0
+                            ? `available · ${p.methods.join(", ")}`
+                            : "no credentials found"}
+                        </span>
+                      </label>
+                      <div className="fed-row">
+                        <span className="fed-label">key</span>
+                        <span className="fed-token-state">
+                          {p.has_stored_key ? "set · in keychain" : "not set"}
+                        </span>
+                        <input
+                          type="password"
+                          placeholder={`paste a ${p.label.split(" ")[0]} API key`}
+                          value={keyInputs[p.id] ?? ""}
+                          onChange={(e) =>
+                            setKeyInputs((m) => ({ ...m, [p.id]: e.target.value }))
+                          }
+                        />
+                        <button
+                          className="secondary"
+                          disabled={!(keyInputs[p.id] ?? "").trim()}
+                          onClick={async () => {
+                            setLlmConfig(await setLlmKey(p.id, (keyInputs[p.id] ?? "").trim()));
+                            setKeyInputs((m) => ({ ...m, [p.id]: "" }));
+                          }}
+                        >
+                          Save
+                        </button>
+                        {p.has_stored_key && (
+                          <button
+                            className="linklike"
+                            onClick={async () => setLlmConfig(await setLlmKey(p.id, ""))}
+                          >
+                            clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {llmConfig && (
+                    <div className="fed-row">
+                      <span className="fed-label">use</span>
+                      <select
+                        value={llmConfig.active ?? ""}
+                        onChange={async (e) =>
+                          setLlmConfig(await setLlmProvider(e.target.value))
+                        }
+                      >
+                        <option value="">Auto (first available)</option>
+                        {llmConfig.providers.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="doc-desc">
+                        Which provider AI features prefer.
+                      </span>
+                    </div>
+                  )}
                 </section>
               </div>
             )}

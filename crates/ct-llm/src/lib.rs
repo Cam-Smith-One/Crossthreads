@@ -9,10 +9,49 @@
 //! credentials in preference order until one succeeds.
 
 pub mod auth;
+pub mod store;
 
 pub use auth::{available_providers, resolve, Cred, Provider};
 
 use anyhow::{bail, Context, Result};
+
+/// A provider's resolved auth state, for the Settings UI / `llm-auth` (secret-free).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProviderStatus {
+    /// Stable id: `anthropic` | `openai`.
+    pub id: String,
+    /// Human label, e.g. "Anthropic (Claude)".
+    pub label: String,
+    /// Resolved credential methods, most-preferred first (e.g. "API key").
+    pub methods: Vec<String>,
+    /// Whether a BYO key is stored in the keychain for this provider.
+    pub has_stored_key: bool,
+}
+
+fn provider_id(p: Provider) -> &'static str {
+    match p {
+        Provider::Anthropic => "anthropic",
+        Provider::OpenAi => "openai",
+    }
+}
+
+/// Per-provider auth status plus the pinned active provider (if any). Secret-free.
+pub fn status() -> (Vec<ProviderStatus>, Option<String>) {
+    let providers = [Provider::Anthropic, Provider::OpenAi]
+        .into_iter()
+        .map(|p| ProviderStatus {
+            id: provider_id(p).to_string(),
+            label: p.label().to_string(),
+            methods: auth::resolve(p)
+                .iter()
+                .map(|c| c.describe().to_string())
+                .collect(),
+            has_stored_key: store::get_key(p).is_some(),
+        })
+        .collect();
+    let active = store::active_provider().map(|p| provider_id(p).to_string());
+    (providers, active)
+}
 
 /// Cheap defaults aimed at short labeling calls; override per provider.
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5";
@@ -53,14 +92,20 @@ pub fn complete(system: &str, user: &str) -> Result<String> {
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("all providers failed")))
 }
 
-/// Provider attempt order: an explicit override, else every available provider.
+/// Provider attempt order: an explicit env override, else the keychain-pinned
+/// provider first, else every available provider in default order.
 fn provider_order() -> Vec<Provider> {
     if let Ok(name) = std::env::var("CROSSTHREADS_LLM_PROVIDER") {
         if let Some(p) = Provider::parse(&name) {
             return vec![p];
         }
     }
-    auth::available_providers()
+    let mut order = auth::available_providers();
+    if let Some(pinned) = store::active_provider() {
+        order.retain(|p| *p != pinned);
+        order.insert(0, pinned);
+    }
+    order
 }
 
 fn env_or(key: &str, default: &str) -> String {

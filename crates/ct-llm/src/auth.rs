@@ -86,8 +86,12 @@ pub fn codex_home() -> Option<PathBuf> {
 
 fn resolve_openai() -> Vec<Cred> {
     let mut out = Vec::new();
-    if let Some(k) = env_nonempty("OPENAI_API_KEY") {
+    // A key the user pasted in Settings (keychain) wins.
+    if let Some(k) = crate::store::get_key(Provider::OpenAi) {
         out.push(Cred::ApiKey(k));
+    }
+    if let Some(k) = env_nonempty("OPENAI_API_KEY") {
+        push_unique(&mut out, Cred::ApiKey(k));
     }
     let (file_key, file_token) = codex_home()
         .and_then(|h| std::fs::read_to_string(h.join("auth.json")).ok())
@@ -131,9 +135,13 @@ pub fn parse_openai_auth(text: &str) -> (Option<String>, Option<String>) {
 
 fn resolve_anthropic() -> Vec<Cred> {
     let mut out = Vec::new();
+    // A key the user pasted in Settings (keychain) wins.
+    if let Some(k) = crate::store::get_key(Provider::Anthropic) {
+        out.push(Cred::ApiKey(k));
+    }
     // Explicit, user-provided credentials rank highest.
     if let Some(k) = env_nonempty("ANTHROPIC_API_KEY") {
-        out.push(Cred::ApiKey(k));
+        push_unique(&mut out, Cred::ApiKey(k));
     }
     if let Some(t) = env_nonempty("ANTHROPIC_AUTH_TOKEN") {
         out.push(Cred::OAuthToken(t));

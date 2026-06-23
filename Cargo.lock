@@ -510,6 +510,7 @@ dependencies = [
  "ct-core",
  "ct-embed",
  "ct-index",
+ "ct-llm",
  "ct-store",
  "dirs 5.0.1",
  "keyring",
@@ -545,6 +546,7 @@ version = "0.3.2"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
+ "keyring",
  "serde",
  "serde_json",
  "ureq 2.12.1",

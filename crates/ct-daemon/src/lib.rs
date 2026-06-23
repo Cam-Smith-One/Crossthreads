@@ -308,6 +308,9 @@ impl Daemon {
                 exclude_projects,
             } => self.set_federation_config(device, token, exclude_tools, exclude_projects),
             Request::PairWithCode { code } => self.pair_with_code(&code),
+            Request::GetLlmConfig => llm_config(),
+            Request::SetLlmKey { provider, key } => set_llm_key(&provider, &key),
+            Request::SetLlmProvider { provider } => set_llm_provider(&provider),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -838,6 +841,43 @@ fn err(e: anyhow::Error) -> Response {
     Response::Error {
         message: format!("{e:#}"),
     }
+}
+
+/// LLM provider auth status for Settings → Models (secret-free).
+fn llm_config() -> Response {
+    let (providers, active) = ct_llm::status();
+    Response::LlmConfig { providers, active }
+}
+
+/// Store (non-empty) or clear (empty) a provider's BYO key, then return status.
+fn set_llm_key(provider: &str, key: &str) -> Response {
+    match ct_llm::Provider::parse(provider) {
+        Some(p) => {
+            ct_llm::store::set_key(p, key);
+            llm_config()
+        }
+        None => Response::Error {
+            message: format!("unknown provider: {provider}"),
+        },
+    }
+}
+
+/// Pin the active provider (empty clears), then return status.
+fn set_llm_provider(provider: &str) -> Response {
+    let pinned = if provider.trim().is_empty() {
+        None
+    } else {
+        match ct_llm::Provider::parse(provider) {
+            Some(p) => Some(p),
+            None => {
+                return Response::Error {
+                    message: format!("unknown provider: {provider}"),
+                }
+            }
+        }
+    };
+    ct_llm::store::set_active_provider(pinned);
+    llm_config()
 }
 
 /// Constant-time string compare for the shared federation token, so verifying it
