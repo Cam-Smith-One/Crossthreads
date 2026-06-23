@@ -10,9 +10,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 
-mod codex_auth;
 mod context;
 mod index;
+mod llm_auth;
 mod search;
 mod skill;
 mod status;
@@ -31,8 +31,8 @@ COMMANDS:
     status            Show index health (local, or --remote for the daemon)
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
     themes            Cluster your sessions into themes (--k N; --name to label
-                      them with your local Codex/OpenAI login)
-    codex-auth        Show which Codex/OpenAI credentials are available
+                      them with your local Claude/Codex login)
+    llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
 COMMON OPTIONS:
@@ -78,7 +78,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("status") => status::run(&args[1..]),
         Some("skill") => skill::run(&args[1..]),
         Some("themes") => themes::run(&args[1..]),
-        Some("codex-auth") => codex_auth::run(&args[1..]),
+        Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)

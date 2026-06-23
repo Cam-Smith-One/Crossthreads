@@ -73,12 +73,13 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let doc_freq = global_doc_freq(&convos);
     let total = convos.len() as f64;
 
-    // `--name` uses the user's local Codex/OpenAI login to name each cluster;
+    // `--name` uses the user's local Claude/Codex login to name each cluster;
     // it degrades to the offline keyword label if no auth or the call fails.
     if name && !ct_llm::available() {
         eprintln!(
-            "note: --name needs Codex/OpenAI auth (set OPENAI_API_KEY, run `codex login`, \
-             or install the codex CLI) — falling back to keyword labels.\n"
+            "note: --name needs model auth — set ANTHROPIC_API_KEY or OPENAI_API_KEY, sign into \
+             Claude Code or Codex, or install a CLI (`crossthreads llm-auth`). Using keyword \
+             labels.\n"
         );
     }
 
