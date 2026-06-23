@@ -194,6 +194,18 @@ pub struct Store {
     cache: Arc<VectorCache>,
 }
 
+/// A conversation reduced to one centroid embedding plus light metadata, for
+/// clustering / theme extraction. Produced by [`Store::conversation_vectors`].
+#[derive(Debug, Clone)]
+pub struct ConversationVec {
+    pub id: String,
+    pub title: Option<String>,
+    pub tool: String,
+    pub project: Option<String>,
+    /// L2-normalized centroid; cosine against another unit vector is the dot.
+    pub vec: Vec<f32>,
+}
+
 /// L2-normalized embedding vectors held in memory for fast semantic search,
 /// shared across a [`Store`] writer and its read-pool connections.
 pub struct VectorCache {
@@ -579,6 +591,64 @@ impl Store {
         Ok(self
             .conn
             .query_row("SELECT COUNT(*) FROM embeddings", [], |r| r.get(0))?)
+    }
+
+    /// One L2-normalized centroid vector per conversation (the mean of its
+    /// message embeddings), plus light metadata. Feeds clustering / theme
+    /// extraction (ADR-pending). Conversations with no embeddings are skipped.
+    pub fn conversation_vectors(&self) -> Result<Vec<ConversationVec>> {
+        use std::collections::HashMap;
+        let entries = self.vectors()?;
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let dim = entries[0].norm.len();
+        // Sum message vectors per conversation, then average + re-normalize.
+        let mut sums: HashMap<String, (Vec<f32>, usize)> = HashMap::new();
+        for e in entries.iter() {
+            let (sum, n) = sums
+                .entry(e.conversation_id.clone())
+                .or_insert_with(|| (vec![0.0; dim], 0));
+            for (s, v) in sum.iter_mut().zip(&e.norm) {
+                *s += *v;
+            }
+            *n += 1;
+        }
+        // Pull metadata for every conversation in one pass.
+        let mut meta: HashMap<String, (Option<String>, String, Option<String>)> = HashMap::new();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, tool, project FROM conversations")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, title, tool, project) = row?;
+            meta.insert(id, (title, tool, project));
+        }
+
+        let mut out = Vec::with_capacity(sums.len());
+        for (id, (mut centroid, n)) in sums {
+            let inv = 1.0 / n as f32;
+            for v in centroid.iter_mut() {
+                *v *= inv;
+            }
+            normalize_in_place(&mut centroid);
+            let (title, tool, project) = meta.remove(&id).unwrap_or((None, String::new(), None));
+            out.push(ConversationVec {
+                id,
+                title,
+                tool,
+                project,
+                vec: centroid,
+            });
+        }
+        Ok(out)
     }
 
     /// Semantic search over stored vectors, collapsed to the best message per
