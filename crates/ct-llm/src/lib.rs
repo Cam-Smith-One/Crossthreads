@@ -28,19 +28,12 @@ pub struct ProviderStatus {
     pub has_stored_key: bool,
 }
 
-fn provider_id(p: Provider) -> &'static str {
-    match p {
-        Provider::Anthropic => "anthropic",
-        Provider::OpenAi => "openai",
-    }
-}
-
 /// Per-provider auth status plus the pinned active provider (if any). Secret-free.
 pub fn status() -> (Vec<ProviderStatus>, Option<String>) {
-    let providers = [Provider::Anthropic, Provider::OpenAi]
+    let providers = auth::ALL
         .into_iter()
         .map(|p| ProviderStatus {
-            id: provider_id(p).to_string(),
+            id: p.id().to_string(),
             label: p.label().to_string(),
             methods: auth::resolve(p)
                 .iter()
@@ -49,13 +42,14 @@ pub fn status() -> (Vec<ProviderStatus>, Option<String>) {
             has_stored_key: store::get_key(p).is_some(),
         })
         .collect();
-    let active = store::active_provider().map(|p| provider_id(p).to_string());
+    let active = store::active_provider().map(|p| p.id().to_string());
     (providers, active)
 }
 
 /// Cheap defaults aimed at short labeling calls; override per provider.
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5";
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_GOOGLE_MODEL: &str = "gemini-2.0-flash";
 
 /// True when at least one provider has a usable credential (for feature-gating).
 pub fn available() -> bool {
@@ -69,8 +63,8 @@ pub fn complete(system: &str, user: &str) -> Result<String> {
     let providers = provider_order();
     if providers.is_empty() {
         bail!(
-            "no LLM auth found — set ANTHROPIC_API_KEY or OPENAI_API_KEY, sign into Claude Code \
-             or Codex, or install one of their CLIs"
+            "no LLM auth found — add a key in Settings → Models, set ANTHROPIC_API_KEY / \
+             OPENAI_API_KEY / GEMINI_API_KEY, or sign into Claude Code / Codex / Gemini"
         );
     }
     let mut last_err = None;
@@ -79,6 +73,7 @@ pub fn complete(system: &str, user: &str) -> Result<String> {
             let attempt = match provider {
                 Provider::Anthropic => anthropic_complete(&cred, system, user),
                 Provider::OpenAi => openai_complete(&cred, system, user),
+                Provider::Google => google_complete(&cred, system, user),
             };
             match attempt {
                 Ok(text) => return Ok(text),
@@ -194,6 +189,56 @@ fn openai_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
         bail!("empty completion");
     }
     Ok(text)
+}
+
+// --- Google / Gemini ------------------------------------------------------
+
+fn google_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
+    if let Cred::Cli = cred {
+        return gemini_cli(system, user);
+    }
+    let key = match cred {
+        Cred::ApiKey(k) | Cred::OAuthToken(k) => k,
+        Cred::Cli => unreachable!(),
+    };
+    let base = env_or(
+        "GOOGLE_BASE_URL",
+        "https://generativelanguage.googleapis.com/v1beta",
+    );
+    let model = env_or("CROSSTHREADS_GOOGLE_MODEL", DEFAULT_GOOGLE_MODEL);
+    let url = format!(
+        "{}/models/{model}:generateContent?key={key}",
+        base.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "systemInstruction": { "parts": [{ "text": system }] },
+        "contents": [{ "role": "user", "parts": [{ "text": user }] }],
+        "generationConfig": { "maxOutputTokens": 64, "temperature": 0.2 },
+    });
+    let resp = ureq::post(&url)
+        .send_json(body)
+        .map_err(|e| anyhow::anyhow!("request failed: {e}"))?;
+    let v: serde_json::Value = resp.into_json().context("decoding response")?;
+    let text = v["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .context("no text in response")?
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        bail!("empty completion");
+    }
+    Ok(text)
+}
+
+fn gemini_cli(system: &str, user: &str) -> Result<String> {
+    let prompt = if system.is_empty() {
+        user.to_string()
+    } else {
+        format!("{system}\n\n{user}")
+    };
+    let mut cmd = std::process::Command::new("gemini");
+    cmd.arg("-p").arg(&prompt);
+    run_cli(cmd, "gemini")
 }
 
 fn codex_cli(system: &str, user: &str) -> Result<String> {

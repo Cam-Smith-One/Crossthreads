@@ -17,21 +17,36 @@ use serde::Deserialize;
 pub enum Provider {
     Anthropic,
     OpenAi,
+    Google,
 }
+
+/// Every provider, in default preference order.
+pub const ALL: [Provider; 3] = [Provider::Anthropic, Provider::OpenAi, Provider::Google];
 
 impl Provider {
     pub fn label(self) -> &'static str {
         match self {
             Provider::Anthropic => "Anthropic (Claude)",
             Provider::OpenAi => "OpenAI (Codex)",
+            Provider::Google => "Google (Gemini)",
         }
     }
 
-    /// Parse a `CROSSTHREADS_LLM_PROVIDER` value.
+    /// Stable id used in the protocol / keychain: `anthropic` | `openai` | `google`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Provider::Anthropic => "anthropic",
+            Provider::OpenAi => "openai",
+            Provider::Google => "google",
+        }
+    }
+
+    /// Parse a `CROSSTHREADS_LLM_PROVIDER` value or a provider id.
     pub fn parse(s: &str) -> Option<Provider> {
         match s.trim().to_lowercase().as_str() {
             "anthropic" | "claude" => Some(Provider::Anthropic),
             "openai" | "codex" => Some(Provider::OpenAi),
+            "google" | "gemini" => Some(Provider::Google),
             _ => None,
         }
     }
@@ -64,15 +79,31 @@ pub fn resolve(provider: Provider) -> Vec<Cred> {
     match provider {
         Provider::Anthropic => resolve_anthropic(),
         Provider::OpenAi => resolve_openai(),
+        Provider::Google => resolve_google(),
     }
 }
 
 /// Providers with at least one usable credential, in auto-preference order.
 pub fn available_providers() -> Vec<Provider> {
-    [Provider::Anthropic, Provider::OpenAi]
-        .into_iter()
+    ALL.into_iter()
         .filter(|p| !resolve(*p).is_empty())
         .collect()
+}
+
+// --- Google / Gemini ------------------------------------------------------
+
+fn resolve_google() -> Vec<Cred> {
+    let mut out = Vec::new();
+    if let Some(k) = crate::store::get_key(Provider::Google) {
+        out.push(Cred::ApiKey(k));
+    }
+    if let Some(k) = env_nonempty("GEMINI_API_KEY").or_else(|| env_nonempty("GOOGLE_API_KEY")) {
+        push_unique(&mut out, Cred::ApiKey(k));
+    }
+    if cli_available("gemini") {
+        out.push(Cred::Cli);
+    }
+    out
 }
 
 // --- OpenAI / Codex -------------------------------------------------------
@@ -252,6 +283,8 @@ mod tests {
         assert_eq!(Provider::parse("claude"), Some(Provider::Anthropic));
         assert_eq!(Provider::parse("OpenAI"), Some(Provider::OpenAi));
         assert_eq!(Provider::parse("codex"), Some(Provider::OpenAi));
-        assert_eq!(Provider::parse("gemini"), None);
+        assert_eq!(Provider::parse("gemini"), Some(Provider::Google));
+        assert_eq!(Provider::parse("google"), Some(Provider::Google));
+        assert_eq!(Provider::parse("mistral"), None);
     }
 }

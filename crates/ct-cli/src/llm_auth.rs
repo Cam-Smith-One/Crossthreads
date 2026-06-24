@@ -5,11 +5,10 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
-use ct_llm::Provider;
 
 pub fn run(_args: &[String]) -> Result<ExitCode> {
     let mut any = false;
-    for provider in [Provider::Anthropic, Provider::OpenAi] {
+    for provider in ct_llm::auth::ALL {
         let creds = ct_llm::resolve(provider);
         if creds.is_empty() {
             println!("{}: no credentials found", provider.label());
@@ -29,7 +28,7 @@ pub fn run(_args: &[String]) -> Result<ExitCode> {
             .collect::<Vec<_>>()
             .join(", then ");
         println!("LLM features (e.g. `crossthreads themes --name`) will try: {order}.");
-        println!("Force one with CROSSTHREADS_LLM_PROVIDER=anthropic|openai.");
+        println!("Force one with CROSSTHREADS_LLM_PROVIDER=anthropic|openai|google.");
     } else {
         println!(
             "No LLM auth found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, sign into Claude Code or \

@@ -15,6 +15,7 @@ fn key_user(p: Provider) -> &'static str {
     match p {
         Provider::Anthropic => "llm-key-anthropic",
         Provider::OpenAi => "llm-key-openai",
+        Provider::Google => "llm-key-google",
     }
 }
 
@@ -58,12 +59,7 @@ pub fn set_active_provider(p: Option<Provider>) -> bool {
         return false;
     };
     match p {
-        Some(p) => entry
-            .set_password(match p {
-                Provider::Anthropic => "anthropic",
-                Provider::OpenAi => "openai",
-            })
-            .is_ok(),
+        Some(p) => entry.set_password(p.id()).is_ok(),
         None => {
             let _ = entry.delete_credential();
             true
