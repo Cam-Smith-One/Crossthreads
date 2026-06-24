@@ -314,6 +314,18 @@ impl Daemon {
             Request::SetLlmProvider { provider } => set_llm_provider(&provider),
             Request::Themes { k, name } => self.themes(k.unwrap_or(8), name).unwrap_or_else(err),
             Request::Insight { kind, limit } => self.insight(&kind, limit).unwrap_or_else(err),
+            Request::Ask {
+                question,
+                limit,
+                filters,
+                devices,
+            } => self
+                .ask(&question, limit, &filters, devices.as_deref())
+                .unwrap_or_else(err),
+            Request::Activity { bucket, filters } => self
+                .activity(bucket.as_deref().unwrap_or("day"), &filters)
+                .unwrap_or_else(err),
+            Request::Graph { limit } => self.graph(limit.unwrap_or(40)).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -369,7 +381,7 @@ impl Daemon {
         let kind = insights::Kind::parse(kind).ok_or_else(|| {
             anyhow::anyhow!(
                 "unknown insight kind `{kind}` — expected one of: open_loops, \
-                 knowledge_cards, decision_log, how_i_work, digest"
+                 knowledge_cards, decision_log, how_i_work, digest, recurrence"
             )
         })?;
         let n = limit.unwrap_or_else(|| kind.default_limit());
@@ -727,6 +739,25 @@ impl Daemon {
         f: &Filters,
         devices: Option<&[String]>,
     ) -> Result<Response> {
+        let block = self.context_block(query, mode, limit, max_chars, f, devices)?;
+        Ok(Response::Context {
+            markdown: block.markdown,
+            sources: block.sources,
+            token_estimate: block.token_estimate,
+        })
+    }
+
+    /// Retrieve the top matches for `query` (federated) and render them into a
+    /// paste-ready context block. Shared by `context` and `ask`.
+    fn context_block(
+        &self,
+        query: &str,
+        mode: Mode,
+        limit: usize,
+        max_chars: usize,
+        f: &Filters,
+        devices: Option<&[String]>,
+    ) -> Result<ct_store::ContextBlock> {
         let (hits, _unreachable) = self.federated_hits(query, mode, limit, f, devices)?;
         // Fetch transcripts concurrently — remote ones are network round-trips, so
         // doing them serially would cost up to one timeout *per* remote hit.
@@ -746,14 +777,73 @@ impl Daemon {
             .collect();
         indexed.sort_by_key(|(i, _)| *i); // keep ranked order
         let convos: Vec<StoredConversation> = indexed.into_iter().map(|(_, c)| c).collect();
-        let block = {
-            let store = self.read_lock();
-            store.render_conversations(&convos, max_chars)
-        };
-        Ok(Response::Context {
-            markdown: block.markdown,
+        let store = self.read_lock();
+        Ok(store.render_conversations(&convos, max_chars))
+    }
+
+    /// Answer a natural-language question from the user's own history: retrieve
+    /// the most relevant past sessions (across tools and devices), then ask the
+    /// model to synthesize a cited answer. Degrades to the retrieved context
+    /// block when no model is configured (retrieval-only, like `recall`).
+    fn ask(
+        &self,
+        question: &str,
+        limit: usize,
+        f: &Filters,
+        devices: Option<&[String]>,
+    ) -> Result<Response> {
+        let block = self.context_block(question, Mode::Hybrid, limit, 9000, f, devices)?;
+        if block.sources.is_empty() {
+            return Ok(Response::Answer {
+                markdown: format!("No past sessions found relevant to \u{201c}{question}\u{201d}."),
+                sources: Vec::new(),
+                llm_used: false,
+            });
+        }
+        if !ct_llm::available() {
+            // No model — hand back the retrieved context so the caller (often an
+            // agent) can synthesize, mirroring the `recall` contract.
+            return Ok(Response::Answer {
+                markdown: block.markdown,
+                sources: block.sources,
+                llm_used: false,
+            });
+        }
+        let system = "You answer a developer's question using ONLY the provided excerpts from \
+                      their own past AI coding sessions. Cite the session title in parentheses \
+                      after each claim. If the excerpts don't contain the answer, say so plainly \
+                      rather than guessing. Be concise; use Markdown.";
+        let user = format!(
+            "Question: {question}\n\n--- RELEVANT PAST SESSIONS ---\n{}",
+            block.markdown
+        );
+        let markdown = ct_llm::complete_with(system, &user, 1024)?;
+        Ok(Response::Answer {
+            markdown,
             sources: block.sources,
-            token_estimate: block.token_estimate,
+            llm_used: true,
+        })
+    }
+
+    /// Session activity over time (local index), for the temporal view.
+    fn activity(&self, bucket: &str, f: &Filters) -> Result<Response> {
+        let bucket = if bucket.eq_ignore_ascii_case("week") {
+            "week"
+        } else {
+            "day"
+        };
+        let store = self.read_lock();
+        Ok(Response::Activity {
+            bucket: bucket.to_string(),
+            periods: store.activity(bucket, f)?,
+        })
+    }
+
+    /// The knowledge graph over the local index, for the graph view and agents.
+    fn graph(&self, limit: usize) -> Result<Response> {
+        let store = self.read_lock();
+        Ok(Response::Graph {
+            graph: store.graph(limit)?,
         })
     }
 

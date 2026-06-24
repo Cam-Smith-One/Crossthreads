@@ -40,6 +40,9 @@ it and fold what you learn into your work.
 
 - `crossthreads_recall(question, limit?)` — answer-oriented digest of the most
   relevant past sessions.
+- `crossthreads_ask(question, limit?, filters?)` — a synthesized, **cited** answer
+  to a question, drawn from past sessions (uses the user's model; returns the
+  retrieved context if none). Use when you want an answer, not a list.
 - `crossthreads_search(query, mode?, limit?, filters?)` — ranked results; modes
   `lexical | semantic | hybrid` (default `hybrid`). Filters: tool, kind
   (`thread`/`skill`), project, date range, tag.
@@ -52,8 +55,13 @@ it and fold what you learn into your work.
 - `crossthreads_how_i_work(limit?)` — the user's working conventions, ready for a
   CLAUDE.md / AGENTS.md.
 - `crossthreads_digest(limit?)` — a short reflective digest of recent work.
+- `crossthreads_recurring(limit?)` — recurring problems/patterns the user keeps
+  hitting, each with a fix.
 - `crossthreads_themes(k?, name?)` — cluster sessions into themes (set
   `name: true` for short LLM-generated theme names).
+- `crossthreads_activity(bucket?, filters?)` — session activity over time
+  (day/week) with a per-tool breakdown.
+- `crossthreads_graph(limit?)` — knowledge graph of projects, tools, and tags.
 - `crossthreads_status()` — index health (counts).
 
 ## Notes

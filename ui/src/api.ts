@@ -231,7 +231,8 @@ export type InsightKind =
   | "knowledge_cards"
   | "decision_log"
   | "how_i_work"
-  | "digest";
+  | "digest"
+  | "recurrence";
 
 export interface Insight {
   markdown: string;
@@ -240,6 +241,74 @@ export interface Insight {
 
 export function getInsight(kind: InsightKind, limit?: number): Promise<Insight> {
   return rpc<Insight>({ op: "insight", kind, limit });
+}
+
+// --- Ask (RAG over your history) ----------------------------------------
+
+export interface Answer {
+  markdown: string;
+  sources: string[];
+  llm_used: boolean;
+}
+
+export function ask(
+  question: string,
+  filters: Filters = {},
+  limit = 6,
+  devices?: string[] | null,
+): Promise<Answer> {
+  return rpc<Answer>({
+    op: "ask",
+    question,
+    limit,
+    filters: clean(filters),
+    ...(devices && devices.length ? { devices } : {}),
+  });
+}
+
+// --- Activity (temporal view) -------------------------------------------
+
+export interface ActivityBucket {
+  period: string;
+  total: number;
+  by_tool: [string, number][];
+}
+
+export async function getActivity(
+  bucket: "day" | "week" = "day",
+  filters: Filters = {},
+): Promise<{ bucket: string; periods: ActivityBucket[] }> {
+  const data = await rpc<{ bucket: string; periods: ActivityBucket[] }>({
+    op: "activity",
+    bucket,
+    filters: clean(filters),
+  });
+  return { bucket: data.bucket, periods: data.periods ?? [] };
+}
+
+// --- Knowledge graph ----------------------------------------------------
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  kind: "project" | "tool" | "tag";
+  weight: number;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface Graph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export async function getGraph(limit?: number): Promise<Graph> {
+  const data = await rpc<{ graph: Graph }>({ op: "graph", limit });
+  return data.graph ?? { nodes: [], edges: [] };
 }
 
 /** Store (non-empty) or clear (empty) a provider's BYO key. */

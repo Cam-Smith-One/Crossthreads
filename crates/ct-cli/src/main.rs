@@ -10,7 +10,10 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 
+mod activity;
+mod ask;
 mod context;
+mod graph;
 mod index;
 mod insight;
 mod llm_auth;
@@ -35,7 +38,10 @@ COMMANDS:
                       them with your local Claude/Codex login)
     insight <KIND>    Synthesize over recent sessions with your model login:
                       open_loops | knowledge_cards | decision_log | how_i_work |
-                      digest (--limit N)
+                      digest | recurrence (--limit N)
+    ask <QUESTION>    Answer a question from your history (cited; uses your model)
+    activity          Session activity over time (--by day|week)
+    graph             Knowledge graph of projects, tools, and tags
     llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
@@ -83,6 +89,9 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("skill") => skill::run(&args[1..]),
         Some("themes") => themes::run(&args[1..]),
         Some("insight") => insight::run(&args[1..]),
+        Some("ask") => ask::run(&args[1..]),
+        Some("activity") => activity::run(&args[1..]),
+        Some("graph") => graph::run(&args[1..]),
         Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");

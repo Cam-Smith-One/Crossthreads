@@ -211,6 +211,50 @@ pub struct RecentConversation {
     pub text: String,
 }
 
+/// Activity in one time bucket (a day or an ISO week), for the temporal view.
+/// Produced by [`Store::activity`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityBucket {
+    /// `YYYY-MM-DD` (day) or `YYYY-Www` (week).
+    pub period: String,
+    /// Total sessions in this bucket.
+    pub total: i64,
+    /// Per-tool counts, busiest tool first.
+    pub by_tool: Vec<(String, i64)>,
+}
+
+/// A node in the knowledge [`Graph`]: a project, tool, or tag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNode {
+    /// Stable id, namespaced by kind: `project:…` | `tool:…` | `tag:…`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// `project` | `tool` | `tag`.
+    pub kind: String,
+    /// How many sessions this node covers (node size).
+    pub weight: i64,
+}
+
+/// A weighted, undirected co-occurrence edge between two [`GraphNode`]s.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    /// Source node id.
+    pub source: String,
+    /// Target node id.
+    pub target: String,
+    /// Number of sessions where the two co-occur.
+    pub weight: i64,
+}
+
+/// A knowledge graph of the user's work: projects/tools/tags as nodes, with
+/// co-occurrence edges. Produced by [`Store::graph`]. Deterministic; no model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Graph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
 /// A conversation reduced to one centroid embedding plus light metadata, for
 /// clustering / theme extraction. Produced by [`Store::conversation_vectors`].
 #[derive(Debug, Clone)]
@@ -736,6 +780,199 @@ impl Store {
             });
         }
         Ok(out)
+    }
+
+    /// Session activity over time, bucketed by `day` (default) or `week`, with a
+    /// per-tool breakdown — for the temporal view. Honors the simple `Filters`
+    /// (tool, kind, project substring, since/until). Oldest bucket first.
+    pub fn activity(&self, bucket: &str, f: &Filters) -> Result<Vec<ActivityBucket>> {
+        let by_week = bucket.eq_ignore_ascii_case("week");
+        // Compute both period keys in SQL (SQLite parses ISO-8601 `started_at`),
+        // so we avoid date math in Rust; filter + pick in the loop.
+        let mut stmt = self.conn.prepare(
+            "SELECT tool, project, kind,
+                    substr(started_at, 1, 10)        AS day,
+                    strftime('%Y-W%W', started_at)   AS week
+             FROM conversations
+             WHERE started_at IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+
+        use std::collections::BTreeMap;
+        let mut buckets: BTreeMap<String, (i64, BTreeMap<String, i64>)> = BTreeMap::new();
+        for row in rows {
+            let (tool, project, kind, day, week) = row?;
+            if let Some(t) = &f.tool {
+                if &tool != t {
+                    continue;
+                }
+            }
+            if let Some(k) = &f.kind {
+                if &kind != k {
+                    continue;
+                }
+            }
+            if let Some(p) = &f.project {
+                if !project.as_deref().unwrap_or("").contains(p.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(since) = &f.since {
+                if day.as_str() < since.as_str() {
+                    continue;
+                }
+            }
+            if let Some(until) = &f.until {
+                if day.as_str() > until.as_str() {
+                    continue;
+                }
+            }
+            let period = if by_week {
+                week.clone().unwrap_or_else(|| day.clone())
+            } else {
+                day.clone()
+            };
+            let entry = buckets.entry(period).or_default();
+            entry.0 += 1;
+            *entry.1.entry(tool).or_default() += 1;
+        }
+
+        Ok(buckets
+            .into_iter()
+            .map(|(period, (total, tools))| {
+                let mut by_tool: Vec<(String, i64)> = tools.into_iter().collect();
+                by_tool.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                ActivityBucket {
+                    period,
+                    total,
+                    by_tool,
+                }
+            })
+            .collect())
+    }
+
+    /// A deterministic knowledge graph of the user's work: project, tool, and tag
+    /// nodes (sized by session count) with co-occurrence edges (project↔tool,
+    /// project↔tag). `limit` caps the nodes kept per category (by weight). No
+    /// model involved — pure metadata aggregation.
+    pub fn graph(&self, limit: usize) -> Result<Graph> {
+        use std::collections::{HashMap, HashSet};
+        let mut stmt = self.conn.prepare(
+            "SELECT c.tool, c.project, COALESCE(us.tags, '')
+             FROM conversations c
+             LEFT JOIN user_state us ON us.session_key = c.session_key
+             WHERE c.kind = 'thread'",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+
+        let mut tool_w: HashMap<String, i64> = HashMap::new();
+        let mut proj_w: HashMap<String, i64> = HashMap::new();
+        let mut tag_w: HashMap<String, i64> = HashMap::new();
+        let mut pt: HashMap<(String, String), i64> = HashMap::new(); // project↔tool
+        let mut pg: HashMap<(String, String), i64> = HashMap::new(); // project↔tag
+        for row in rows {
+            let (tool, project, tags) = row?;
+            *tool_w.entry(tool.clone()).or_default() += 1;
+            let proj = project
+                .as_deref()
+                .map(project_label)
+                .filter(|p| !p.is_empty());
+            if let Some(proj) = &proj {
+                *proj_w.entry(proj.clone()).or_default() += 1;
+                *pt.entry((proj.clone(), tool.clone())).or_default() += 1;
+            }
+            for tag in split_tags(&tags) {
+                *tag_w.entry(tag.clone()).or_default() += 1;
+                if let Some(proj) = &proj {
+                    *pg.entry((proj.clone(), tag)).or_default() += 1;
+                }
+            }
+        }
+
+        // Keep the top `limit` of each category by weight.
+        let top = |m: &HashMap<String, i64>| -> HashSet<String> {
+            let mut v: Vec<(&String, &i64)> = m.iter().collect();
+            v.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+            v.into_iter().take(limit).map(|(k, _)| k.clone()).collect()
+        };
+        let keep_tool = top(&tool_w);
+        let keep_proj = top(&proj_w);
+        let keep_tag = top(&tag_w);
+
+        let mut nodes = Vec::new();
+        for (k, w) in &proj_w {
+            if keep_proj.contains(k) {
+                nodes.push(GraphNode {
+                    id: format!("project:{k}"),
+                    label: k.clone(),
+                    kind: "project".into(),
+                    weight: *w,
+                });
+            }
+        }
+        for (k, w) in &tool_w {
+            if keep_tool.contains(k) {
+                nodes.push(GraphNode {
+                    id: format!("tool:{k}"),
+                    label: k.clone(),
+                    kind: "tool".into(),
+                    weight: *w,
+                });
+            }
+        }
+        for (k, w) in &tag_w {
+            if keep_tag.contains(k) {
+                nodes.push(GraphNode {
+                    id: format!("tag:{k}"),
+                    label: k.clone(),
+                    kind: "tag".into(),
+                    weight: *w,
+                });
+            }
+        }
+        nodes.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.id.cmp(&b.id)));
+
+        let mut edges = Vec::new();
+        for ((proj, tool), w) in &pt {
+            if keep_proj.contains(proj) && keep_tool.contains(tool) {
+                edges.push(GraphEdge {
+                    source: format!("project:{proj}"),
+                    target: format!("tool:{tool}"),
+                    weight: *w,
+                });
+            }
+        }
+        for ((proj, tag), w) in &pg {
+            if keep_proj.contains(proj) && keep_tag.contains(tag) {
+                edges.push(GraphEdge {
+                    source: format!("project:{proj}"),
+                    target: format!("tag:{tag}"),
+                    weight: *w,
+                });
+            }
+        }
+        edges.sort_by(|a, b| {
+            b.weight
+                .cmp(&a.weight)
+                .then_with(|| a.source.cmp(&b.source))
+                .then_with(|| a.target.cmp(&b.target))
+        });
+
+        Ok(Graph { nodes, edges })
     }
 
     /// Semantic search over stored vectors, collapsed to the best message per
@@ -1377,6 +1614,13 @@ fn bytes_to_f32s(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+/// A short, human label for a project path: its last path component (the repo /
+/// folder name), trimmed of trailing slashes. Falls back to the whole string.
+fn project_label(path: &str) -> String {
+    let p = path.trim().trim_end_matches('/');
+    p.rsplit(['/', '\\']).next().unwrap_or(p).trim().to_string()
 }
 
 /// Parse the stored comma-joined tag string into normalized tags.

@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.7.0] - 2026-06-24
+
+### Added
+- **Ask (RAG over your history)** — ask a natural-language question and get a
+  synthesized, **cited** answer drawn from your own past sessions across every
+  tool and device. Retrieves the most relevant sessions, then answers from them;
+  with a model it synthesizes, without one it returns the retrieved context (like
+  `recall`). New 💬 panel in the web app, `crossthreads ask "…"` on the CLI, and
+  the `crossthreads_ask` MCP tool. This also covers cross-tool synthesis.
+- **Temporal view (activity over time)** — see your sessions bucketed by day or
+  week with a per-tool breakdown. New 📅 timeline in the web app, `crossthreads
+  activity [--by day|week]` on the CLI, and the `crossthreads_activity` MCP tool.
+  Offline; no model.
+- **Knowledge graph** — a map of your work: projects, tools, and tags as nodes
+  (sized by session count) with co-occurrence edges. New 🕸️ view in the web app,
+  `crossthreads graph` on the CLI, and the `crossthreads_graph` MCP tool.
+  Deterministic; offline.
+- **Recurrence alerts** — a new insight that surfaces problems and patterns you
+  keep hitting across sessions, each with a suggestion to break the loop. New
+  "Recurring" tab in the Insights panel, `crossthreads insight recurrence`, and
+  the `crossthreads_recurring` MCP tool.
+
+### Notes
+- MCP now exposes **15 tools**. Ask uses your model login when present and
+  degrades to retrieval-only without one; activity and graph never need a model.
+
 ## [0.6.1] - 2026-06-24
 
 ### Changed

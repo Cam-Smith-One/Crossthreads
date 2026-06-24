@@ -92,6 +92,9 @@ crossthreads themes --k 8                                        # cluster your 
 crossthreads themes --name                                       # …and name them with your local model login
 crossthreads insight open_loops                                  # unresolved work across recent sessions
 crossthreads insight how_i_work                                  # your conventions, for a CLAUDE.md / AGENTS.md
+crossthreads ask "how did we handle token refresh?"             # cited answer from your own history
+crossthreads activity --by week                                  # your sessions over time
+crossthreads graph                                               # projects ↔ tools ↔ tags
 crossthreads llm-auth                                            # which model credentials are available
 ```
 
@@ -105,7 +108,10 @@ crossthreads llm-auth                                            # which model c
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
 | 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; "✨ Name with AI" labels clusters using your model login. |
-| 💡 **Insights** | LLM synthesis over your whole history — **open loops**, a **decision log**, **knowledge cards**, a **how-I-work** profile, and a **digest** — spanning every tool *and* your skills/prompts (hundreds of records). In the web app (💡), the CLI (`crossthreads insight`), and over MCP. Opt-in; uses your model login. |
+| 💡 **Insights** | LLM synthesis over your whole history — **open loops**, a **decision log**, **knowledge cards**, a **how-I-work** profile, **recurring** patterns, and a **digest** — spanning every tool *and* your skills/prompts (hundreds of records). In the web app (💡), the CLI (`crossthreads insight`), and over MCP. Opt-in; uses your model login. |
+| 💬 **Ask (RAG)** | Ask a question and get a **cited answer** drawn from your own past sessions across every tool — "how did we end up handling token refresh?". Retrieves, then synthesizes (or returns context without a model). Web app (💬), `crossthreads ask`, and MCP. |
+| 📅 **Temporal view** | Your sessions over time, bucketed by day or week with a per-tool breakdown — when and with what you've been working. Web app (📅), `crossthreads activity`, and MCP. Offline. |
+| 🕸️ **Knowledge graph** | A map of your work — projects, tools, and tags as nodes (sized by activity) with co-occurrence edges. Web app (🕸️), `crossthreads graph`, and MCP. Deterministic; offline. |
 | 🤝 **Bring your own model (optional)** | Reuse your existing **Claude Code / Codex / Gemini** login — or paste an API key in Settings → Models (stored in the OS keychain) — to power insights and name themes. Off by default; the index never calls a model. |
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
@@ -166,23 +172,29 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets eleven tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets fifteen tools:
 
 | Tool | Purpose |
 |---|---|
 | `crossthreads_search` | hybrid/semantic/lexical search with filters |
 | `crossthreads_recall` | answer-oriented digest of relevant past sessions for a question |
+| `crossthreads_ask` | a synthesized, **cited** answer to a question, from the user's history |
 | `crossthreads_build_context` | render top matches into a paste-ready context block |
 | `crossthreads_status` | index health and counts |
 | `crossthreads_devices` | list the devices available to cross-device search |
 | `crossthreads_themes` | cluster the user's sessions into themes (label, size, tool mix, samples; `name` for AI labels) |
+| `crossthreads_activity` | session activity over time (day/week), with a per-tool breakdown |
+| `crossthreads_graph` | a knowledge graph of projects, tools, and tags with co-occurrence edges |
 | `crossthreads_open_loops` | unresolved work, dangling TODOs, and unconfirmed fixes |
 | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering |
 | `crossthreads_decision_log` | notable decisions ("chose X over Y because Z") with rationale |
 | `crossthreads_how_i_work` | the user's working conventions, for a CLAUDE.md / AGENTS.md |
+| `crossthreads_recurring` | recurring problems/patterns the user keeps hitting, with fixes |
 | `crossthreads_digest` | a short reflective digest of recent work |
 
-The last five synthesize with the user's model login; the rest work offline.
+The insight tools (`open_loops`/`knowledge_cards`/`decision_log`/`how_i_work`/`recurring`/`digest`)
+and `ask` synthesize with the user's model login; `search`, `themes`, `activity`,
+and `graph` work offline.
 
 ```jsonc
 // e.g. in an MCP client config

@@ -16,6 +16,7 @@ pub enum Kind {
     DecisionLog,
     HowIWork,
     Digest,
+    Recurrence,
 }
 
 impl Kind {
@@ -26,6 +27,7 @@ impl Kind {
             "decision_log" | "decisions" | "adr" => Some(Kind::DecisionLog),
             "how_i_work" | "profile" => Some(Kind::HowIWork),
             "digest" | "weekly" => Some(Kind::Digest),
+            "recurrence" | "recurring" | "patterns" | "alerts" => Some(Kind::Recurrence),
             _ => None,
         }
     }
@@ -37,8 +39,8 @@ impl Kind {
         match self {
             // Open loops / digest lean recent, but still cast a wide net.
             Kind::OpenLoops | Kind::Digest => 200,
-            // Cards / decisions / how-I-work benefit from maximum breadth.
-            Kind::KnowledgeCards | Kind::DecisionLog | Kind::HowIWork => 400,
+            // Cards / decisions / how-I-work / recurrence benefit from breadth.
+            Kind::KnowledgeCards | Kind::DecisionLog | Kind::HowIWork | Kind::Recurrence => 400,
         }
     }
 
@@ -58,6 +60,9 @@ impl Kind {
             }
             Kind::Digest => {
                 "You write a brief, useful reflective digest of a developer's recent work."
+            }
+            Kind::Recurrence => {
+                "You spot recurring problems and patterns across a developer's coding sessions."
             }
         }
     }
@@ -93,6 +98,15 @@ impl Kind {
                 "Write a short DIGEST with three sections: (1) what they've been working on, (2) \
                  3 open questions or unfinished threads, (3) 2 things worth revisiting. Markdown, \
                  concise."
+            }
+            Kind::Recurrence => {
+                "Identify RECURRING problems, questions, and patterns — things this developer \
+                 keeps running into across multiple sessions (the same bug class, the same setup \
+                 friction, a question re-asked, a workaround re-derived). For each, a bold title, \
+                 how many times / where it recurs, and a one-line suggestion to break the loop \
+                 (e.g. a note for CLAUDE.md, a script, a fix). Order by how often it recurs. Only \
+                 include things that genuinely appear more than once. If nothing clearly recurs, \
+                 say so. Markdown."
             }
         }
     }
