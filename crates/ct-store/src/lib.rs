@@ -203,6 +203,8 @@ pub struct RecentConversation {
     pub id: String,
     pub title: Option<String>,
     pub tool: String,
+    /// Record kind: `thread` (a conversation) or `skill` (a reusable skill/prompt).
+    pub kind: String,
     pub project: Option<String>,
     pub started_at: Option<String>,
     /// Concatenated `role: content` message text, truncated.
@@ -681,10 +683,12 @@ impl Store {
         limit: usize,
         max_chars: usize,
     ) -> Result<Vec<RecentConversation>> {
+        // Span every record kind (threads *and* skills/prompts) and every tool —
+        // insights should reflect all of the user's work, not just chat threads.
+        // Recent dated threads sort first; undated records (e.g. skills) follow.
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, tool, project, started_at FROM conversations
-             WHERE kind = 'thread'
-             ORDER BY started_at DESC
+            "SELECT id, title, tool, kind, project, started_at FROM conversations
+             ORDER BY started_at IS NULL, started_at DESC
              LIMIT ?1",
         )?;
         let metas = stmt
@@ -693,14 +697,15 @@ impl Store {
                     r.get::<_, String>(0)?,
                     r.get::<_, Option<String>>(1)?,
                     r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(3)?,
                     r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         let mut out = Vec::with_capacity(metas.len());
-        for (id, title, tool, project, started_at) in metas {
+        for (id, title, tool, kind, project, started_at) in metas {
             let mut msg_stmt = self.conn.prepare(
                 "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY seq",
             )?;
@@ -724,6 +729,7 @@ impl Store {
                 id,
                 title,
                 tool,
+                kind,
                 project,
                 started_at,
                 text,

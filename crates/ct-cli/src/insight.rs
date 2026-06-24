@@ -69,7 +69,7 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let db_path = crate::resolve_db(db)?;
     let store = Store::open(&db_path)?;
     let n = limit.unwrap_or_else(|| kind.default_limit());
-    let convos = store.recent_conversations(n, 1200)?;
+    let convos = store.recent_conversations(n, 1500)?;
     drop(store);
 
     let (markdown, sources) = insights::synthesize(&convos, kind)?;
