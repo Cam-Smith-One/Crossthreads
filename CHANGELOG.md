@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.5.0] - 2026-06-24
+
+### Added
+- **Theme map in the web app** — a 🗺️ view that clusters your indexed sessions
+  by topic and shows each theme as a size-scaled card (label, tool mix, sample
+  titles you can click to open). Backed by a shared `ct-store::themes` core and a
+  new daemon `Themes` endpoint, so the CLI, UI, and MCP all show the same themes.
+- **MCP `crossthreads_themes` tool** — agents can pull your work themes (label,
+  size, tool mix, samples) over MCP, with an optional `k` (cluster count).
+- **Google (Gemini) provider** — third option in the model auth layer and
+  Settings → Models: keychain BYO key plus `GEMINI_API_KEY` / `GOOGLE_API_KEY` /
+  the `gemini` CLI, calling the Gemini `generateContent` API
+  (`gemini-2.0-flash` by default; `CROSSTHREADS_GOOGLE_MODEL`).
+
 ## [0.4.0] - 2026-06-23
 
 ### Added
@@ -160,7 +174,8 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...v0.3.1
