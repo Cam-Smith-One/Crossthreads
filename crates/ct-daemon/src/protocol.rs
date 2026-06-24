@@ -160,11 +160,38 @@ pub enum Request {
         name: bool,
     },
     /// Synthesize an LLM insight over recent history (open loops, knowledge
-    /// cards, a decision log, a "how I work" profile, or a digest). Needs a
-    /// model login (Settings → Models). `kind` is one of `open_loops` |
-    /// `knowledge_cards` | `decision_log` | `how_i_work` | `digest`.
+    /// cards, a decision log, a "how I work" profile, a digest, or recurrence).
+    /// Needs a model login (Settings → Models). `kind` is one of `open_loops` |
+    /// `knowledge_cards` | `decision_log` | `how_i_work` | `digest` | `recurrence`.
     Insight {
         kind: String,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Answer a natural-language question from the user's own history: retrieve
+    /// the most relevant past sessions (across tools/devices) and synthesize a
+    /// cited answer. Degrades to retrieved context when no model is configured.
+    Ask {
+        question: String,
+        #[serde(default = "default_ask_limit")]
+        limit: usize,
+        #[serde(default)]
+        filters: Filters,
+        #[serde(default)]
+        devices: Option<Vec<String>>,
+    },
+    /// Activity over time, bucketed by day or week, for the temporal view.
+    Activity {
+        /// `day` (default) or `week`.
+        #[serde(default)]
+        bucket: Option<String>,
+        #[serde(default)]
+        filters: Filters,
+    },
+    /// A knowledge graph of the user's work — projects, tools, and tags as nodes
+    /// with co-occurrence edges, for the graph view and agents.
+    Graph {
+        /// Cap on the number of nodes per category (default 40).
         #[serde(default)]
         limit: Option<usize>,
     },
@@ -200,6 +227,9 @@ fn default_limit() -> usize {
 }
 fn default_context_limit() -> usize {
     3
+}
+fn default_ask_limit() -> usize {
+    6
 }
 fn default_max_chars() -> usize {
     6000
@@ -281,6 +311,22 @@ pub enum Response {
     Insight {
         markdown: String,
         sources: Vec<String>,
+    },
+    /// An answer to an `Ask`: synthesized (or retrieved) Markdown plus the source
+    /// conversation ids, and whether a model was used (vs. retrieval-only).
+    Answer {
+        markdown: String,
+        sources: Vec<String>,
+        llm_used: bool,
+    },
+    /// Activity counts over time for the temporal view.
+    Activity {
+        bucket: String,
+        periods: Vec<ct_store::ActivityBucket>,
+    },
+    /// The knowledge graph (nodes + weighted edges).
+    Graph {
+        graph: ct_store::Graph,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

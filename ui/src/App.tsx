@@ -18,6 +18,9 @@ import {
   getLlmConfig,
   getThemes,
   getInsight,
+  ask,
+  getActivity,
+  getGraph,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -31,6 +34,9 @@ import {
   type LlmConfig,
   type Theme,
   type InsightKind,
+  type Answer,
+  type ActivityBucket,
+  type Graph,
   type Hit,
   type Mode,
   type Status,
@@ -113,6 +119,59 @@ export function App() {
       setInsightError(String(err));
     } finally {
       setInsightBusyKind(null);
+    }
+  }
+
+  // Ask (RAG over history).
+  const [showAsk, setShowAsk] = useState(false);
+  const [askQuery, setAskQuery] = useState("");
+  const [askAnswer, setAskAnswer] = useState<Answer | null>(null);
+  const [askBusy, setAskBusy] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  async function runAsk(e?: React.FormEvent) {
+    e?.preventDefault();
+    const q = askQuery.trim();
+    if (!q) return;
+    setAskBusy(true);
+    setAskError(null);
+    setAskAnswer(null);
+    try {
+      setAskAnswer(await ask(q, {}, 6, deviceArg()));
+    } catch (err) {
+      setAskError(String(err));
+    } finally {
+      setAskBusy(false);
+    }
+  }
+
+  // Temporal view (activity over time).
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityBucket, setActivityBucket] = useState<"day" | "week">("week");
+  const [activity, setActivity] = useState<ActivityBucket[] | null>(null);
+
+  async function openActivity(bucket: "day" | "week" = activityBucket) {
+    setShowActivity(true);
+    setActivityBucket(bucket);
+    setActivity(null);
+    try {
+      setActivity((await getActivity(bucket)).periods);
+    } catch {
+      setActivity([]);
+    }
+  }
+
+  // Knowledge graph.
+  const [showGraph, setShowGraph] = useState(false);
+  const [graph, setGraph] = useState<Graph | null>(null);
+
+  async function openGraph() {
+    setShowGraph(true);
+    setGraph(null);
+    try {
+      setGraph(await getGraph(40));
+    } catch {
+      setGraph({ nodes: [], edges: [] });
     }
   }
 
@@ -442,6 +501,18 @@ export function App() {
         if (e.key === "Escape") setShowInsights(false);
         return;
       }
+      if (showAsk) {
+        if (e.key === "Escape") setShowAsk(false);
+        return;
+      }
+      if (showActivity) {
+        if (e.key === "Escape") setShowActivity(false);
+        return;
+      }
+      if (showGraph) {
+        if (e.key === "Escape") setShowGraph(false);
+        return;
+      }
       if (showSettings) {
         if (e.key === "Escape") setShowSettings(false);
         return;
@@ -467,7 +538,7 @@ export function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hits, selected, open, showSettings, showThemes, showInsights]);
+  }, [hits, selected, open, showSettings, showThemes, showInsights, showAsk, showActivity, showGraph]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -536,6 +607,30 @@ export function App() {
             aria-label="Open insights"
           >
             💡
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => setShowAsk(true)}
+            title="Ask — answer a question from your history (cited)"
+            aria-label="Ask your history"
+          >
+            💬
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => openActivity()}
+            title="Activity — your sessions over time"
+            aria-label="Open activity timeline"
+          >
+            📅
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={openGraph}
+            title="Knowledge graph — projects, tools, and tags"
+            aria-label="Open knowledge graph"
+          >
+            🕸️
           </button>
           <button
             className="settings-toggle"
@@ -955,6 +1050,7 @@ export function App() {
                   ["decision_log", "Decisions"],
                   ["knowledge_cards", "Knowledge cards"],
                   ["how_i_work", "How I work"],
+                  ["recurrence", "Recurring"],
                   ["digest", "Digest"],
                 ] as [InsightKind, string][]
               ).map(([k, label]) => (
@@ -984,6 +1080,184 @@ export function App() {
                   </p>
                 )}
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showAsk && (
+        <div className="overlay" onClick={() => setShowAsk(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ask your history"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Ask your history</h2>
+              <button className="secondary" onClick={() => setShowAsk(false)}>
+                Close
+              </button>
+            </div>
+            <form className="ask-form" onSubmit={runAsk}>
+              <input
+                autoFocus
+                type="text"
+                placeholder="e.g. how did we end up handling token refresh?"
+                value={askQuery}
+                onChange={(e) => setAskQuery(e.target.value)}
+              />
+              <button type="submit" disabled={askBusy || !askQuery.trim()}>
+                {askBusy ? "Asking…" : "Ask"}
+              </button>
+            </form>
+            <p className="doc-desc">
+              Answered from your own past sessions across every tool, with citations.
+              Uses your configured model (Settings → Models); without one it returns the
+              retrieved context.
+            </p>
+            {askError && <div className="error">{askError}</div>}
+            {!askBusy && askAnswer && (
+              <>
+                <pre className="insight-body">{askAnswer.markdown}</pre>
+                <p className="doc-desc">
+                  {askAnswer.sources.length > 0
+                    ? `Answered from ${askAnswer.sources.length} past session(s)`
+                    : "No matching sessions found"}
+                  {askAnswer.sources.length > 0 && !askAnswer.llm_used
+                    ? " — retrieved context (no model configured)."
+                    : "."}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showActivity && (
+        <div className="overlay" onClick={() => setShowActivity(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Activity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Activity</h2>
+              <div className="modal-head-actions">
+                <div className="settings-tabs">
+                  <button
+                    className={activityBucket === "day" ? "on" : ""}
+                    onClick={() => openActivity("day")}
+                  >
+                    Day
+                  </button>
+                  <button
+                    className={activityBucket === "week" ? "on" : ""}
+                    onClick={() => openActivity("week")}
+                  >
+                    Week
+                  </button>
+                </div>
+                <button className="secondary" onClick={() => setShowActivity(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            {!activity && <p className="doc-desc">Loading…</p>}
+            {activity && activity.length === 0 && (
+              <p className="doc-desc">No dated sessions yet — index some first.</p>
+            )}
+            {activity && activity.length > 0 && (
+              <div className="activity-chart">
+                {(() => {
+                  const max = Math.max(...activity.map((p) => p.total), 1);
+                  return activity.map((p) => (
+                    <div key={p.period} className="activity-row">
+                      <span className="activity-period">{p.period}</span>
+                      <span className="activity-bar-wrap">
+                        <span
+                          className="activity-bar"
+                          style={{ width: `${(p.total / max) * 100}%` }}
+                          title={p.by_tool.map(([t, n]) => `${t}: ${n}`).join("\n")}
+                        />
+                      </span>
+                      <span className="activity-count">{p.total}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showGraph && (
+        <div className="overlay" onClick={() => setShowGraph(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Knowledge graph"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Knowledge graph</h2>
+              <button className="secondary" onClick={() => setShowGraph(false)}>
+                Close
+              </button>
+            </div>
+            <p className="doc-desc">
+              Your projects, tools, and tags, sized by how much you work with them, and
+              the strongest connections between them. Offline; no model.
+            </p>
+            {!graph && <p className="doc-desc">Building…</p>}
+            {graph && graph.nodes.length === 0 && (
+              <p className="doc-desc">No graph yet — index some sessions first.</p>
+            )}
+            {graph && graph.nodes.length > 0 && (
+              <div className="graph-view">
+                {(["project", "tool", "tag"] as const).map((k) => {
+                  const nodes = graph.nodes
+                    .filter((n) => n.kind === k)
+                    .sort((a, b) => b.weight - a.weight);
+                  if (nodes.length === 0) return null;
+                  const max = Math.max(...nodes.map((n) => n.weight), 1);
+                  return (
+                    <div key={k} className="graph-group">
+                      <h3>{k[0].toUpperCase() + k.slice(1)}s</h3>
+                      <div className="graph-nodes">
+                        {nodes.slice(0, 24).map((n) => (
+                          <span
+                            key={n.id}
+                            className={`graph-node graph-node-${k}`}
+                            style={{ fontSize: `${0.8 + (n.weight / max) * 0.9}rem` }}
+                            title={`${n.weight} session(s)`}
+                          >
+                            {n.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {graph.edges.length > 0 && (
+                  <div className="graph-group">
+                    <h3>Strongest links</h3>
+                    <ul className="graph-edges">
+                      {graph.edges.slice(0, 12).map((e, i) => (
+                        <li key={i}>
+                          {e.source.split(":").slice(1).join(":")} ↔{" "}
+                          {e.target.split(":").slice(1).join(":")}{" "}
+                          <span className="graph-edge-w">{e.weight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

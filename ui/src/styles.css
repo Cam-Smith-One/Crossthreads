@@ -477,6 +477,48 @@ body {
   overflow-y: auto;
 }
 
+/* Ask: question form */
+.ask-form { display: flex; gap: 8px; margin: 8px 0; }
+.ask-form input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.ask-form button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ask-form button:disabled { opacity: 0.6; cursor: default; }
+
+/* Activity: simple horizontal bar chart */
+.activity-chart { display: flex; flex-direction: column; gap: 4px; max-height: 56vh; overflow-y: auto; }
+.activity-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.activity-period { width: 92px; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.activity-bar-wrap { flex: 1; background: var(--border); border-radius: 4px; height: 14px; overflow: hidden; }
+.activity-bar { display: block; height: 100%; background: var(--accent); border-radius: 4px; min-width: 2px; }
+.activity-count { width: 32px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Knowledge graph: grouped node cloud + edge list */
+.graph-view { display: flex; flex-direction: column; gap: 16px; max-height: 60vh; overflow-y: auto; }
+.graph-group h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.graph-nodes { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.graph-node { line-height: 1.2; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.graph-node-project { color: var(--text); border-color: var(--accent); }
+.graph-node-tool { color: var(--muted); }
+.graph-node-tag { color: var(--muted); font-style: italic; }
+.graph-edges { list-style: none; padding: 0; margin: 0; font-size: 13px; color: var(--text); }
+.graph-edges li { padding: 2px 0; }
+.graph-edge-w { color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* Cross-device: result chip, device picker, Devices panel */
 .device-chip {
   font-size: 11px;

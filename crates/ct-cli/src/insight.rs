@@ -47,7 +47,8 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
              knowledge_cards Durable Q→A cards worth remembering\n  \
              decision_log    Notable decisions and their rationale\n  \
              how_i_work      A profile of your conventions for a CLAUDE.md/AGENTS.md\n  \
-             digest          A short reflective digest of recent work"
+             digest          A short reflective digest of recent work\n  \
+             recurrence      Recurring problems/patterns you keep hitting"
         );
         return Ok(ExitCode::FAILURE);
     };

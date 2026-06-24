@@ -220,10 +220,14 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_status` | index health — **implemented** |
 | `crossthreads_devices` | list cross-device search targets — **implemented** |
 | `crossthreads_themes` | cluster sessions into themes (`k`, `name` args) — **implemented** |
+| `crossthreads_ask` | cited answer to a question, synthesized from history — **implemented** |
+| `crossthreads_activity` | session activity over time (day/week) — **implemented** |
+| `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
 | `crossthreads_open_loops` | unresolved work across recent sessions — **implemented** |
 | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering — **implemented** |
 | `crossthreads_decision_log` | notable decisions + rationale — **implemented** |
 | `crossthreads_how_i_work` | the user's working conventions (for CLAUDE.md/AGENTS.md) — **implemented** |
+| `crossthreads_recurring` | recurring problems/patterns, with fixes — **implemented** |
 | `crossthreads_digest` | short reflective digest of recent work — **implemented** |
 | `crossthreads_devices` | list searchable devices (this host + peers) with liveness — **implemented** (ADR-010) |
 | `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
@@ -265,6 +269,7 @@ over the user's recent sessions with their configured model. One shared engine
 | `knowledge_cards` | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering |
 | `decision_log` | `crossthreads_decision_log` | decisions ("chose X over Y because Z") + rationale |
 | `how_i_work` | `crossthreads_how_i_work` | the user's conventions, for a CLAUDE.md / AGENTS.md |
+| `recurrence` | `crossthreads_recurring` | recurring problems/patterns, each with a fix |
 | `digest` | `crossthreads_digest` | a short reflective digest of recent work |
 
 These need a model login (Settings → Models / `crossthreads llm-auth`); without
@@ -275,6 +280,22 @@ bounded to ~300k chars. Override the count with `limit` (CLI `--limit N`, or the
 tools' `limit` arg). The daemon gathers the text under the read lock, releases
 it, then calls the model — searches stay responsive during synthesis. Output is
 Markdown plus the source conversation ids drawn from.
+
+### 7.3 Ask, activity & graph
+
+- **`ask`** (`crossthreads_ask`, CLI `crossthreads ask`, daemon `Request::Ask`) —
+  retrieval-augmented Q&A over the user's history: hybrid-search the most relevant
+  sessions (across tools/devices), then synthesize a **cited** answer. Returns
+  `{ markdown, sources, llm_used }`. With a model it synthesizes; without one
+  `llm_used` is `false` and `markdown` is the retrieved context (the caller can
+  synthesize), mirroring `recall`.
+- **`activity`** (`crossthreads_activity`, CLI `crossthreads activity`, daemon
+  `Request::Activity`) — session counts bucketed by `day`|`week` with a per-tool
+  breakdown: `{ bucket, periods: [{ period, total, by_tool }] }`. Offline.
+- **`graph`** (`crossthreads_graph`, CLI `crossthreads graph`, daemon
+  `Request::Graph`) — a deterministic knowledge graph: `{ nodes: [{ id, label,
+  kind, weight }], edges: [{ source, target, weight }] }` over projects, tools,
+  and tags. Offline.
 
 ---
 

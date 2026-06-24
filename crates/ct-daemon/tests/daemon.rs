@@ -131,6 +131,104 @@ fn themes_cluster_over_the_wire() {
     }
 }
 
+/// A dated conversation (so it shows up in the temporal view).
+fn dated(tool: Tool, project: &str, text: &str, date: &str) -> Conversation {
+    let mut c = convo(tool, project, text);
+    c.started_at = Some(format!("{date}T09:00:00Z").parse().unwrap());
+    c
+}
+
+#[test]
+fn activity_and_graph_over_the_wire() {
+    let mut store = Store::open_in_memory().unwrap();
+    for c in [
+        dated(
+            Tool::ClaudeCode,
+            "/code/acme-api",
+            "retry one",
+            "2026-06-01",
+        ),
+        dated(
+            Tool::ClaudeCode,
+            "/code/acme-api",
+            "retry two",
+            "2026-06-01",
+        ),
+        dated(
+            Tool::Cursor,
+            "/code/acme-web",
+            "navbar dark mode",
+            "2026-06-08",
+        ),
+    ] {
+        store.upsert_conversation(&c).unwrap();
+    }
+    ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    // Activity by day: two buckets, the first with two sessions.
+    match client
+        .call(&Request::Activity {
+            bucket: Some("day".into()),
+            filters: Default::default(),
+        })
+        .unwrap()
+    {
+        Response::Activity { bucket, periods } => {
+            assert_eq!(bucket, "day");
+            assert_eq!(periods.len(), 2, "two distinct days");
+            let first = periods.iter().find(|p| p.period == "2026-06-01").unwrap();
+            assert_eq!(first.total, 2);
+            assert_eq!(first.by_tool[0].0, "claude-code");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+
+    // Graph: project + tool nodes, with project↔tool edges.
+    match client.call(&Request::Graph { limit: Some(40) }).unwrap() {
+        Response::Graph { graph } => {
+            assert!(graph.nodes.iter().any(|n| n.kind == "project"));
+            assert!(graph
+                .nodes
+                .iter()
+                .any(|n| n.kind == "tool" && n.label == "claude-code"));
+            assert!(graph
+                .edges
+                .iter()
+                .any(|e| e.source.starts_with("project:") && e.target.starts_with("tool:")));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn ask_retrieves_and_answers() {
+    let (addr, _h) = start();
+    let client = Client::new(addr);
+
+    // `ask` must return a cited Answer drawn from the retrieved sessions whether
+    // or not a model is configured (it synthesizes when one is, and hands back
+    // the retrieved context when not). Either way the sources come from retrieval.
+    match client
+        .call(&Request::Ask {
+            question: "retry backoff".into(),
+            limit: 6,
+            filters: Default::default(),
+            devices: None,
+        })
+        .unwrap()
+    {
+        Response::Answer {
+            markdown, sources, ..
+        } => {
+            assert!(!sources.is_empty(), "should retrieve the seeded match");
+            assert!(!markdown.trim().is_empty(), "answer should not be empty");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
 #[test]
 fn insight_errors_without_a_model_login() {
     // No model configured in CI → the insight op must surface a clean Error

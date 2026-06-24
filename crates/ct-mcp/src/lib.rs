@@ -303,7 +303,90 @@ impl Server {
                         "properties": {
                             "limit": {
                                 "type": "integer",
-                                "description": "How many recent sessions to scan (default ~40)."
+                                "description": "How many recent sessions to scan (default ~200)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_recurring",
+                    "description": "Surface RECURRING problems and patterns — things the user \
+                        keeps hitting across sessions (the same bug class, repeated setup \
+                        friction, a re-asked question, a re-derived workaround), each with a \
+                        suggestion to break the loop. Use to spot what's worth automating or \
+                        documenting. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~400)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_ask",
+                    "description": "Ask a natural-language question and get a synthesized, cited \
+                        answer drawn from the user's own past AI coding sessions across every \
+                        tool (and device) — e.g. \"how did we end up handling token refresh?\". \
+                        Higher-level than search/recall: it retrieves the most relevant sessions \
+                        and answers from them, citing which session each claim came from. With a \
+                        model it synthesizes; without one it returns the retrieved context.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "question": { "type": "string", "description": "The question to answer." },
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many past sessions to draw on (default 6)."
+                            },
+                            "tool": { "type": "string", "description": "Filter to one tool." },
+                            "project": {
+                                "type": "string",
+                                "description": "Filter to projects whose path contains this substring."
+                            },
+                            "devices": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Cross-device: device names to draw from (omit for all reachable)."
+                            }
+                        },
+                        "required": ["question"]
+                    }
+                },
+                {
+                    "name": "crossthreads_activity",
+                    "description": "Report the user's session activity over time, bucketed by day \
+                        or week, with a per-tool breakdown. Use to see when and with which tools \
+                        the user has been active. Offline; no model needed.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "bucket": {
+                                "type": "string",
+                                "enum": ["day", "week"],
+                                "description": "Time bucket (default day)."
+                            },
+                            "tool": { "type": "string", "description": "Filter to one tool." },
+                            "project": { "type": "string", "description": "Filter by project substring." },
+                            "since": { "type": "string", "description": "Only on/after this date (YYYY-MM-DD)." },
+                            "until": { "type": "string", "description": "Only on/before this date (YYYY-MM-DD)." }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_graph",
+                    "description": "Return a knowledge graph of the user's work — projects, tools, \
+                        and tags as nodes (sized by session count) with co-occurrence edges \
+                        (which tools/tags go with which projects). Use to map how the user's \
+                        projects, tools, and topics relate. Offline; no model needed.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max nodes kept per category (project/tool/tag). Default 40."
                             }
                         }
                     }
@@ -332,6 +415,10 @@ impl Server {
             "crossthreads_decision_log" => Ok(self.call_insight("decision_log", &args)),
             "crossthreads_how_i_work" => Ok(self.call_insight("how_i_work", &args)),
             "crossthreads_digest" => Ok(self.call_insight("digest", &args)),
+            "crossthreads_recurring" => Ok(self.call_insight("recurrence", &args)),
+            "crossthreads_ask" => Ok(self.call_ask(&args)),
+            "crossthreads_activity" => Ok(self.call_activity(&args)),
+            "crossthreads_graph" => Ok(self.call_graph(&args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -528,6 +615,103 @@ impl Server {
                 "{kind} failed ({e:#}). Needs a model login (Settings → Models) and a \
                  running daemon."
             )),
+        }
+    }
+
+    fn call_ask(&self, args: &Value) -> Value {
+        let Some(question) = args.get("question").and_then(|q| q.as_str()) else {
+            return tool_error("missing required argument: question");
+        };
+        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(6) as usize;
+        match self.client.call(&Request::Ask {
+            question: question.to_string(),
+            limit,
+            filters: filters_from(args),
+            devices: devices_from(args),
+        }) {
+            Ok(Response::Answer {
+                markdown, sources, ..
+            }) => {
+                if sources.is_empty() {
+                    tool_text(markdown)
+                } else {
+                    tool_text(format!(
+                        "{markdown}\n\n_Answered from {} past session(s)._",
+                        sources.len()
+                    ))
+                }
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("ask failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_activity(&self, args: &Value) -> Value {
+        let bucket = args
+            .get("bucket")
+            .and_then(|b| b.as_str())
+            .map(str::to_string);
+        match self.client.call(&Request::Activity {
+            bucket,
+            filters: filters_from(args),
+        }) {
+            Ok(Response::Activity { bucket, periods }) => {
+                if periods.is_empty() {
+                    return tool_text("No dated sessions to chart yet.".to_string());
+                }
+                let total: i64 = periods.iter().map(|p| p.total).sum();
+                let mut out = format!(
+                    "Activity by {bucket} ({} period(s), {total} sessions):\n",
+                    periods.len()
+                );
+                for p in &periods {
+                    let tools = p
+                        .by_tool
+                        .iter()
+                        .take(4)
+                        .map(|(t, n)| format!("{t} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    out.push_str(&format!(
+                        "\n{}  ·  {} session(s)  ·  {tools}",
+                        p.period, p.total
+                    ));
+                }
+                tool_text(out)
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!(
+                "activity failed ({e:#}). Is crossthreadsd running?"
+            )),
+        }
+    }
+
+    fn call_graph(&self, args: &Value) -> Value {
+        let limit = args
+            .get("limit")
+            .and_then(|l| l.as_u64())
+            .map(|n| n as usize);
+        match self.client.call(&Request::Graph { limit }) {
+            Ok(Response::Graph { graph }) => {
+                if graph.nodes.is_empty() {
+                    return tool_text("No graph yet — nothing indexed.".to_string());
+                }
+                let mut out = format!(
+                    "Knowledge graph: {} nodes, {} edges.\n\nTop nodes:",
+                    graph.nodes.len(),
+                    graph.edges.len()
+                );
+                for n in graph.nodes.iter().take(15) {
+                    out.push_str(&format!("\n- [{}] {} ({})", n.kind, n.label, n.weight));
+                }
+                out.push_str("\n\nStrongest links:");
+                for e in graph.edges.iter().take(15) {
+                    out.push_str(&format!("\n- {} ↔ {} ({})", e.source, e.target, e.weight));
+                }
+                tool_text(out)
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("graph failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 }
