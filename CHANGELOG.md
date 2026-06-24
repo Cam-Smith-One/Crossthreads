@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.8.0] - 2026-06-24
+
+### Added
+- **Behavioral metrics — "how you work"** — a deterministic, full-history pass
+  (no model) over your *own* messages and the shape of each interaction: turns
+  per task, correction/rework rate, first-prompt-miss rate, abandonment,
+  opening-prompt specificity, code/error paste rates, test/commit mention rates,
+  tempo by hour, and your highest-friction projects. New `crossthreads metrics`
+  CLI, the `crossthreads_metrics` MCP tool, and a metrics strip in the Insights
+  panel. This is the quantitative backbone the behavioral insights are grounded
+  in — so they cite real numbers instead of guessing.
+- **Work DNA** — a quantified, evidence-backed profile of how you actually work
+  (rhythm, where friction concentrates and why, how you open tasks, signature
+  habits). The 💡 button now opens this by default. (`work_dna`)
+- **Gaps & blind spots** — practices largely missing (e.g. tests, commits), work
+  you start but don't finish, and friction you keep absorbing — plus a
+  personalized draft `CLAUDE.md` to close them. (`gaps`)
+- **Prompt coach** — contrasts your smoothest vs roughest sessions (by friction)
+  and teaches you with concrete before→after rewrites drawn from your own
+  prompts. (`prompt_coach`)
+- **Process miner** — mines procedures you keep re-deriving and turns the
+  strongest into draft, installable `SKILL.md` artifacts. (`process_miner`)
+
+All four behavioral insights are exposed as Insights tabs, `crossthreads insight
+<kind>`, and MCP tools (`crossthreads_work_dna` / `_gaps` / `_prompt_coach` /
+`_process_miner`). They reuse the model-auth layer; the raw metrics never need a
+model. MCP now exposes **20 tools**.
+
 ## [0.7.0] - 2026-06-24
 
 ### Added

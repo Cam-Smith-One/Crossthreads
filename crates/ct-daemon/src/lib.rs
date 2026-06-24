@@ -21,7 +21,7 @@ pub mod federation;
 mod http;
 pub mod insights;
 pub mod protocol;
-pub use ct_store::{Filters, SearchHit, StoredConversation};
+pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
 pub use federation::{Federation, Peer};
 pub use protocol::{DeviceInfo, Mode, Request, Response, DEFAULT_ADDR};
 
@@ -326,6 +326,7 @@ impl Daemon {
                 .activity(bucket.as_deref().unwrap_or("day"), &filters)
                 .unwrap_or_else(err),
             Request::Graph { limit } => self.graph(limit.unwrap_or(40)).unwrap_or_else(err),
+            Request::Metrics { filters } => self.metrics(&filters).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -378,10 +379,21 @@ impl Daemon {
     /// Synthesize an LLM insight over recent history. Gathers conversation text
     /// under the read lock, drops it, then calls the model (no lock held).
     fn insight(&self, kind: &str, limit: Option<usize>) -> Result<Response> {
+        // Behavioral kinds ("how you work") are grounded in the metrics layer:
+        // gather under the lock, drop it, then call the model.
+        if let Some(b) = insights::Behavioral::parse(kind) {
+            let input = {
+                let store = self.read_lock();
+                insights::gather_behavioral(&store, b)?
+            };
+            let (markdown, sources) = insights::synthesize_behavioral(input)?;
+            return Ok(Response::Insight { markdown, sources });
+        }
         let kind = insights::Kind::parse(kind).ok_or_else(|| {
             anyhow::anyhow!(
                 "unknown insight kind `{kind}` — expected one of: open_loops, \
-                 knowledge_cards, decision_log, how_i_work, digest, recurrence"
+                 knowledge_cards, decision_log, how_i_work, digest, recurrence, \
+                 work_dna, gaps, prompt_coach, process_miner"
             )
         })?;
         let n = limit.unwrap_or_else(|| kind.default_limit());
@@ -845,6 +857,14 @@ impl Daemon {
         Ok(Response::Graph {
             graph: store.graph(limit)?,
         })
+    }
+
+    /// Deterministic behavioral metrics ("how you work"), for the profile view
+    /// and agents. No model involved.
+    fn metrics(&self, f: &Filters) -> Result<Response> {
+        let store = self.read_lock();
+        let (metrics, _per) = store.work_metrics(f)?;
+        Ok(Response::Metrics { metrics })
     }
 
     fn fetch_conversation_for(&self, hit: &SearchHit) -> Option<StoredConversation> {

@@ -62,6 +62,12 @@ it and fold what you learn into your work.
 - `crossthreads_activity(bucket?, filters?)` — session activity over time
   (day/week) with a per-tool breakdown.
 - `crossthreads_graph(limit?)` — knowledge graph of projects, tools, and tags.
+- `crossthreads_metrics(filters?)` — hard numbers on how the user works (turns,
+  rework rate, prompt specificity, tempo, friction). Offline. Use this to ground
+  any "how does this user work" reasoning in real figures.
+- `crossthreads_work_dna()` / `_gaps()` / `_prompt_coach()` / `_process_miner()` —
+  model-backed behavioral insights built on those metrics (profile, blind spots +
+  a draft CLAUDE.md, prompt coaching, and repeatable procedures → draft skills).
 - `crossthreads_status()` — index health (counts).
 
 ## Notes

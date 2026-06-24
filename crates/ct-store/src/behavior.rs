@@ -1,0 +1,424 @@
+//! Behavioral metrics over the indexed sessions — the deterministic foundation
+//! for "how you work" insights. No model involved: this counts and aggregates
+//! signals from your *own* messages and the shape of each interaction (turns,
+//! corrections, specificity, tempo), which the LLM layer then interprets.
+//!
+//! [`analyze`] is pure (takes already-loaded sessions); `Store::work_metrics`
+//! does the querying and calls it.
+
+use serde::{Deserialize, Serialize};
+
+/// One session reduced to its messages, the input to [`analyze`].
+#[derive(Debug, Clone)]
+pub struct RawSession {
+    pub id: String,
+    pub title: Option<String>,
+    pub tool: String,
+    pub project: Option<String>,
+    pub started_at: Option<String>,
+    /// `(role, content)` in order. Content may be truncated by the caller.
+    pub messages: Vec<(String, String)>,
+}
+
+/// Per-session behavioral metrics (used to pick friction extremes, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetrics {
+    pub id: String,
+    pub title: Option<String>,
+    pub tool: String,
+    pub project: Option<String>,
+    pub user_turns: i64,
+    pub corrections: i64,
+    pub first_prompt_chars: i64,
+    /// Composite friction score: turns + 2·corrections (higher = rougher).
+    pub friction: f64,
+    /// Heuristic: did the thread end on a resolved note (assistant last) vs.
+    /// trail off on an unanswered user turn.
+    pub resolved: bool,
+}
+
+/// Aggregate "Work DNA" numbers across the analyzed sessions. All rates are
+/// fractions in `0.0..=1.0`. Serialized for the daemon/MCP/UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkMetrics {
+    /// Sessions analyzed (thread kind).
+    pub sessions: i64,
+    /// Per-tool session counts, busiest first.
+    pub by_tool: Vec<(String, i64)>,
+    /// Distinct projects touched.
+    pub projects: i64,
+    /// Median / mean user turns per session.
+    pub median_user_turns: f64,
+    pub mean_user_turns: f64,
+    /// Fraction of sessions with at least one correction ("no", "actually", …).
+    pub correction_rate: f64,
+    /// Fraction where a correction landed within the first two user turns
+    /// (an under-specified opening prompt).
+    pub first_prompt_miss_rate: f64,
+    /// Fraction that trailed off unresolved (ended on a user turn).
+    pub abandonment_rate: f64,
+    /// Average characters in the opening user message.
+    pub avg_first_prompt_chars: f64,
+    /// Fraction of opening prompts that state explicit constraints
+    /// (must / should / only / don't / never / exactly …).
+    pub specificity_rate: f64,
+    /// Fraction of sessions where the user pasted code.
+    pub code_paste_rate: f64,
+    /// Fraction where the user pasted an error / stack trace.
+    pub error_paste_rate: f64,
+    /// Fraction of sessions that mention tests.
+    pub test_mention_rate: f64,
+    /// Fraction that mention commits / git.
+    pub commit_mention_rate: f64,
+    /// Session counts by hour-of-day (0–23), for tempo.
+    pub by_hour: Vec<(i64, i64)>,
+    /// Projects with the highest average user-turns (friction), top first.
+    pub high_friction_projects: Vec<(String, f64)>,
+}
+
+/// Words that, opening a user turn after the first, signal a correction / rework.
+const CORRECTION_MARKERS: &[&str] = &[
+    "no,",
+    "no.",
+    "nope",
+    "actually",
+    "that's wrong",
+    "thats wrong",
+    "that's not",
+    "thats not",
+    "not what i",
+    "not quite",
+    "incorrect",
+    "undo",
+    "revert",
+    "rollback",
+    "go back",
+    "try again",
+    "that didn't work",
+    "that didnt work",
+    "doesn't work",
+    "doesnt work",
+    "still broken",
+    "instead",
+    "i meant",
+];
+
+/// Constraint words that make an opening prompt specific.
+const CONSTRAINT_MARKERS: &[&str] = &[
+    "must",
+    "should",
+    "only",
+    "don't",
+    "dont",
+    "never",
+    "always",
+    "exactly",
+    "ensure",
+    "require",
+    "without",
+    "instead of",
+    "make sure",
+];
+
+fn is_user(role: &str) -> bool {
+    let r = role.to_lowercase();
+    r == "user" || r == "human"
+}
+
+fn has_correction(text: &str) -> bool {
+    let t = text.to_lowercase();
+    CORRECTION_MARKERS.iter().any(|m| t.contains(m))
+}
+
+fn has_constraint(text: &str) -> bool {
+    let t = text.to_lowercase();
+    CONSTRAINT_MARKERS.iter().any(|m| t.contains(m))
+}
+
+fn has_code(text: &str) -> bool {
+    text.contains("```") || text.matches("    ").count() > 3 || text.contains(");\n")
+}
+
+fn has_error(text: &str) -> bool {
+    let t = text.to_lowercase();
+    t.contains("error")
+        || t.contains("traceback")
+        || t.contains("exception")
+        || t.contains("panicked")
+        || t.contains("stack trace")
+        || t.contains("undefined")
+        || t.contains("cannot find")
+}
+
+fn mentions(text: &str, needles: &[&str]) -> bool {
+    let t = text.to_lowercase();
+    needles.iter().any(|n| t.contains(n))
+}
+
+/// Hour-of-day (0–23) parsed from an ISO `started_at`, if present.
+fn hour_of(started_at: Option<&str>) -> Option<i64> {
+    let s = started_at?;
+    // `2026-06-24T09:12:00Z` → take the two digits after 'T'.
+    let t = s.split('T').nth(1)?;
+    t.get(..2)?
+        .parse::<i64>()
+        .ok()
+        .filter(|h| (0..24).contains(h))
+}
+
+/// Compute per-session and aggregate metrics. Pure and deterministic.
+pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
+    let mut per = Vec::with_capacity(sessions.len());
+    let mut tool_counts: std::collections::BTreeMap<String, i64> = Default::default();
+    let mut hour_counts: std::collections::BTreeMap<i64, i64> = Default::default();
+    let mut project_turns: std::collections::BTreeMap<String, (f64, i64)> = Default::default();
+    let mut projects: std::collections::BTreeSet<String> = Default::default();
+
+    let mut user_turn_samples: Vec<i64> = Vec::new();
+    let (mut corrected, mut first_miss, mut abandoned) = (0i64, 0i64, 0i64);
+    let (mut first_chars_sum, mut specific, mut code, mut error) = (0i64, 0i64, 0i64, 0i64);
+    let (mut tests, mut commits) = (0i64, 0i64);
+
+    for s in sessions {
+        *tool_counts.entry(s.tool.clone()).or_default() += 1;
+        if let Some(p) = &s.project {
+            projects.insert(p.clone());
+        }
+        if let Some(h) = hour_of(s.started_at.as_deref()) {
+            *hour_counts.entry(h).or_default() += 1;
+        }
+
+        let user_msgs: Vec<&String> = s
+            .messages
+            .iter()
+            .filter(|(r, _)| is_user(r))
+            .map(|(_, c)| c)
+            .collect();
+        let user_turns = user_msgs.len() as i64;
+        user_turn_samples.push(user_turns);
+
+        // Corrections: a correction marker in any user turn *after* the first.
+        let corrections = user_msgs
+            .iter()
+            .skip(1)
+            .filter(|c| has_correction(c))
+            .count() as i64;
+        if corrections > 0 {
+            corrected += 1;
+        }
+        // First-prompt miss: a correction in the 2nd user turn (the first reply
+        // to the opening prompt).
+        if user_msgs.get(1).map(|c| has_correction(c)).unwrap_or(false) {
+            first_miss += 1;
+        }
+
+        let first = user_msgs.first().map(|c| c.as_str()).unwrap_or("");
+        first_chars_sum += first.chars().count() as i64;
+        if has_constraint(first) {
+            specific += 1;
+        }
+
+        let whole: String = s
+            .messages
+            .iter()
+            .filter(|(r, _)| is_user(r))
+            .map(|(_, c)| c.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if has_code(&whole) {
+            code += 1;
+        }
+        if has_error(&whole) {
+            error += 1;
+        }
+        if mentions(
+            &whole,
+            &["test", "pytest", "jest", "cargo test", "unit test"],
+        ) {
+            tests += 1;
+        }
+        if mentions(&whole, &["commit", "git add", "git push"]) {
+            commits += 1;
+        }
+
+        // Resolved heuristic: the last message is the assistant's (it answered),
+        // not a trailing user turn.
+        let resolved = s.messages.last().map(|(r, _)| !is_user(r)).unwrap_or(false);
+        if !resolved {
+            abandoned += 1;
+        }
+
+        if let Some(p) = &s.project {
+            let e = project_turns.entry(p.clone()).or_default();
+            e.0 += user_turns as f64;
+            e.1 += 1;
+        }
+
+        per.push(SessionMetrics {
+            id: s.id.clone(),
+            title: s.title.clone(),
+            tool: s.tool.clone(),
+            project: s.project.clone(),
+            user_turns,
+            corrections,
+            first_prompt_chars: first.chars().count() as i64,
+            friction: user_turns as f64 + corrections as f64 * 2.0,
+            resolved,
+        });
+    }
+
+    let n = sessions.len().max(1) as f64;
+    let mut by_tool: Vec<(String, i64)> = tool_counts.into_iter().collect();
+    by_tool.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let mut high_friction_projects: Vec<(String, f64)> = project_turns
+        .into_iter()
+        .filter(|(_, (_, c))| *c >= 3) // enough samples to be meaningful
+        .map(|(p, (sum, c))| (p, sum / c as f64))
+        .collect();
+    high_friction_projects
+        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    high_friction_projects.truncate(6);
+
+    let metrics = WorkMetrics {
+        sessions: sessions.len() as i64,
+        by_tool,
+        projects: projects.len() as i64,
+        median_user_turns: median(&mut user_turn_samples),
+        mean_user_turns: user_turn_samples.iter().sum::<i64>() as f64 / n,
+        correction_rate: corrected as f64 / n,
+        first_prompt_miss_rate: first_miss as f64 / n,
+        abandonment_rate: abandoned as f64 / n,
+        avg_first_prompt_chars: first_chars_sum as f64 / n,
+        specificity_rate: specific as f64 / n,
+        code_paste_rate: code as f64 / n,
+        error_paste_rate: error as f64 / n,
+        test_mention_rate: tests as f64 / n,
+        commit_mention_rate: commits as f64 / n,
+        by_hour: hour_counts.into_iter().collect(),
+        high_friction_projects,
+    };
+    (metrics, per)
+}
+
+fn median(v: &mut [i64]) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_unstable();
+    let mid = v.len() / 2;
+    if v.len() % 2 == 0 {
+        (v[mid - 1] + v[mid]) as f64 / 2.0
+    } else {
+        v[mid] as f64
+    }
+}
+
+/// Render the aggregate metrics as a compact, human/LLM-readable block — the
+/// quantitative backbone the behavioral insights interpret.
+pub fn summarize(m: &WorkMetrics) -> String {
+    let pct = |x: f64| format!("{:.0}%", x * 100.0);
+    let tools = m
+        .by_tool
+        .iter()
+        .map(|(t, n)| format!("{t} {n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let busiest = m
+        .by_hour
+        .iter()
+        .max_by_key(|(_, n)| *n)
+        .map(|(h, _)| format!("{h:02}:00"))
+        .unwrap_or_else(|| "—".into());
+    let friction = m
+        .high_friction_projects
+        .iter()
+        .take(3)
+        .map(|(p, a)| format!("{p} ({a:.1} turns)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Sessions analyzed: {sessions} across {projects} project(s).\n\
+         Tools: {tools}.\n\
+         User turns per session: median {median:.0}, mean {mean:.1}.\n\
+         Correction rate: {corr} (first-prompt miss: {miss}).\n\
+         Abandoned/unresolved: {aband}.\n\
+         Opening prompt: avg {fpc:.0} chars, {spec} state explicit constraints.\n\
+         Pasted code: {code}; pasted errors: {err}.\n\
+         Mentions tests: {tests}; mentions commits/git: {commits}.\n\
+         Busiest hour: {busiest}.\n\
+         Highest-friction projects (avg user turns): {friction}.",
+        sessions = m.sessions,
+        projects = m.projects,
+        median = m.median_user_turns,
+        mean = m.mean_user_turns,
+        corr = pct(m.correction_rate),
+        miss = pct(m.first_prompt_miss_rate),
+        aband = pct(m.abandonment_rate),
+        fpc = m.avg_first_prompt_chars,
+        spec = pct(m.specificity_rate),
+        code = pct(m.code_paste_rate),
+        err = pct(m.error_paste_rate),
+        tests = pct(m.test_mention_rate),
+        commits = pct(m.commit_mention_rate),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sess(id: &str, project: &str, msgs: &[(&str, &str)]) -> RawSession {
+        RawSession {
+            id: id.into(),
+            title: None,
+            tool: "claude-code".into(),
+            project: Some(project.into()),
+            started_at: Some("2026-06-24T09:00:00Z".into()),
+            messages: msgs
+                .iter()
+                .map(|(r, c)| (r.to_string(), c.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn counts_turns_corrections_and_rates() {
+        let sessions = vec![
+            sess(
+                "a",
+                "/p",
+                &[
+                    ("user", "add a retry with backoff, it must be idempotent"),
+                    ("assistant", "done"),
+                    ("user", "no, that's wrong — revert"),
+                    ("assistant", "fixed"),
+                ],
+            ),
+            sess(
+                "b",
+                "/p",
+                &[("user", "write tests"), ("assistant", "ok done")],
+            ),
+        ];
+        let (m, per) = analyze(&sessions);
+        assert_eq!(m.sessions, 2);
+        assert_eq!(m.median_user_turns, 1.5);
+        assert!(m.correction_rate > 0.4 && m.correction_rate < 0.6); // 1 of 2
+        assert!(m.specificity_rate > 0.4); // "must" in session a's opener
+        assert!(m.test_mention_rate > 0.4); // session b mentions tests
+        assert_eq!(per.len(), 2);
+        let a = per.iter().find(|p| p.id == "a").unwrap();
+        assert_eq!(a.corrections, 1);
+        assert!(a.resolved); // ends on assistant
+    }
+
+    #[test]
+    fn empty_is_safe() {
+        let (m, per) = analyze(&[]);
+        assert_eq!(m.sessions, 0);
+        assert_eq!(m.median_user_turns, 0.0);
+        assert!(per.is_empty());
+        assert!(summarize(&m).contains("Sessions analyzed: 0"));
+    }
+}

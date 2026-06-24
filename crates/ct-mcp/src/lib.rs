@@ -390,6 +390,53 @@ impl Server {
                             }
                         }
                     }
+                },
+                {
+                    "name": "crossthreads_metrics",
+                    "description": "Hard behavioral metrics on HOW the user works, computed across \
+                        their whole history (no model): turns per task, correction/rework rate, \
+                        first-prompt-miss rate, abandonment, opening-prompt specificity, code/error \
+                        paste rates, test/commit mention rates, tempo by hour, and the \
+                        highest-friction projects. Use this to ground any 'how does this user \
+                        work' reasoning in real numbers.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "tool": { "type": "string", "description": "Filter to one tool." },
+                            "project": { "type": "string", "description": "Filter by project substring." },
+                            "since": { "type": "string", "description": "Only on/after this date (YYYY-MM-DD)." },
+                            "until": { "type": "string", "description": "Only on/before this date (YYYY-MM-DD)." }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_work_dna",
+                    "description": "A quantified, evidence-backed profile of how the user works — \
+                        their rhythm, where friction concentrates and why, how they open tasks, and \
+                        signature habits — grounded in the behavioral metrics. Needs a model login.",
+                    "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_gaps",
+                    "description": "The user's gaps and blind spots: practices largely missing (e.g. \
+                        tests, commits), work they start but don't finish, and friction they keep \
+                        absorbing — plus a personalized draft CLAUDE.md to close them. Grounded in \
+                        the metrics. Needs a model login.",
+                    "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_prompt_coach",
+                    "description": "Prompt-craft coaching from the user's own history: contrasts their \
+                        smoothest vs roughest sessions (by friction) and gives concrete tips with \
+                        before→after rewrites drawn from their actual prompts. Needs a model login.",
+                    "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_process_miner",
+                    "description": "Mine repeatable procedures the user keeps re-deriving across \
+                        sessions and turn the strongest ones into draft, installable SKILL.md \
+                        artifacts. Use to find what's worth automating. Needs a model login.",
+                    "inputSchema": { "type": "object", "properties": {} }
                 }
             ]
         })
@@ -419,6 +466,11 @@ impl Server {
             "crossthreads_ask" => Ok(self.call_ask(&args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
             "crossthreads_graph" => Ok(self.call_graph(&args)),
+            "crossthreads_metrics" => Ok(self.call_metrics(&args)),
+            "crossthreads_work_dna" => Ok(self.call_insight("work_dna", &args)),
+            "crossthreads_gaps" => Ok(self.call_insight("gaps", &args)),
+            "crossthreads_prompt_coach" => Ok(self.call_insight("prompt_coach", &args)),
+            "crossthreads_process_miner" => Ok(self.call_insight("process_miner", &args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -712,6 +764,22 @@ impl Server {
             }
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("graph failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_metrics(&self, args: &Value) -> Value {
+        match self.client.call(&Request::Metrics {
+            filters: filters_from(args),
+        }) {
+            Ok(Response::Metrics { metrics }) => {
+                if metrics.sessions == 0 {
+                    return tool_text("No sessions indexed yet.".to_string());
+                }
+                // Reuse the same compact summary the insights are grounded in.
+                tool_text(ct_daemon::behavior::summarize(&metrics))
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("metrics failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 }

@@ -223,6 +223,11 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_ask` | cited answer to a question, synthesized from history — **implemented** |
 | `crossthreads_activity` | session activity over time (day/week) — **implemented** |
 | `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
+| `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
+| `crossthreads_work_dna` | quantified profile of how the user works — **implemented** |
+| `crossthreads_gaps` | gaps/blind spots + draft CLAUDE.md — **implemented** |
+| `crossthreads_prompt_coach` | prompt coaching from smoothest vs roughest sessions — **implemented** |
+| `crossthreads_process_miner` | repeatable procedures → draft skills — **implemented** |
 | `crossthreads_open_loops` | unresolved work across recent sessions — **implemented** |
 | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering — **implemented** |
 | `crossthreads_decision_log` | notable decisions + rationale — **implemented** |
@@ -296,6 +301,27 @@ Markdown plus the source conversation ids drawn from.
   `Request::Graph`) — a deterministic knowledge graph: `{ nodes: [{ id, label,
   kind, weight }], edges: [{ source, target, weight }] }` over projects, tools,
   and tags. Offline.
+
+### 7.4 Behavioral insights ("how you work")
+
+A two-layer design: a **deterministic metrics pass** over the user's *own*
+messages and interaction shapes (no model), interpreted by **model-backed
+products** so they cite real numbers instead of guessing.
+
+- **`metrics`** (`crossthreads_metrics`, CLI `crossthreads metrics`, daemon
+  `Request::Metrics`) — `WorkMetrics`: turns per task (median/mean), correction
+  & first-prompt-miss rates, abandonment, opening-prompt specificity, code/error
+  paste rates, test/commit mention rates, tempo by hour, highest-friction
+  projects. Offline. This is the backbone the four products below are grounded in.
+- **`work_dna`** — a quantified profile of how the user works.
+- **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
+- **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with
+  before→after rewrites from the user's own prompts.
+- **`process_miner`** — clusters of repeated work mined into draft `SKILL.md`s.
+
+The four products are insight kinds (daemon `Request::Insight { kind }`, the
+`crossthreads_*` tools, CLI `crossthreads insight <kind>`); they gather metrics
+under the store lock, drop it, then call the model.
 
 ---
 

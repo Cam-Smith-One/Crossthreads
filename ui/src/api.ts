@@ -232,7 +232,11 @@ export type InsightKind =
   | "decision_log"
   | "how_i_work"
   | "digest"
-  | "recurrence";
+  | "recurrence"
+  | "work_dna"
+  | "gaps"
+  | "prompt_coach"
+  | "process_miner";
 
 export interface Insight {
   markdown: string;
@@ -309,6 +313,32 @@ export interface Graph {
 export async function getGraph(limit?: number): Promise<Graph> {
   const data = await rpc<{ graph: Graph }>({ op: "graph", limit });
   return data.graph ?? { nodes: [], edges: [] };
+}
+
+// --- Behavioral metrics ("how you work") --------------------------------
+
+export interface WorkMetrics {
+  sessions: number;
+  by_tool: [string, number][];
+  projects: number;
+  median_user_turns: number;
+  mean_user_turns: number;
+  correction_rate: number;
+  first_prompt_miss_rate: number;
+  abandonment_rate: number;
+  avg_first_prompt_chars: number;
+  specificity_rate: number;
+  code_paste_rate: number;
+  error_paste_rate: number;
+  test_mention_rate: number;
+  commit_mention_rate: number;
+  by_hour: [number, number][];
+  high_friction_projects: [string, number][];
+}
+
+export async function getMetrics(filters: Filters = {}): Promise<WorkMetrics | null> {
+  const data = await rpc<{ metrics: WorkMetrics }>({ op: "metrics", filters: clean(filters) });
+  return data.metrics ?? null;
 }
 
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
