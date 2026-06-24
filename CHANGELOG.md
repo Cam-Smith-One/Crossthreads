@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.6.1] - 2026-06-24
+
+### Changed
+- **Insights span the whole history, not just recent threads.** The synthesis
+  corpus now includes **skills/prompts** alongside conversations and **every
+  tool**, reads a much larger subset (200 records for open loops/digest, 400 for
+  knowledge cards / decisions / how-I-work), with a bigger per-record and total
+  text budget (~300k chars / ~75k tokens) and a roomier output budget. Skills are
+  tagged in the corpus so the model can weigh them appropriately.
+
+### Fixed
+- **Repeated macOS Keychain prompts.** The LLM key store now caches each keychain
+  item in memory for the daemon's lifetime, so provider resolution on the
+  completion hot path reads each secret at most once per launch instead of on
+  every model call — no more prompt storms during synthesis. Writes update the
+  cache in place. (After upgrading, click **Always Allow** once per secret.)
+
 ## [0.6.0] - 2026-06-24
 
 ### Added

@@ -375,7 +375,7 @@ impl Daemon {
         let n = limit.unwrap_or_else(|| kind.default_limit());
         let convos = {
             let store = self.read_lock();
-            store.recent_conversations(n, 1200)?
+            store.recent_conversations(n, 1500)?
         };
         let (markdown, sources) = insights::synthesize(&convos, kind)?;
         Ok(Response::Insight { markdown, sources })

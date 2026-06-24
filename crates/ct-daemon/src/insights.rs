@@ -30,11 +30,15 @@ impl Kind {
         }
     }
 
-    /// Default number of recent conversations to read.
+    /// Default number of recent records (threads + skills, all tools) to read.
+    /// Generous by default so insights span the whole history; the corpus is
+    /// still byte-bounded in [`synthesize`], and callers can override the limit.
     pub fn default_limit(self) -> usize {
         match self {
-            Kind::OpenLoops | Kind::Digest => 40,
-            Kind::KnowledgeCards | Kind::DecisionLog | Kind::HowIWork => 80,
+            // Open loops / digest lean recent, but still cast a wide net.
+            Kind::OpenLoops | Kind::Digest => 200,
+            // Cards / decisions / how-I-work benefit from maximum breadth.
+            Kind::KnowledgeCards | Kind::DecisionLog | Kind::HowIWork => 400,
         }
     }
 
@@ -109,19 +113,25 @@ pub fn synthesize(convos: &[RecentConversation], kind: Kind) -> Result<(String, 
             .as_deref()
             .map(|s| s.get(..10).unwrap_or(s))
             .unwrap_or("");
+        // Tag skills explicitly so the model can weigh them appropriately.
+        let kind = if c.kind == "skill" { " · skill" } else { "" };
         corpus.push_str(&format!(
-            "\n### [{}] {title} ({}, {date})\n{}\n",
+            "\n### [{}{kind}] {title} ({}, {date})\n{}\n",
             c.tool,
             c.project.as_deref().unwrap_or("-"),
             c.text.trim()
         ));
-        // Keep the prompt bounded regardless of how many sessions were asked for.
-        if corpus.len() > 60_000 {
+        // Keep the prompt bounded regardless of how many records were asked for.
+        // Generous budget so a large, multi-tool history still fits the model's
+        // context (~75k tokens of input on the default models).
+        if corpus.len() > 300_000 {
             break;
         }
     }
     let user = format!("{}\n\n--- SESSIONS ---\n{corpus}", kind.instruction());
-    let markdown = ct_llm::complete_long(kind.system(), &user)?;
+    // Roomier output budget than a label call — insights synthesize a lot of
+    // input into a structured Markdown answer.
+    let markdown = ct_llm::complete_with(kind.system(), &user, 2048)?;
     Ok((markdown, sources))
 }
 
