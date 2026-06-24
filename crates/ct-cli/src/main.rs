@@ -17,6 +17,7 @@ mod graph;
 mod index;
 mod insight;
 mod llm_auth;
+mod metrics;
 mod search;
 mod skill;
 mod status;
@@ -36,12 +37,14 @@ COMMANDS:
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
     themes            Cluster your sessions into themes (--k N; --name to label
                       them with your local Claude/Codex login)
-    insight <KIND>    Synthesize over recent sessions with your model login:
+    insight <KIND>    Synthesize over your history with your model login:
                       open_loops | knowledge_cards | decision_log | how_i_work |
-                      digest | recurrence (--limit N)
+                      digest | recurrence | work_dna | gaps | prompt_coach |
+                      process_miner (--limit N)
     ask <QUESTION>    Answer a question from your history (cited; uses your model)
     activity          Session activity over time (--by day|week)
     graph             Knowledge graph of projects, tools, and tags
+    metrics           Behavioral metrics: how you work (turns, friction, tempo)
     llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
@@ -92,6 +95,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("ask") => ask::run(&args[1..]),
         Some("activity") => activity::run(&args[1..]),
         Some("graph") => graph::run(&args[1..]),
+        Some("metrics") => metrics::run(&args[1..]),
         Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");

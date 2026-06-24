@@ -14,9 +14,11 @@ use ct_core::model::{Conversation, Role};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+pub mod behavior;
 mod schema;
 pub mod themes;
 
+pub use behavior::{RawSession, SessionMetrics, WorkMetrics};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
 
@@ -975,8 +977,96 @@ impl Store {
         Ok(Graph { nodes, edges })
     }
 
-    /// Semantic search over stored vectors, collapsed to the best message per
-    /// conversation. `query` is the query embedding.
+    /// Behavioral metrics over the indexed coding sessions — the deterministic
+    /// "how you work" backbone (see [`behavior`]). Loads each thread's messages
+    /// (content bounded) and aggregates. Honors the simple `Filters`.
+    pub fn work_metrics(
+        &self,
+        f: &Filters,
+    ) -> Result<(behavior::WorkMetrics, Vec<behavior::SessionMetrics>)> {
+        // Pull conversation metadata first, applying filters, then attach
+        // messages. One streaming pass over messages, grouped by conversation.
+        let mut meta = self.conn.prepare(
+            "SELECT id, tool, project, title, started_at FROM conversations WHERE kind = 'thread'",
+        )?;
+        let mut order: Vec<String> = Vec::new();
+        let mut sessions: std::collections::HashMap<String, behavior::RawSession> =
+            Default::default();
+        let rows = meta.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, tool, project, title, started_at) = row?;
+            // Apply filters (tool / project substring / since / until) up front.
+            if let Some(t) = &f.tool {
+                if &tool != t {
+                    continue;
+                }
+            }
+            if let Some(p) = &f.project {
+                if !project.as_deref().unwrap_or("").contains(p.as_str()) {
+                    continue;
+                }
+            }
+            if f.since.is_some() || f.until.is_some() {
+                let date = started_at.as_deref().map(|s| s.get(..10).unwrap_or(s));
+                let Some(date) = date else { continue };
+                if let Some(since) = &f.since {
+                    if date < since.as_str() {
+                        continue;
+                    }
+                }
+                if let Some(until) = &f.until {
+                    if date > until.as_str() {
+                        continue;
+                    }
+                }
+            }
+            order.push(id.clone());
+            sessions.insert(
+                id.clone(),
+                behavior::RawSession {
+                    id,
+                    title,
+                    tool,
+                    project,
+                    started_at,
+                    messages: Vec::new(),
+                },
+            );
+        }
+
+        // Attach messages (content bounded to keep this cheap on big corpora).
+        let mut msg = self.conn.prepare(
+            "SELECT conversation_id, role, substr(content, 1, 2000) FROM messages ORDER BY seq",
+        )?;
+        let mrows = msg.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in mrows {
+            let (cid, role, content) = row?;
+            if let Some(s) = sessions.get_mut(&cid) {
+                s.messages.push((role, content));
+            }
+        }
+
+        let ordered: Vec<behavior::RawSession> = order
+            .into_iter()
+            .filter_map(|id| sessions.remove(&id))
+            .collect();
+        Ok(behavior::analyze(&ordered))
+    }
+
     ///
     /// Fast path: vectors are kept L2-normalized in memory (rebuilt only when
     /// the index changes), so this scores each candidate with a single dot

@@ -48,16 +48,13 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
              decision_log    Notable decisions and their rationale\n  \
              how_i_work      A profile of your conventions for a CLAUDE.md/AGENTS.md\n  \
              digest          A short reflective digest of recent work\n  \
-             recurrence      Recurring problems/patterns you keep hitting"
+             recurrence      Recurring problems/patterns you keep hitting\n  \
+             work_dna        A quantified profile of how you work\n  \
+             gaps            Blind spots + a personalized CLAUDE.md\n  \
+             prompt_coach    Your smoothest vs roughest prompts, with rewrites\n  \
+             process_miner   Repeatable procedures mined into draft skills"
         );
         return Ok(ExitCode::FAILURE);
-    };
-
-    let Some(kind) = Kind::parse(&kind_arg) else {
-        bail!(
-            "unknown insight kind `{kind_arg}` — expected one of: open_loops, knowledge_cards, \
-             decision_log, how_i_work, digest"
-        );
     };
 
     if !ct_llm::available() {
@@ -69,6 +66,30 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
 
     let db_path = crate::resolve_db(db)?;
     let store = Store::open(&db_path)?;
+
+    // Behavioral kinds ("how you work") gather from the metrics layer.
+    if let Some(b) = insights::Behavioral::parse(&kind_arg) {
+        let input = insights::gather_behavioral(&store, b)?;
+        drop(store);
+        let (markdown, sources) = insights::synthesize_behavioral(input)?;
+        println!("{markdown}");
+        if !sources.is_empty() {
+            eprintln!(
+                "\n(grounded in {} session(s) + your full-history metrics)",
+                sources.len()
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let Some(kind) = Kind::parse(&kind_arg) else {
+        bail!(
+            "unknown insight kind `{kind_arg}` — expected one of: open_loops, knowledge_cards, \
+             decision_log, how_i_work, digest, recurrence, work_dna, gaps, prompt_coach, \
+             process_miner"
+        );
+    };
+
     let n = limit.unwrap_or_else(|| kind.default_limit());
     let convos = store.recent_conversations(n, 1500)?;
     drop(store);

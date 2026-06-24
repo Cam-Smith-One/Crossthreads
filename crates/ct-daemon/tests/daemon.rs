@@ -203,6 +203,54 @@ fn activity_and_graph_over_the_wire() {
 }
 
 #[test]
+fn metrics_over_the_wire() {
+    // Two user turns, one a correction → correction_rate should register.
+    let mut store = Store::open_in_memory().unwrap();
+    let convo = {
+        let mut c = dated(
+            Tool::ClaudeCode,
+            "/code/api",
+            "add retry, it must be idempotent",
+            "2026-06-01",
+        );
+        c.messages.push(Message {
+            id: "m2".into(),
+            role: Role::User,
+            content: "no, that's wrong — revert".into(),
+            timestamp: None,
+            code_snippets: vec![],
+            tool_calls: vec![],
+            metadata: serde_json::Value::Null,
+        });
+        c
+    };
+    store.upsert_conversation(&convo).unwrap();
+    ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    match client
+        .call(&Request::Metrics {
+            filters: Default::default(),
+        })
+        .unwrap()
+    {
+        Response::Metrics { metrics } => {
+            assert_eq!(metrics.sessions, 1);
+            assert!(
+                metrics.correction_rate > 0.0,
+                "the correction should register"
+            );
+            assert!(
+                metrics.specificity_rate > 0.0,
+                "\"must\" makes the opener specific"
+            );
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn ask_retrieves_and_answers() {
     let (addr, _h) = start();
     let client = Client::new(addr);

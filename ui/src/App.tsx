@@ -21,6 +21,7 @@ import {
   ask,
   getActivity,
   getGraph,
+  getMetrics,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -37,6 +38,7 @@ import {
   type Answer,
   type ActivityBucket,
   type Graph,
+  type WorkMetrics,
   type Hit,
   type Mode,
   type Status,
@@ -104,6 +106,7 @@ export function App() {
   const [insightSources, setInsightSources] = useState<number>(0);
   const [insightBusyKind, setInsightBusyKind] = useState<InsightKind | null>(null);
   const [insightError, setInsightError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<WorkMetrics | null>(null);
 
   async function runInsight(kind: InsightKind) {
     setShowInsights(true);
@@ -111,6 +114,8 @@ export function App() {
     setInsightMd(null);
     setInsightError(null);
     setInsightBusyKind(kind);
+    // The deterministic metrics strip needs no model — load it once on open.
+    if (!metrics) getMetrics().then(setMetrics).catch(() => {});
     try {
       const res = await getInsight(kind);
       setInsightMd(res.markdown);
@@ -602,8 +607,8 @@ export function App() {
           </button>
           <button
             className="settings-toggle"
-            onClick={() => runInsight("open_loops")}
-            title="Insights — open loops, decisions, and more from your recent work"
+            onClick={() => runInsight("work_dna")}
+            title="Insights — how you work, gaps, prompt coaching, repeatable processes, and more"
             aria-label="Open insights"
           >
             💡
@@ -1043,9 +1048,23 @@ export function App() {
                 Close
               </button>
             </div>
+            {metrics && metrics.sessions > 0 && (
+              <div className="metric-strip">
+                <span><b>{metrics.sessions}</b> sessions</span>
+                <span><b>{metrics.median_user_turns}</b> median turns</span>
+                <span><b>{Math.round(metrics.correction_rate * 100)}%</b> rework</span>
+                <span><b>{Math.round(metrics.abandonment_rate * 100)}%</b> unresolved</span>
+                <span><b>{Math.round(metrics.specificity_rate * 100)}%</b> specific prompts</span>
+                <span><b>{Math.round(metrics.test_mention_rate * 100)}%</b> mention tests</span>
+              </div>
+            )}
             <div className="insight-tabs">
               {(
                 [
+                  ["work_dna", "Work DNA"],
+                  ["gaps", "Gaps"],
+                  ["prompt_coach", "Prompt coach"],
+                  ["process_miner", "Processes"],
                   ["open_loops", "Open loops"],
                   ["decision_log", "Decisions"],
                   ["knowledge_cards", "Knowledge cards"],
@@ -1065,9 +1084,9 @@ export function App() {
               ))}
             </div>
             <p className="doc-desc">
-              Synthesized from your recent sessions by your configured model
-              (Settings → Models). Read-only — nothing is sent anywhere you didn't
-              set up.
+              <b>Work DNA</b>, <b>Gaps</b>, <b>Prompt coach</b>, and <b>Processes</b> are
+              grounded in the metrics above (computed across your whole history); the rest
+              synthesize recent sessions. All use your configured model (Settings → Models).
             </p>
             {insightBusyKind && <p className="doc-desc">Synthesizing…</p>}
             {insightError && <div className="error">{insightError}</div>}

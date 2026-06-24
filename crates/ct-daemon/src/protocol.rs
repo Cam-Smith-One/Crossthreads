@@ -195,6 +195,12 @@ pub enum Request {
         #[serde(default)]
         limit: Option<usize>,
     },
+    /// Deterministic behavioral metrics ("how you work") over the indexed
+    /// sessions — turns, corrections, friction, tempo, specificity. No model.
+    Metrics {
+        #[serde(default)]
+        filters: Filters,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -327,6 +333,10 @@ pub enum Response {
     /// The knowledge graph (nodes + weighted edges).
     Graph {
         graph: ct_store::Graph,
+    },
+    /// Behavioral metrics ("how you work").
+    Metrics {
+        metrics: ct_store::WorkMetrics,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {
