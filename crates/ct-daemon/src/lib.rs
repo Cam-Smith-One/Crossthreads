@@ -311,6 +311,7 @@ impl Daemon {
             Request::GetLlmConfig => llm_config(),
             Request::SetLlmKey { provider, key } => set_llm_key(&provider, &key),
             Request::SetLlmProvider { provider } => set_llm_provider(&provider),
+            Request::Themes { k } => self.themes(k.unwrap_or(8)).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -339,6 +340,13 @@ impl Daemon {
         Ok(Response::Facets {
             tools: store.facets_tools()?,
             tags: store.facets_tags()?,
+        })
+    }
+
+    fn themes(&self, k: usize) -> Result<Response> {
+        let store = self.read_lock();
+        Ok(Response::Themes {
+            themes: store.themes(k, 8)?,
         })
     }
 

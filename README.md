@@ -88,6 +88,9 @@ CT_ONNX=1 scripts/demo.sh
 crossthreads search "where did we set up the websocket reconnect?" --mode hybrid
 crossthreads context "oauth refresh retry" > prior-context.md   # paste-ready block
 crossthreads status                                              # index health
+crossthreads themes --k 8                                        # cluster your work into themes
+crossthreads themes --name                                       # …and name them with your local model login
+crossthreads llm-auth                                            # which model credentials are available
 ```
 
 </details>
@@ -99,6 +102,8 @@ crossthreads status                                              # index health
 | 🔎 **Hybrid search** | FTS5 keyword (BM25) **+** semantic embeddings fused with Reciprocal Rank Fusion — finds threads by meaning, not just keywords. |
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
+| 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; no model calls. |
+| 🤝 **Bring your own model (optional)** | Reuse your existing **Claude Code / Codex / Gemini** login — or paste an API key in Settings → Models (stored in the OS keychain) — to label themes. Off by default; the index never calls a model. |
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
@@ -158,7 +163,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets four tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets six tools:
 
 | Tool | Purpose |
 |---|---|
@@ -166,6 +171,8 @@ Point any MCP client at the `ct-mcp` binary and your agent gets four tools:
 | `crossthreads_recall` | answer-oriented digest of relevant past sessions for a question |
 | `crossthreads_build_context` | render top matches into a paste-ready context block |
 | `crossthreads_status` | index health and counts |
+| `crossthreads_devices` | list the devices available to cross-device search |
+| `crossthreads_themes` | cluster the user's sessions into themes (label, size, tool mix, samples) |
 
 ```jsonc
 // e.g. in an MCP client config

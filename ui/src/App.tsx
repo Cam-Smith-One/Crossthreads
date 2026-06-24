@@ -16,6 +16,7 @@ import {
   removePeer,
   search,
   getLlmConfig,
+  getThemes,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -27,6 +28,7 @@ import {
   type FederationConfig,
   type Filters,
   type LlmConfig,
+  type Theme,
   type Hit,
   type Mode,
   type Status,
@@ -60,6 +62,18 @@ export function App() {
   const [reindexing, setReindexing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "models">("docs");
+  const [themes, setThemes] = useState<Theme[] | null>(null);
+  const [showThemes, setShowThemes] = useState(false);
+
+  async function openThemes() {
+    setShowThemes(true);
+    setThemes(null);
+    try {
+      setThemes(await getThemes(8));
+    } catch {
+      setThemes([]);
+    }
+  }
 
   // Cross-device (ADR-010): known devices, which are selected to search, and
   // the on-demand discovery results.
@@ -379,6 +393,10 @@ export function App() {
   // Keyboard navigation over results (j/k or arrows; Enter opens; Esc closes).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (showThemes) {
+        if (e.key === "Escape") setShowThemes(false);
+        return;
+      }
       if (showSettings) {
         if (e.key === "Escape") setShowSettings(false);
         return;
@@ -404,7 +422,7 @@ export function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hits, selected, open, showSettings]);
+  }, [hits, selected, open, showSettings, showThemes]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -457,6 +475,14 @@ export function App() {
             aria-label="Toggle theme"
           >
             {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={openThemes}
+            title="Theme map — what you've been working on"
+            aria-label="Open theme map"
+          >
+            🗺️
           </button>
           <button
             className="settings-toggle"
@@ -765,6 +791,79 @@ export function App() {
                     Copy path
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showThemes && (
+        <div className="overlay" onClick={() => setShowThemes(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Theme map</h2>
+              <button className="secondary" onClick={() => setShowThemes(false)}>
+                Close
+              </button>
+            </div>
+            <p className="doc-desc">
+              Your indexed sessions clustered by topic — what you've been working on,
+              across tools. Click a session to open it.
+            </p>
+            {!themes && <p className="doc-desc">Clustering…</p>}
+            {themes && themes.length === 0 && (
+              <p className="doc-desc">
+                No themes yet — index some sessions first (semantic themes need
+                embeddings).
+              </p>
+            )}
+            {themes && themes.length > 0 && (
+              <div className="theme-grid">
+                {themes.map((t, i) => {
+                  // Scale the card by cluster size (sqrt keeps big themes sane).
+                  const max = Math.max(...themes.map((x) => x.size));
+                  const weight = Math.sqrt(t.size / max);
+                  return (
+                    <div
+                      key={i}
+                      className="theme-card"
+                      style={{ flexGrow: 1 + weight * 3, minWidth: `${180 + weight * 120}px` }}
+                    >
+                      <div className="theme-card-head">
+                        <span className="theme-label">{t.label}</span>
+                        <span className="theme-size">{t.size}</span>
+                      </div>
+                      <div className="theme-tools">
+                        {t.tools.slice(0, 3).map(([name, n]) => (
+                          <span key={name} className="theme-tool-chip">
+                            {name} {n}
+                          </span>
+                        ))}
+                      </div>
+                      <ul className="theme-samples">
+                        {t.samples.slice(0, 4).map((s) => (
+                          <li key={s.id}>
+                            <button
+                              className="linklike"
+                              title={s.title ?? ""}
+                              onClick={() => {
+                                setShowThemes(false);
+                                openConversation(s.id);
+                              }}
+                            >
+                              {(s.title ?? "(untitled)").trim()}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

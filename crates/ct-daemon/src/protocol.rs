@@ -150,6 +150,11 @@ pub enum Request {
     SetLlmKey { provider: String, key: String },
     /// Pin the active provider (`anthropic` | `openai`); empty clears the pin.
     SetLlmProvider { provider: String },
+    /// Cluster the indexed conversations into themes (for the UI map and MCP).
+    Themes {
+        #[serde(default)]
+        k: Option<usize>,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -253,6 +258,10 @@ pub enum Response {
         providers: Vec<ct_llm::ProviderStatus>,
         /// The pinned active provider id, if any (`anthropic` | `openai`).
         active: Option<String>,
+    },
+    /// Conversation themes (clusters) for the UI map and MCP.
+    Themes {
+        themes: Vec<ct_store::Theme>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {
