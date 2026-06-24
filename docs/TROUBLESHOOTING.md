@@ -147,6 +147,32 @@ argument on the MCP/HTTP `context` call.
 
 ---
 
+## Models & insights
+
+### macOS keeps asking to use the "crossthreads" Keychain item
+macOS grants Keychain access **per binary**. After you install a new version, the
+freshly downloaded `crossthreadsd` isn't the same binary you previously trusted,
+so it asks again. Click **Always Allow** (not just *Allow*) the first time each
+stored secret is read — there are only a few (the model key and, if you paired
+devices, the federation token). After that it stays quiet for that version. The
+daemon caches each secret in memory for its lifetime, so a single insight no
+longer triggers a burst of prompts.
+
+### Insights / "Name with AI" say a model is needed
+The 💡 insights and the theme map's **✨ Name with AI** call a model. Set one up
+in **Settings → Models** (paste a key, or reuse your Claude Code / Codex / Gemini
+login), or check `crossthreads llm-auth` from the terminal. Search, recall, and
+the offline theme labels work with no model at all.
+
+### An insight is slow or feels thin
+Insights synthesize your **whole history** — every tool plus your skills/prompts
+(up to a few hundred records). That's a larger model call than search, so it
+takes a few seconds. Scope it down with `--limit N` on the CLI
+(`crossthreads insight open_loops --limit 50`) if you want a faster, narrower
+pass.
+
+---
+
 ## MCP server (agents)
 
 ### The MCP tools fail / "connecting to daemon … connection refused"

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft v0.1 (design sketch, pre-implementation) |
-| **Last updated** | 2026-06-18 |
+| **Last updated** | 2026-06-24 |
 | **Companion to** | [PRD.md](PRD.md) · [REQUIREMENTS.md](REQUIREMENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Covers** | FR-UI-02 (CLI/JSON), FR-UI-03 (Agent API), FR-UI-04 (MCP), FR-ACT-01..04 |
 
@@ -268,9 +268,13 @@ over the user's recent sessions with their configured model. One shared engine
 | `digest` | `crossthreads_digest` | a short reflective digest of recent work |
 
 These need a model login (Settings → Models / `crossthreads llm-auth`); without
-one they return a clear hint. The daemon gathers conversation text under the
-read lock, releases it, then calls the model — searches stay responsive during
-synthesis. Output is Markdown plus the source conversation ids drawn from.
+one they return a clear hint. The corpus spans the user's **whole history** —
+every tool *and* their skills/prompts, not just recent chat threads — reading a
+large recent subset (200 records for `open_loops`/`digest`, 400 for the others)
+bounded to ~300k chars. Override the count with `limit` (CLI `--limit N`, or the
+tools' `limit` arg). The daemon gathers the text under the read lock, releases
+it, then calls the model — searches stay responsive during synthesis. Output is
+Markdown plus the source conversation ids drawn from.
 
 ---
 
