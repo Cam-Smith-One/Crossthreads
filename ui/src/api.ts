@@ -203,6 +203,27 @@ export function getLlmConfig(): Promise<LlmConfig> {
   return rpc<LlmConfig>({ op: "get_llm_config" });
 }
 
+// --- Themes (clusters) --------------------------------------------------
+
+export interface ThemeSample {
+  id: string;
+  title?: string | null;
+  tool: string;
+}
+
+export interface Theme {
+  label: string;
+  size: number;
+  tools: [string, number][];
+  samples: ThemeSample[];
+  conversation_ids: string[];
+}
+
+export async function getThemes(k?: number): Promise<Theme[]> {
+  const data = await rpc<{ themes: Theme[] }>({ op: "themes", k });
+  return data.themes;
+}
+
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
 export function setLlmKey(provider: string, key: string): Promise<LlmConfig> {
   return rpc<LlmConfig>({ op: "set_llm_key", provider, key });
