@@ -15,8 +15,10 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 mod schema;
+pub mod themes;
 
 pub use schema::SCHEMA_VERSION;
+pub use themes::{Theme, ThemeSample};
 
 /// Minimum cosine similarity for a vector to count as a semantic match.
 /// Tuned to filter near-zero matches for both the hash and ONNX embedders
@@ -649,6 +651,13 @@ impl Store {
             });
         }
         Ok(out)
+    }
+
+    /// Cluster the indexed conversations into at most `k` themes, each carrying
+    /// up to `max_samples` sample conversations. See [`themes::cluster`].
+    pub fn themes(&self, k: usize, max_samples: usize) -> Result<Vec<Theme>> {
+        let convos = self.conversation_vectors()?;
+        Ok(themes::cluster(&convos, k, max_samples))
     }
 
     /// Semantic search over stored vectors, collapsed to the best message per

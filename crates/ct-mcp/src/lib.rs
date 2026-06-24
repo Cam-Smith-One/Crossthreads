@@ -208,6 +208,23 @@ impl Server {
                         plus approved peers) and whether each is online. Use to discover \
                         the device names accepted by the other tools' `devices` argument.",
                     "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_themes",
+                    "description": "Cluster the user's indexed AI coding sessions into \
+                        themes and return each theme's label, size, tool mix, and a few \
+                        sample titles. Use to get an overview of what the user has been \
+                        working on across tools.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "k": {
+                                "type": "integer",
+                                "description": "Number of themes (clusters) to produce. Default 8.",
+                                "minimum": 1
+                            }
+                        }
+                    }
                 }
             ]
         })
@@ -227,6 +244,7 @@ impl Server {
             "crossthreads_build_context" => Ok(self.call_build_context(&args)),
             "crossthreads_status" => Ok(self.call_status()),
             "crossthreads_devices" => Ok(self.call_devices()),
+            "crossthreads_themes" => Ok(self.call_themes(&args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -356,6 +374,45 @@ impl Server {
             )),
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("status failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_themes(&self, args: &Value) -> Value {
+        let k = args.get("k").and_then(|v| v.as_u64()).map(|n| n as usize);
+        match self.client.call(&Request::Themes { k }) {
+            Ok(Response::Themes { themes }) => {
+                if themes.is_empty() {
+                    return tool_text(
+                        "No themes yet — the index has no embedded conversations. \
+                         Run `crossthreads index` first."
+                            .to_string(),
+                    );
+                }
+                let total: usize = themes.iter().map(|t| t.size).sum();
+                let mut out = format!("{} themes across {total} conversations:\n", themes.len());
+                for t in &themes {
+                    let tools = t
+                        .tools
+                        .iter()
+                        .take(3)
+                        .map(|(name, n)| format!("{name} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    out.push_str(&format!(
+                        "\n## {} ({} sessions · {tools})\n",
+                        t.label, t.size
+                    ));
+                    for s in t.samples.iter().take(4) {
+                        out.push_str(&format!(
+                            "  - {}\n",
+                            s.title.as_deref().unwrap_or("(untitled)").trim()
+                        ));
+                    }
+                }
+                tool_text(out)
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("themes failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 }
