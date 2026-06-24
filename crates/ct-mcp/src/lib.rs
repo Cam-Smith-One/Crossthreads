@@ -437,6 +437,22 @@ impl Server {
                         sessions and turn the strongest ones into draft, installable SKILL.md \
                         artifacts. Use to find what's worth automating. Needs a model login.",
                     "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "crossthreads_weekly_review",
+                    "description": "The user's weekly review — what they worked on in the last 7 \
+                        days, how they worked (grounded in metrics), and one concrete thing to try \
+                        next week. Returns a cached review when fresh; pass force=true to \
+                        regenerate. Uses the model when configured, else returns the week's metrics.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "force": {
+                                "type": "boolean",
+                                "description": "Regenerate even if a fresh cached review exists."
+                            }
+                        }
+                    }
                 }
             ]
         })
@@ -471,6 +487,7 @@ impl Server {
             "crossthreads_gaps" => Ok(self.call_insight("gaps", &args)),
             "crossthreads_prompt_coach" => Ok(self.call_insight("prompt_coach", &args)),
             "crossthreads_process_miner" => Ok(self.call_insight("process_miner", &args)),
+            "crossthreads_weekly_review" => Ok(self.call_weekly(&args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -764,6 +781,17 @@ impl Server {
             }
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("graph failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_weekly(&self, args: &Value) -> Value {
+        let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        match self.client.call(&Request::WeeklyReview { force }) {
+            Ok(Response::WeeklyReview { markdown, .. }) => tool_text(markdown),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!(
+                "weekly_review failed ({e:#}). Is crossthreadsd running?"
+            )),
         }
     }
 

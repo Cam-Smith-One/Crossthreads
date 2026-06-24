@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.9.0] - 2026-06-24
+
+### Added
+- **Proactive weekly review** — "what you worked on, how you worked, and one
+  thing to try next week," generated from the last 7 days. The web app shows a
+  banner (and a 📋 badge) when a fresh review you haven't seen is ready; the
+  daemon regenerates it in the background on startup once it's a week stale.
+  Also `crossthreads weekly [--force]` (cron/launchd-friendly) and the
+  `crossthreads_weekly_review` MCP tool. Cached in the index; degrades to the
+  week's metrics with no model.
+
+### Changed
+- **Index the full width of the data.** Connectors already parsed agent
+  **tool-calls** (Edit/Bash/Read…), but the store dropped them on insert —
+  schema **v8** now persists per-message agent-action names (re-index to
+  backfill). The behavioral metrics now leverage that plus fields that were
+  stored-but-unused: **delegation** (agent actions per session + your top
+  actions), **languages** you work in (from fenced code blocks), your **model
+  mix**, and **median session length** (from `started_at`→`ended_at`). These
+  flow into `crossthreads metrics`, the metric strip, and every behavioral
+  insight, so "how you work" is grounded in much more signal.
+
+### Notes
+- MCP now exposes **21 tools**. After upgrading, run a re-index so the new
+  agent-action column backfills from your existing session files.
+
 ## [0.8.0] - 2026-06-24
 
 ### Added

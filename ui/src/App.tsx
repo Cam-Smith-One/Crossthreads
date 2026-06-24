@@ -22,6 +22,7 @@ import {
   getActivity,
   getGraph,
   getMetrics,
+  getWeeklyReview,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -39,6 +40,7 @@ import {
   type ActivityBucket,
   type Graph,
   type WorkMetrics,
+  type WeeklyReview,
   type Hit,
   type Mode,
   type Status,
@@ -107,6 +109,60 @@ export function App() {
   const [insightBusyKind, setInsightBusyKind] = useState<InsightKind | null>(null);
   const [insightError, setInsightError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<WorkMetrics | null>(null);
+
+  // Proactive weekly review: fetch the cached one on load; show a banner when
+  // it's one the user hasn't seen yet.
+  const [weekly, setWeekly] = useState<WeeklyReview | null>(null);
+  const [showWeekly, setShowWeekly] = useState(false);
+  const [weeklyUnseen, setWeeklyUnseen] = useState(false);
+  const [weeklyBusy, setWeeklyBusy] = useState(false);
+
+  useEffect(() => {
+    getWeeklyReview(false)
+      .then((r) => {
+        setWeekly(r);
+        let seen = "";
+        try {
+          seen = localStorage.getItem("ct-weekly-seen") ?? "";
+        } catch {
+          /* ignore */
+        }
+        // Only nudge when there's real content and it's newer than last seen.
+        if (r.generated_at && r.generated_at !== seen && !r.markdown.startsWith("No sessions")) {
+          setWeeklyUnseen(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  function openWeekly() {
+    setShowWeekly(true);
+    setWeeklyUnseen(false);
+    if (weekly?.generated_at) {
+      try {
+        localStorage.setItem("ct-weekly-seen", weekly.generated_at);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  async function refreshWeekly() {
+    setWeeklyBusy(true);
+    try {
+      const r = await getWeeklyReview(true);
+      setWeekly(r);
+      try {
+        localStorage.setItem("ct-weekly-seen", r.generated_at);
+      } catch {
+        /* ignore */
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setWeeklyBusy(false);
+    }
+  }
 
   async function runInsight(kind: InsightKind) {
     setShowInsights(true);
@@ -506,6 +562,10 @@ export function App() {
         if (e.key === "Escape") setShowInsights(false);
         return;
       }
+      if (showWeekly) {
+        if (e.key === "Escape") setShowWeekly(false);
+        return;
+      }
       if (showAsk) {
         if (e.key === "Escape") setShowAsk(false);
         return;
@@ -543,7 +603,18 @@ export function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hits, selected, open, showSettings, showThemes, showInsights, showAsk, showActivity, showGraph]);
+  }, [
+    hits,
+    selected,
+    open,
+    showSettings,
+    showThemes,
+    showInsights,
+    showWeekly,
+    showAsk,
+    showActivity,
+    showGraph,
+  ]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -614,6 +685,14 @@ export function App() {
             💡
           </button>
           <button
+            className={`settings-toggle ${weeklyUnseen ? "has-badge" : ""}`}
+            onClick={openWeekly}
+            title="Your weekly review"
+            aria-label="Open weekly review"
+          >
+            📋
+          </button>
+          <button
             className="settings-toggle"
             onClick={() => setShowAsk(true)}
             title="Ask — answer a question from your history (cited)"
@@ -657,6 +736,24 @@ export function App() {
           </p>
         )}
       </header>
+
+      {weeklyUnseen && (
+        <div className="weekly-banner">
+          <span>📋 Your weekly review is ready — how you worked, and one thing to try.</span>
+          <span className="weekly-banner-actions">
+            <button className="linklike" onClick={openWeekly}>
+              Read it
+            </button>
+            <button
+              className="linklike"
+              onClick={() => setWeeklyUnseen(false)}
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </span>
+        </div>
+      )}
 
       <form className="searchbar" onSubmit={runSearch}>
         <input
@@ -1055,7 +1152,13 @@ export function App() {
                 <span><b>{Math.round(metrics.correction_rate * 100)}%</b> rework</span>
                 <span><b>{Math.round(metrics.abandonment_rate * 100)}%</b> unresolved</span>
                 <span><b>{Math.round(metrics.specificity_rate * 100)}%</b> specific prompts</span>
-                <span><b>{Math.round(metrics.test_mention_rate * 100)}%</b> mention tests</span>
+                <span><b>{metrics.avg_tool_actions.toFixed(1)}</b> actions/session</span>
+                {metrics.median_session_minutes > 0 && (
+                  <span><b>{Math.round(metrics.median_session_minutes)}</b> min median</span>
+                )}
+                {metrics.top_languages[0] && (
+                  <span>top lang <b>{metrics.top_languages[0][0]}</b></span>
+                )}
               </div>
             )}
             <div className="insight-tabs">
@@ -1099,6 +1202,46 @@ export function App() {
                   </p>
                 )}
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showWeekly && (
+        <div className="overlay" onClick={() => setShowWeekly(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Weekly review"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Weekly review</h2>
+              <div className="modal-head-actions">
+                <button
+                  className="secondary"
+                  onClick={refreshWeekly}
+                  disabled={weeklyBusy}
+                  title="Regenerate from the last 7 days"
+                >
+                  {weeklyBusy ? "Refreshing…" : "↻ Refresh"}
+                </button>
+                <button className="secondary" onClick={() => setShowWeekly(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            {weekly && (
+              <p className="doc-desc">
+                Week of {weekly.period_start}
+                {weekly.llm_used ? "" : " — metrics only (add a model for a narrative)"}.
+              </p>
+            )}
+            {weeklyBusy && <p className="doc-desc">Generating…</p>}
+            {weekly && !weeklyBusy && <pre className="insight-body">{weekly.markdown}</pre>}
+            {!weekly && !weeklyBusy && (
+              <p className="doc-desc">No review yet — index some sessions first.</p>
             )}
           </div>
         </div>

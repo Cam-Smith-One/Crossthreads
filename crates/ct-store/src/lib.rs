@@ -18,7 +18,7 @@ pub mod behavior;
 mod schema;
 pub mod themes;
 
-pub use behavior::{RawSession, SessionMetrics, WorkMetrics};
+pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
 
@@ -379,6 +379,9 @@ impl Store {
             "ALTER TABLE user_state ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // v7 -> v8: per-message agent actions (tool-call names), for the
+        // behavioral metrics. NULL on old rows until a reindex re-parses source.
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
 
         // Indexes on migration-added columns, created only now that the ALTERs
         // above guarantee the columns exist (on a fresh DB they came from
@@ -533,16 +536,25 @@ impl Store {
 
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO messages (conversation_id, seq, role, content, timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO messages (conversation_id, seq, role, content, timestamp, tool_calls)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for (seq, m) in convo.messages.iter().enumerate() {
+                // Persist just the agent-action names (the delegation signal);
+                // full args would bloat the index. NULL when there were none.
+                let tool_calls = if m.tool_calls.is_empty() {
+                    None
+                } else {
+                    let names: Vec<&str> = m.tool_calls.iter().map(|t| t.name.as_str()).collect();
+                    serde_json::to_string(&names).ok()
+                };
                 stmt.execute(params![
                     convo.id,
                     seq as i64,
                     role_str(m.role),
                     m.content,
                     m.timestamp.map(|t| t.to_rfc3339()),
+                    tool_calls,
                 ])?;
             }
         }
@@ -987,7 +999,8 @@ impl Store {
         // Pull conversation metadata first, applying filters, then attach
         // messages. One streaming pass over messages, grouped by conversation.
         let mut meta = self.conn.prepare(
-            "SELECT id, tool, project, title, started_at FROM conversations WHERE kind = 'thread'",
+            "SELECT id, tool, project, title, model, started_at, ended_at
+             FROM conversations WHERE kind = 'thread'",
         )?;
         let mut order: Vec<String> = Vec::new();
         let mut sessions: std::collections::HashMap<String, behavior::RawSession> =
@@ -999,10 +1012,12 @@ impl Store {
                 r.get::<_, Option<String>>(2)?,
                 r.get::<_, Option<String>>(3)?,
                 r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
             ))
         })?;
         for row in rows {
-            let (id, tool, project, title, started_at) = row?;
+            let (id, tool, project, title, model, started_at, ended_at) = row?;
             // Apply filters (tool / project substring / since / until) up front.
             if let Some(t) = &f.tool {
                 if &tool != t {
@@ -1036,27 +1051,40 @@ impl Store {
                     title,
                     tool,
                     project,
+                    model,
                     started_at,
+                    ended_at,
                     messages: Vec::new(),
                 },
             );
         }
 
-        // Attach messages (content bounded to keep this cheap on big corpora).
+        // Attach messages (content bounded to keep this cheap on big corpora),
+        // carrying the persisted agent-action names (v8).
         let mut msg = self.conn.prepare(
-            "SELECT conversation_id, role, substr(content, 1, 2000) FROM messages ORDER BY seq",
+            "SELECT conversation_id, role, substr(content, 1, 2000), tool_calls
+             FROM messages ORDER BY seq",
         )?;
         let mrows = msg.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })?;
         for row in mrows {
-            let (cid, role, content) = row?;
+            let (cid, role, content, tool_calls) = row?;
             if let Some(s) = sessions.get_mut(&cid) {
-                s.messages.push((role, content));
+                let tools = tool_calls
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str::<Vec<String>>(j).ok())
+                    .unwrap_or_default();
+                s.messages.push(behavior::RawMessage {
+                    role,
+                    content,
+                    tools,
+                });
             }
         }
 
@@ -1065,6 +1093,26 @@ impl Store {
             .filter_map(|id| sessions.remove(&id))
             .collect();
         Ok(behavior::analyze(&ordered))
+    }
+
+    /// Read a value from the small app-state KV store (`meta_kv`).
+    pub fn meta_get(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM meta_kv WHERE key = ?1", [key], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?)
+    }
+
+    /// Write a value to the small app-state KV store (`meta_kv`). Writer only.
+    pub fn meta_set(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta_kv (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![key, value],
+        )?;
+        Ok(())
     }
 
     ///

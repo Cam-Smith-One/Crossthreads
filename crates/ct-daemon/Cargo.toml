@@ -28,6 +28,7 @@ ct-llm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 dirs = { workspace = true }
 notify = "6"
 tiny_http = "0.12"

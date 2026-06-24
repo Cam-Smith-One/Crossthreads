@@ -22,6 +22,7 @@ mod search;
 mod skill;
 mod status;
 mod themes;
+mod weekly;
 
 const USAGE: &str = "\
 crossthreads — search your AI coding sessions across tools
@@ -45,6 +46,7 @@ COMMANDS:
     activity          Session activity over time (--by day|week)
     graph             Knowledge graph of projects, tools, and tags
     metrics           Behavioral metrics: how you work (turns, friction, tempo)
+    weekly            Your weekly review: how you worked + one thing to try
     llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
@@ -96,6 +98,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("activity") => activity::run(&args[1..]),
         Some("graph") => graph::run(&args[1..]),
         Some("metrics") => metrics::run(&args[1..]),
+        Some("weekly") => weekly::run(&args[1..]),
         Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");

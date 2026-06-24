@@ -21,6 +21,7 @@ pub mod federation;
 mod http;
 pub mod insights;
 pub mod protocol;
+pub mod weekly;
 pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
 pub use federation::{Federation, Peer};
 pub use protocol::{DeviceInfo, Mode, Request, Response, DEFAULT_ADDR};
@@ -327,6 +328,7 @@ impl Daemon {
                 .unwrap_or_else(err),
             Request::Graph { limit } => self.graph(limit.unwrap_or(40)).unwrap_or_else(err),
             Request::Metrics { filters } => self.metrics(&filters).unwrap_or_else(err),
+            Request::WeeklyReview { force } => self.weekly_review(force).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -865,6 +867,73 @@ impl Daemon {
         let store = self.read_lock();
         let (metrics, _per) = store.work_metrics(f)?;
         Ok(Response::Metrics { metrics })
+    }
+
+    /// The proactive weekly review: return the cached one when it's fresh, else
+    /// regenerate. Gathering and persistence take the lock briefly; the model
+    /// call in between runs with no lock held.
+    fn weekly_review(&self, force: bool) -> Result<Response> {
+        if !force {
+            let cached = {
+                let store = self.read_lock();
+                (!weekly::is_stale(&store))
+                    .then(|| weekly::cached(&store))
+                    .transpose()?
+                    .flatten()
+            };
+            if let Some(r) = cached {
+                return Ok(Response::WeeklyReview {
+                    markdown: r.markdown,
+                    generated_at: r.generated_at,
+                    period_start: r.period_start,
+                    llm_used: r.llm_used,
+                    fresh: false,
+                });
+            }
+        }
+        let review = self.regenerate_weekly()?;
+        Ok(Response::WeeklyReview {
+            markdown: review.markdown,
+            generated_at: review.generated_at,
+            period_start: review.period_start,
+            llm_used: review.llm_used,
+            fresh: true,
+        })
+    }
+
+    /// Gather (read lock) → synthesize (model, no lock) → persist (write lock).
+    fn regenerate_weekly(&self) -> Result<weekly::WeeklyReview> {
+        let gathered = {
+            let store = self.read_lock();
+            weekly::gather(&store)?
+        };
+        let review = weekly::synthesize(gathered);
+        {
+            let store = self.write_lock();
+            weekly::persist(&store, &review)?;
+        }
+        Ok(review)
+    }
+
+    /// Best-effort: if the cached weekly review is a week stale and a model is
+    /// configured, regenerate it in the background so it's waiting when the user
+    /// next opens the app (the "proactive" path). Spawns and returns immediately.
+    pub fn spawn_weekly_refresh(&self) {
+        let stale = {
+            let store = self.read_lock();
+            weekly::is_stale(&store)
+        };
+        if !stale || !ct_llm::available() {
+            return;
+        }
+        let this = self.clone();
+        let _ = thread::Builder::new()
+            .name("ct-weekly".into())
+            .spawn(move || {
+                if let Err(e) = this.regenerate_weekly() {
+                    eprintln!("weekly review refresh failed: {e:#}");
+                }
+            });
     }
 
     fn fetch_conversation_for(&self, hit: &SearchHit) -> Option<StoredConversation> {

@@ -91,6 +91,7 @@ crossthreads status                                              # index health
 crossthreads themes --k 8                                        # cluster your work into themes
 crossthreads themes --name                                       # …and name them with your local model login
 crossthreads metrics                                             # how you work, by the numbers (no model)
+crossthreads weekly                                              # your weekly review + one thing to try
 crossthreads insight work_dna                                    # a quantified profile of how you work
 crossthreads insight process_miner                               # repeatable procedures → draft skills
 crossthreads insight open_loops                                  # unresolved work across recent sessions
@@ -110,7 +111,8 @@ crossthreads llm-auth                                            # which model c
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
 | 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; "✨ Name with AI" labels clusters using your model login. |
-| 🧬 **How you work** | A deterministic metrics pass over your *own* messages — turns per task, rework rate, prompt specificity, abandonment, tempo, friction by project (`crossthreads metrics`, no model) — that powers four behavioral insights: a quantified **Work DNA** profile, your **gaps & blind spots** (+ a draft CLAUDE.md), a **prompt coach** (before→after rewrites from your own prompts), and a **process miner** (repeated workflows → draft skills). Web app (💡), CLI, and MCP. |
+| 🧬 **How you work** | A deterministic metrics pass over the *full width* of your history — turns per task, rework rate, prompt specificity, abandonment, tempo, **delegation** (agent actions like Edit/Bash per session), **languages**, **model mix**, **median session length**, friction by project (`crossthreads metrics`, no model) — that powers four behavioral insights: a quantified **Work DNA** profile, your **gaps & blind spots** (+ a draft CLAUDE.md), a **prompt coach** (before→after rewrites from your own prompts), and a **process miner** (repeated workflows → draft skills). Web app (💡), CLI, and MCP. |
+| 📋 **Proactive weekly review** | Without being asked: "what you worked on, how you worked, and one thing to try next week," from the last 7 days. The web app surfaces a banner when a fresh one is ready (the daemon generates it in the background); also `crossthreads weekly` and MCP. |
 | 💡 **Insights** | LLM synthesis over your whole history — **open loops**, a **decision log**, **knowledge cards**, a **how-I-work** profile, **recurring** patterns, and a **digest** — spanning every tool *and* your skills/prompts (hundreds of records). In the web app (💡), the CLI (`crossthreads insight`), and over MCP. Opt-in; uses your model login. |
 | 💬 **Ask (RAG)** | Ask a question and get a **cited answer** drawn from your own past sessions across every tool — "how did we end up handling token refresh?". Retrieves, then synthesizes (or returns context without a model). Web app (💬), `crossthreads ask`, and MCP. |
 | 📅 **Temporal view** | Your sessions over time, bucketed by day or week with a per-tool breakdown — when and with what you've been working. Web app (📅), `crossthreads activity`, and MCP. Offline. |
@@ -175,7 +177,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets twenty tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets twenty-one tools:
 
 | Tool | Purpose |
 |---|---|
@@ -188,7 +190,8 @@ Point any MCP client at the `ct-mcp` binary and your agent gets twenty tools:
 | `crossthreads_themes` | cluster the user's sessions into themes (`name` for AI labels) |
 | `crossthreads_activity` | session activity over time (day/week), with a per-tool breakdown |
 | `crossthreads_graph` | a knowledge graph of projects, tools, and tags with co-occurrence edges |
-| `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, tempo) |
+| `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, delegation, languages, tempo) |
+| `crossthreads_weekly_review` | the user's weekly review: what they did, how they worked, one thing to try |
 | `crossthreads_work_dna` | a quantified, evidence-backed profile of how the user works |
 | `crossthreads_gaps` | gaps & blind spots, plus a personalized draft CLAUDE.md |
 | `crossthreads_prompt_coach` | prompt coaching from the user's smoothest vs roughest sessions |

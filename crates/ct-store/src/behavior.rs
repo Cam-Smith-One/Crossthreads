@@ -8,16 +8,27 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One session reduced to its messages, the input to [`analyze`].
+/// One message, the input granularity for [`analyze`].
+#[derive(Debug, Clone)]
+pub struct RawMessage {
+    pub role: String,
+    /// May be truncated by the caller.
+    pub content: String,
+    /// Agent-action names recorded on this message (e.g. `["Edit","Bash"]`).
+    pub tools: Vec<String>,
+}
+
+/// One session reduced to its messages + light metadata, the input to [`analyze`].
 #[derive(Debug, Clone)]
 pub struct RawSession {
     pub id: String,
     pub title: Option<String>,
     pub tool: String,
     pub project: Option<String>,
+    pub model: Option<String>,
     pub started_at: Option<String>,
-    /// `(role, content)` in order. Content may be truncated by the caller.
-    pub messages: Vec<(String, String)>,
+    pub ended_at: Option<String>,
+    pub messages: Vec<RawMessage>,
 }
 
 /// Per-session behavioral metrics (used to pick friction extremes, etc.).
@@ -74,6 +85,17 @@ pub struct WorkMetrics {
     pub by_hour: Vec<(i64, i64)>,
     /// Projects with the highest average user-turns (friction), top first.
     pub high_friction_projects: Vec<(String, f64)>,
+    // --- width signals (model / actions / languages / duration) ---
+    /// Average agent actions (tool calls) per session — a delegation signal.
+    pub avg_tool_actions: f64,
+    /// Most-used agent actions, busiest first: `[("Edit", 320), ("Bash", 210)]`.
+    pub top_actions: Vec<(String, i64)>,
+    /// Languages you work in (from fenced code blocks), most first.
+    pub top_languages: Vec<(String, i64)>,
+    /// Model usage mix, most first.
+    pub by_model: Vec<(String, i64)>,
+    /// Median session length in minutes (from started_at→ended_at), when known.
+    pub median_session_minutes: f64,
 }
 
 /// Words that, opening a user turn after the first, signal a correction / rework.
@@ -166,6 +188,39 @@ fn hour_of(started_at: Option<&str>) -> Option<i64> {
         .filter(|h| (0..24).contains(h))
 }
 
+/// Minutes between two ISO timestamps, if both parse and the span is sane
+/// (0 < mins ≤ 24h — guards against clock skew / multi-day idle sessions).
+fn span_minutes(start: Option<&str>, end: Option<&str>) -> Option<f64> {
+    use chrono::DateTime;
+    let s = DateTime::parse_from_rfc3339(start?).ok()?;
+    let e = DateTime::parse_from_rfc3339(end?).ok()?;
+    let mins = (e - s).num_seconds() as f64 / 60.0;
+    (mins > 0.0 && mins <= 24.0 * 60.0).then_some(mins)
+}
+
+/// Languages named on fenced code blocks in `text` (the token right after an
+/// opening ```), lowercased. e.g. "```rust\n…" → "rust".
+fn fenced_languages(text: &str, out: &mut std::collections::BTreeSet<String>) {
+    // Even fences are openers; the language is the first token on that line.
+    for (i, seg) in text.split("```").enumerate() {
+        if i == 0 || i % 2 == 0 {
+            continue; // i==0 is pre-fence text; even i are *after* a closing fence
+        }
+        let lang: String = seg
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '+' || *c == '#')
+            .collect::<String>()
+            .to_lowercase();
+        if !lang.is_empty() && lang.len() <= 16 {
+            out.insert(lang);
+        }
+    }
+}
+
 /// Compute per-session and aggregate metrics. Pure and deterministic.
 pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
     let mut per = Vec::with_capacity(sessions.len());
@@ -178,6 +233,12 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
     let (mut corrected, mut first_miss, mut abandoned) = (0i64, 0i64, 0i64);
     let (mut first_chars_sum, mut specific, mut code, mut error) = (0i64, 0i64, 0i64, 0i64);
     let (mut tests, mut commits) = (0i64, 0i64);
+    // Width accumulators (model / actions / languages / duration).
+    let mut action_counts: std::collections::BTreeMap<String, i64> = Default::default();
+    let mut lang_counts: std::collections::BTreeMap<String, i64> = Default::default();
+    let mut model_counts: std::collections::BTreeMap<String, i64> = Default::default();
+    let mut total_actions = 0i64;
+    let mut duration_samples: Vec<f64> = Vec::new();
 
     for s in sessions {
         *tool_counts.entry(s.tool.clone()).or_default() += 1;
@@ -187,15 +248,34 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         if let Some(h) = hour_of(s.started_at.as_deref()) {
             *hour_counts.entry(h).or_default() += 1;
         }
+        if let Some(m) = s.model.as_deref().filter(|m| !m.is_empty()) {
+            *model_counts.entry(m.to_string()).or_default() += 1;
+        }
+        if let Some(mins) = span_minutes(s.started_at.as_deref(), s.ended_at.as_deref()) {
+            duration_samples.push(mins);
+        }
 
-        let user_msgs: Vec<&String> = s
+        let user_msgs: Vec<&str> = s
             .messages
             .iter()
-            .filter(|(r, _)| is_user(r))
-            .map(|(_, c)| c)
+            .filter(|m| is_user(&m.role))
+            .map(|m| m.content.as_str())
             .collect();
         let user_turns = user_msgs.len() as i64;
         user_turn_samples.push(user_turns);
+
+        // Width: agent actions (tool calls) and languages across the session.
+        let mut langs = std::collections::BTreeSet::new();
+        for m in &s.messages {
+            for t in &m.tools {
+                *action_counts.entry(t.clone()).or_default() += 1;
+                total_actions += 1;
+            }
+            fenced_languages(&m.content, &mut langs);
+        }
+        for l in langs {
+            *lang_counts.entry(l).or_default() += 1;
+        }
 
         // Corrections: a correction marker in any user turn *after* the first.
         let corrections = user_msgs
@@ -212,19 +292,13 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
             first_miss += 1;
         }
 
-        let first = user_msgs.first().map(|c| c.as_str()).unwrap_or("");
+        let first = user_msgs.first().copied().unwrap_or("");
         first_chars_sum += first.chars().count() as i64;
         if has_constraint(first) {
             specific += 1;
         }
 
-        let whole: String = s
-            .messages
-            .iter()
-            .filter(|(r, _)| is_user(r))
-            .map(|(_, c)| c.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let whole: String = user_msgs.join("\n");
         if has_code(&whole) {
             code += 1;
         }
@@ -243,7 +317,11 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
 
         // Resolved heuristic: the last message is the assistant's (it answered),
         // not a trailing user turn.
-        let resolved = s.messages.last().map(|(r, _)| !is_user(r)).unwrap_or(false);
+        let resolved = s
+            .messages
+            .last()
+            .map(|m| !is_user(&m.role))
+            .unwrap_or(false);
         if !resolved {
             abandoned += 1;
         }
@@ -280,6 +358,15 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     high_friction_projects.truncate(6);
 
+    // Width signals: sort by count desc, keep the top handful.
+    let top = |m: std::collections::BTreeMap<String, i64>, k: usize| -> Vec<(String, i64)> {
+        let mut v: Vec<(String, i64)> = m.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        v.truncate(k);
+        v
+    };
+    let mut durations = duration_samples;
+
     let metrics = WorkMetrics {
         sessions: sessions.len() as i64,
         by_tool,
@@ -297,8 +384,26 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         commit_mention_rate: commits as f64 / n,
         by_hour: hour_counts.into_iter().collect(),
         high_friction_projects,
+        avg_tool_actions: total_actions as f64 / n,
+        top_actions: top(action_counts, 8),
+        top_languages: top(lang_counts, 8),
+        by_model: top(model_counts, 6),
+        median_session_minutes: median_f64(&mut durations),
     };
     (metrics, per)
+}
+
+fn median_f64(v: &mut [f64]) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mid = v.len() / 2;
+    if v.len() % 2 == 0 {
+        (v[mid - 1] + v[mid]) / 2.0
+    } else {
+        v[mid]
+    }
 }
 
 fn median(v: &mut [i64]) -> f64 {
@@ -337,6 +442,24 @@ pub fn summarize(m: &WorkMetrics) -> String {
         .map(|(p, a)| format!("{p} ({a:.1} turns)"))
         .collect::<Vec<_>>()
         .join(", ");
+    let join = |v: &[(String, i64)], n: usize| -> String {
+        let s = v
+            .iter()
+            .take(n)
+            .map(|(k, c)| format!("{k} {c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if s.is_empty() {
+            "—".into()
+        } else {
+            s
+        }
+    };
+    let dur = if m.median_session_minutes > 0.0 {
+        format!("{:.0} min", m.median_session_minutes)
+    } else {
+        "—".into()
+    };
     format!(
         "Sessions analyzed: {sessions} across {projects} project(s).\n\
          Tools: {tools}.\n\
@@ -346,6 +469,10 @@ pub fn summarize(m: &WorkMetrics) -> String {
          Opening prompt: avg {fpc:.0} chars, {spec} state explicit constraints.\n\
          Pasted code: {code}; pasted errors: {err}.\n\
          Mentions tests: {tests}; mentions commits/git: {commits}.\n\
+         Agent actions per session: avg {actions:.1} — top: {top_actions}.\n\
+         Languages: {langs}.\n\
+         Models: {models}.\n\
+         Median session length: {dur}.\n\
          Busiest hour: {busiest}.\n\
          Highest-friction projects (avg user turns): {friction}.",
         sessions = m.sessions,
@@ -361,6 +488,10 @@ pub fn summarize(m: &WorkMetrics) -> String {
         err = pct(m.error_paste_rate),
         tests = pct(m.test_mention_rate),
         commits = pct(m.commit_mention_rate),
+        actions = m.avg_tool_actions,
+        top_actions = join(&m.top_actions, 5),
+        langs = join(&m.top_languages, 6),
+        models = join(&m.by_model, 4),
     )
 }
 
@@ -374,10 +505,16 @@ mod tests {
             title: None,
             tool: "claude-code".into(),
             project: Some(project.into()),
+            model: Some("claude-opus".into()),
             started_at: Some("2026-06-24T09:00:00Z".into()),
+            ended_at: Some("2026-06-24T09:12:00Z".into()),
             messages: msgs
                 .iter()
-                .map(|(r, c)| (r.to_string(), c.to_string()))
+                .map(|(r, c)| RawMessage {
+                    role: r.to_string(),
+                    content: c.to_string(),
+                    tools: Vec::new(),
+                })
                 .collect(),
         }
     }
@@ -411,6 +548,27 @@ mod tests {
         let a = per.iter().find(|p| p.id == "a").unwrap();
         assert_eq!(a.corrections, 1);
         assert!(a.resolved); // ends on assistant
+    }
+
+    #[test]
+    fn width_signals_actions_languages_model_duration() {
+        let mut s = sess(
+            "a",
+            "/p",
+            &[
+                ("user", "add a function\n```rust\nfn x() {}\n```"),
+                ("assistant", "done"),
+            ],
+        );
+        // Attach agent actions to the assistant turn.
+        s.messages[1].tools = vec!["Edit".into(), "Bash".into()];
+        let (m, _) = analyze(&[s]);
+        assert!((m.avg_tool_actions - 2.0).abs() < 1e-9);
+        assert!(m.top_actions.iter().any(|(k, _)| k == "Edit"));
+        assert!(m.top_languages.iter().any(|(k, _)| k == "rust"));
+        assert!(m.by_model.iter().any(|(k, _)| k == "claude-opus"));
+        assert!((m.median_session_minutes - 12.0).abs() < 0.5); // 09:00 → 09:12
+        assert!(summarize(&m).contains("Languages: rust"));
     }
 
     #[test]

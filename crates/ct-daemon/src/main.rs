@@ -236,6 +236,10 @@ fn run() -> Result<()> {
         eprintln!("crossthreadsd: watching for session changes");
     }
 
+    // Proactive: if the weekly review is a week stale and a model is configured,
+    // regenerate it in the background so it's ready when the user opens the app.
+    daemon.spawn_weekly_refresh();
+
     if let Some(http_addr) = http {
         if let Some(dir) = &ui {
             if !dir.join("index.html").is_file() {

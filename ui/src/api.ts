@@ -334,11 +334,30 @@ export interface WorkMetrics {
   commit_mention_rate: number;
   by_hour: [number, number][];
   high_friction_projects: [string, number][];
+  avg_tool_actions: number;
+  top_actions: [string, number][];
+  top_languages: [string, number][];
+  by_model: [string, number][];
+  median_session_minutes: number;
 }
 
 export async function getMetrics(filters: Filters = {}): Promise<WorkMetrics | null> {
   const data = await rpc<{ metrics: WorkMetrics }>({ op: "metrics", filters: clean(filters) });
   return data.metrics ?? null;
+}
+
+// --- Weekly review (proactive) ------------------------------------------
+
+export interface WeeklyReview {
+  markdown: string;
+  generated_at: string;
+  period_start: string;
+  llm_used: boolean;
+  fresh: boolean;
+}
+
+export function getWeeklyReview(force = false): Promise<WeeklyReview> {
+  return rpc<WeeklyReview>({ op: "weekly_review", force });
 }
 
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
