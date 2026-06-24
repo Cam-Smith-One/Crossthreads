@@ -109,6 +109,66 @@ fn ping_status_and_search_over_the_wire() {
     assert!(hits.iter().any(|h| h.tool == "cursor"));
 }
 
+#[test]
+fn themes_cluster_over_the_wire() {
+    let (addr, _h) = start();
+    let client = Client::new(addr);
+
+    // `name: false` needs no model — pure clustering must work everywhere.
+    match client
+        .call(&Request::Themes {
+            k: Some(2),
+            name: false,
+        })
+        .unwrap()
+    {
+        Response::Themes { themes } => {
+            assert!(!themes.is_empty(), "two seeded convos should cluster");
+            let total: usize = themes.iter().map(|t| t.size).sum();
+            assert_eq!(total, 2);
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn insight_errors_without_a_model_login() {
+    // No model configured in CI → the insight op must surface a clean Error
+    // response (not panic, not hang). A bad kind is also a clean error.
+    let (addr, _h) = start();
+    let client = Client::new(addr);
+
+    match client
+        .call(&Request::Insight {
+            kind: "not_a_kind".into(),
+            limit: None,
+        })
+        .unwrap()
+    {
+        Response::Error { message } => assert!(message.contains("unknown insight kind")),
+        other => panic!("expected Error for bad kind, got {other:?}"),
+    }
+
+    // A valid kind with no model login also returns Error (gathering works; the
+    // model call is what fails), as long as a key isn't present in the env.
+    if std::env::var_os("ANTHROPIC_API_KEY").is_none()
+        && std::env::var_os("OPENAI_API_KEY").is_none()
+        && std::env::var_os("GEMINI_API_KEY").is_none()
+    {
+        match client
+            .call(&Request::Insight {
+                kind: "open_loops".into(),
+                limit: Some(5),
+            })
+            .unwrap()
+        {
+            Response::Error { .. } => {}
+            Response::Insight { .. } => { /* a CLI login happened to be present */ }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+}
+
 // ---- Cross-device federation (ADR-010) --------------------------------------
 
 /// Seed an in-memory store with the given conversations and embed them.

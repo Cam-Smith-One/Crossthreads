@@ -19,6 +19,7 @@ use ct_store::Store;
 
 pub mod federation;
 mod http;
+pub mod insights;
 pub mod protocol;
 pub use ct_store::{Filters, SearchHit, StoredConversation};
 pub use federation::{Federation, Peer};
@@ -311,7 +312,8 @@ impl Daemon {
             Request::GetLlmConfig => llm_config(),
             Request::SetLlmKey { provider, key } => set_llm_key(&provider, &key),
             Request::SetLlmProvider { provider } => set_llm_provider(&provider),
-            Request::Themes { k } => self.themes(k.unwrap_or(8)).unwrap_or_else(err),
+            Request::Themes { k, name } => self.themes(k.unwrap_or(8), name).unwrap_or_else(err),
+            Request::Insight { kind, limit } => self.insight(&kind, limit).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -343,11 +345,40 @@ impl Daemon {
         })
     }
 
-    fn themes(&self, k: usize) -> Result<Response> {
-        let store = self.read_lock();
-        Ok(Response::Themes {
-            themes: store.themes(k, 8)?,
-        })
+    fn themes(&self, k: usize, name: bool) -> Result<Response> {
+        let mut themes = {
+            let store = self.read_lock();
+            store.themes(k, 8)?
+        };
+        // Optional LLM naming: replace each cluster's keyword label with a short
+        // generated name. Best-effort — leave the keyword label if the model is
+        // unavailable or a call fails. Done after dropping the store lock.
+        if name && ct_llm::available() {
+            for theme in &mut themes {
+                if let Some(named) = insights::name_theme(theme) {
+                    theme.label = named;
+                }
+            }
+        }
+        Ok(Response::Themes { themes })
+    }
+
+    /// Synthesize an LLM insight over recent history. Gathers conversation text
+    /// under the read lock, drops it, then calls the model (no lock held).
+    fn insight(&self, kind: &str, limit: Option<usize>) -> Result<Response> {
+        let kind = insights::Kind::parse(kind).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown insight kind `{kind}` — expected one of: open_loops, \
+                 knowledge_cards, decision_log, how_i_work, digest"
+            )
+        })?;
+        let n = limit.unwrap_or_else(|| kind.default_limit());
+        let convos = {
+            let store = self.read_lock();
+            store.recent_conversations(n, 1200)?
+        };
+        let (markdown, sources) = insights::synthesize(&convos, kind)?;
+        Ok(Response::Insight { markdown, sources })
     }
 
     fn status(&self) -> Result<Response> {

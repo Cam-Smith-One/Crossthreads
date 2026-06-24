@@ -196,6 +196,19 @@ pub struct Store {
     cache: Arc<VectorCache>,
 }
 
+/// A recent conversation with its (truncated) text, for LLM-synthesis insights.
+/// Produced by [`Store::recent_conversations`].
+#[derive(Debug, Clone)]
+pub struct RecentConversation {
+    pub id: String,
+    pub title: Option<String>,
+    pub tool: String,
+    pub project: Option<String>,
+    pub started_at: Option<String>,
+    /// Concatenated `role: content` message text, truncated.
+    pub text: String,
+}
+
 /// A conversation reduced to one centroid embedding plus light metadata, for
 /// clustering / theme extraction. Produced by [`Store::conversation_vectors`].
 #[derive(Debug, Clone)]
@@ -658,6 +671,65 @@ impl Store {
     pub fn themes(&self, k: usize, max_samples: usize) -> Result<Vec<Theme>> {
         let convos = self.conversation_vectors()?;
         Ok(themes::cluster(&convos, k, max_samples))
+    }
+
+    /// The most recent `limit` conversations (threads), newest first, each with
+    /// its message text concatenated and truncated to `max_chars`. Feeds the
+    /// LLM-synthesis insights (open loops, knowledge cards, …).
+    pub fn recent_conversations(
+        &self,
+        limit: usize,
+        max_chars: usize,
+    ) -> Result<Vec<RecentConversation>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, tool, project, started_at FROM conversations
+             WHERE kind = 'thread'
+             ORDER BY started_at DESC
+             LIMIT ?1",
+        )?;
+        let metas = stmt
+            .query_map([limit as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let mut out = Vec::with_capacity(metas.len());
+        for (id, title, tool, project, started_at) in metas {
+            let mut msg_stmt = self.conn.prepare(
+                "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY seq",
+            )?;
+            let rows = msg_stmt.query_map([&id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?;
+            let mut text = String::new();
+            for row in rows {
+                let (role, content) = row?;
+                if text.len() >= max_chars {
+                    break;
+                }
+                let remaining = max_chars.saturating_sub(text.len());
+                let snippet: String = content.chars().take(remaining).collect();
+                text.push_str(&role);
+                text.push_str(": ");
+                text.push_str(snippet.trim());
+                text.push('\n');
+            }
+            out.push(RecentConversation {
+                id,
+                title,
+                tool,
+                project,
+                started_at,
+                text,
+            });
+        }
+        Ok(out)
     }
 
     /// Semantic search over stored vectors, collapsed to the best message per

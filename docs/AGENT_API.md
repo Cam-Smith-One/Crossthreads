@@ -219,7 +219,12 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_build_context` | §5 — **implemented** |
 | `crossthreads_status` | index health — **implemented** |
 | `crossthreads_devices` | list cross-device search targets — **implemented** |
-| `crossthreads_themes` | cluster sessions into themes (`k` arg) — **implemented** |
+| `crossthreads_themes` | cluster sessions into themes (`k`, `name` args) — **implemented** |
+| `crossthreads_open_loops` | unresolved work across recent sessions — **implemented** |
+| `crossthreads_knowledge_cards` | durable Q→A cards worth remembering — **implemented** |
+| `crossthreads_decision_log` | notable decisions + rationale — **implemented** |
+| `crossthreads_how_i_work` | the user's working conventions (for CLAUDE.md/AGENTS.md) — **implemented** |
+| `crossthreads_digest` | short reflective digest of recent work — **implemented** |
 | `crossthreads_devices` | list searchable devices (this host + peers) with liveness — **implemented** (ADR-010) |
 | `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
 | `crossthreads.resume` | §6 — planned |
@@ -246,6 +251,26 @@ re-solving):
 
 Flags: `--claude` / `--codex` to install one, `--force` to overwrite. The skill
 text is bundled in the binary; the canonical sources live in `assets/skills/`.
+
+### 7.2 Insights (LLM synthesis)
+
+The `crossthreads_*` insight tools (and `crossthreads insight <kind>` on the CLI,
+`Request::Insight { kind, limit }` on the daemon) synthesize a high-level view
+over the user's recent sessions with their configured model. One shared engine
+(`ct-daemon::insights`) backs all surfaces; `kind` is one of:
+
+| kind | tool | what it returns |
+|---|---|---|
+| `open_loops` | `crossthreads_open_loops` | unresolved work, dangling TODOs, unconfirmed fixes |
+| `knowledge_cards` | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering |
+| `decision_log` | `crossthreads_decision_log` | decisions ("chose X over Y because Z") + rationale |
+| `how_i_work` | `crossthreads_how_i_work` | the user's conventions, for a CLAUDE.md / AGENTS.md |
+| `digest` | `crossthreads_digest` | a short reflective digest of recent work |
+
+These need a model login (Settings → Models / `crossthreads llm-auth`); without
+one they return a clear hint. The daemon gathers conversation text under the
+read lock, releases it, then calls the model — searches stay responsive during
+synthesis. Output is Markdown plus the source conversation ids drawn from.
 
 ---
 

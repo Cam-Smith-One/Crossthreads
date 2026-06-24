@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 
 mod context;
 mod index;
+mod insight;
 mod llm_auth;
 mod search;
 mod skill;
@@ -32,6 +33,9 @@ COMMANDS:
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
     themes            Cluster your sessions into themes (--k N; --name to label
                       them with your local Claude/Codex login)
+    insight <KIND>    Synthesize over recent sessions with your model login:
+                      open_loops | knowledge_cards | decision_log | how_i_work |
+                      digest (--limit N)
     llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
@@ -78,6 +82,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("status") => status::run(&args[1..]),
         Some("skill") => skill::run(&args[1..]),
         Some("themes") => themes::run(&args[1..]),
+        Some("insight") => insight::run(&args[1..]),
         Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");

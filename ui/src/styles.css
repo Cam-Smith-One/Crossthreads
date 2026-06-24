@@ -448,6 +448,35 @@ body {
 }
 .settings-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
 
+/* Insights modal: kind tabs + synthesized body */
+.insight-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.insight-tabs button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.insight-tabs button.on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.insight-tabs button:disabled { opacity: 0.6; cursor: default; }
+.insight-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 8px 0;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+
 /* Cross-device: result chip, device picker, Devices panel */
 .device-chip {
   font-size: 11px;

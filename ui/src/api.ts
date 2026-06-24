@@ -219,9 +219,27 @@ export interface Theme {
   conversation_ids: string[];
 }
 
-export async function getThemes(k?: number): Promise<Theme[]> {
-  const data = await rpc<{ themes: Theme[] }>({ op: "themes", k });
+export async function getThemes(k?: number, name = false): Promise<Theme[]> {
+  const data = await rpc<{ themes: Theme[] }>({ op: "themes", k, name });
   return data.themes;
+}
+
+// --- Insights (LLM synthesis over recent history) -----------------------
+
+export type InsightKind =
+  | "open_loops"
+  | "knowledge_cards"
+  | "decision_log"
+  | "how_i_work"
+  | "digest";
+
+export interface Insight {
+  markdown: string;
+  sources: string[];
+}
+
+export function getInsight(kind: InsightKind, limit?: number): Promise<Insight> {
+  return rpc<Insight>({ op: "insight", kind, limit });
 }
 
 /** Store (non-empty) or clear (empty) a provider's BYO key. */

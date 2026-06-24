@@ -90,6 +90,8 @@ crossthreads context "oauth refresh retry" > prior-context.md   # paste-ready bl
 crossthreads status                                              # index health
 crossthreads themes --k 8                                        # cluster your work into themes
 crossthreads themes --name                                       # …and name them with your local model login
+crossthreads insight open_loops                                  # unresolved work across recent sessions
+crossthreads insight how_i_work                                  # your conventions, for a CLAUDE.md / AGENTS.md
 crossthreads llm-auth                                            # which model credentials are available
 ```
 
@@ -102,8 +104,9 @@ crossthreads llm-auth                                            # which model c
 | 🔎 **Hybrid search** | FTS5 keyword (BM25) **+** semantic embeddings fused with Reciprocal Rank Fusion — finds threads by meaning, not just keywords. |
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
-| 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; no model calls. |
-| 🤝 **Bring your own model (optional)** | Reuse your existing **Claude Code / Codex / Gemini** login — or paste an API key in Settings → Models (stored in the OS keychain) — to label themes. Off by default; the index never calls a model. |
+| 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; "✨ Name with AI" labels clusters using your model login. |
+| 💡 **Insights** | LLM synthesis over your recent work — **open loops**, a **decision log**, **knowledge cards**, a **how-I-work** profile, and a **digest** — in the web app (💡), the CLI (`crossthreads insight`), and over MCP. Opt-in; uses your model login. |
+| 🤝 **Bring your own model (optional)** | Reuse your existing **Claude Code / Codex / Gemini** login — or paste an API key in Settings → Models (stored in the OS keychain) — to power insights and name themes. Off by default; the index never calls a model. |
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
@@ -163,7 +166,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets six tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets eleven tools:
 
 | Tool | Purpose |
 |---|---|
@@ -172,7 +175,14 @@ Point any MCP client at the `ct-mcp` binary and your agent gets six tools:
 | `crossthreads_build_context` | render top matches into a paste-ready context block |
 | `crossthreads_status` | index health and counts |
 | `crossthreads_devices` | list the devices available to cross-device search |
-| `crossthreads_themes` | cluster the user's sessions into themes (label, size, tool mix, samples) |
+| `crossthreads_themes` | cluster the user's sessions into themes (label, size, tool mix, samples; `name` for AI labels) |
+| `crossthreads_open_loops` | unresolved work, dangling TODOs, and unconfirmed fixes |
+| `crossthreads_knowledge_cards` | durable Q→A cards worth remembering |
+| `crossthreads_decision_log` | notable decisions ("chose X over Y because Z") with rationale |
+| `crossthreads_how_i_work` | the user's working conventions, for a CLAUDE.md / AGENTS.md |
+| `crossthreads_digest` | a short reflective digest of recent work |
+
+The last five synthesize with the user's model login; the rest work offline.
 
 ```jsonc
 // e.g. in an MCP client config
