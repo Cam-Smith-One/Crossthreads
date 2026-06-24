@@ -218,6 +218,8 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_recall` | §3 — **implemented** (retrieval-only digest) |
 | `crossthreads_build_context` | §5 — **implemented** |
 | `crossthreads_status` | index health — **implemented** |
+| `crossthreads_devices` | list cross-device search targets — **implemented** |
+| `crossthreads_themes` | cluster sessions into themes (`k` arg) — **implemented** |
 | `crossthreads_devices` | list searchable devices (this host + peers) with liveness — **implemented** (ADR-010) |
 | `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
 | `crossthreads.resume` | §6 — planned |
