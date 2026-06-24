@@ -4,7 +4,7 @@
 
 # Crossthreads
 
-**Search, recall, and resume every AI coding conversation — across all your tools and devices, in one place.**
+**Search, recall, and resume every AI coding conversation — and understand how you work — across all your tools and devices, in one place.**
 
 [![CI](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml/badge.svg)](https://github.com/Cam-Smith-One/Crossthreads/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -23,13 +23,17 @@
 
 ---
 
-Crossthreads is a **local-first session indexer and memory layer** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent. A background daemon keeps the index live, and an MCP server lets your agents query it natively. And **cross-device search** lets one query span the history on your *other* machines too — federated over your own Tailscale network, with no central server.
+Crossthreads is a **local-first session indexer, memory layer, and analytics engine** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent.
+
+But it goes well past search. On top of the same index it builds a layer of **understanding**: ask a question and get a **cited answer** from your own history; synthesize **insights** (open loops, decisions, knowledge cards, recurring patterns); and — uniquely — analyze *how you actually work* from the full width of your data (turns, rework, delegation, languages, tempo) into a quantified **Work DNA** profile, **gaps**, **prompt coaching**, mined **repeatable skills**, and a **proactive weekly review**. A background daemon keeps the index live, an MCP server exposes all of it to your agents (**21 tools**), and **cross-device search** lets one query span your *other* machines too — federated over your own Tailscale network, with no central server.
 
 > **Where's the thread where we fixed the OAuth refresh retry?** — one query, every tool, instant answer.
+>
+> **And: what am I leaving unfinished, what do I keep re-deriving, and how could I prompt better?** — your own history, answered.
 
 ## Contents
 
-- [Why](#-why) · [Quick start](#-quick-start) · [Features](#-features) · [Supported tools](#-supported-tools)
+- [Why](#-why) · [Quick start](#-quick-start) · [Features](#-features) · [Beyond search](#-beyond-search--understand-how-you-work) · [Supported tools](#-supported-tools)
 - [Search modes](#-search-modes) · [Screenshots](#-screenshots) · [For agents (MCP)](#-for-agents-mcp)
 - [How it works](#-how-it-works) · [Privacy](#-privacy) · [Documentation](#-documentation) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
 
@@ -121,10 +125,26 @@ crossthreads llm-auth                                            # which model c
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
-| 🤖 **Agent-native (MCP)** | Agents call `search` / `recall` / `build_context` / `status` over MCP — your history becomes their memory. |
+| 🤖 **Agent-native (MCP)** | **21 tools** over MCP — search/recall/ask/build_context plus the whole insights & analytics suite — so your history *and* your working profile become an agent's memory. |
 | 🛰️ **Live & automatic** | A background daemon watches your tools' storage and re-indexes new sessions as they land. |
 | 🌗 **Polished web UI** | Fast React UI with light/dark themes, filters, keyboard nav, and a full transcript viewer. |
 | 🔒 **Local-first** | No telemetry, no account, nothing leaves your machine. One SQLite file you can back up or delete. |
+
+## 🧠 Beyond search — understand how you work
+
+Search answers *"where's that thread?"*. The layer on top answers *"how do I work, and what should I do differently?"* — built from the **full width** of your indexed sessions (not just the text: turns, corrections, agent actions, languages, models, timings). All of it is local, opt-in for the model-backed parts, and available in the web app (💡 / 📋), the CLI, and over MCP.
+
+| | What it tells you | How |
+|---|---|---|
+| 💬 **Ask** | A **cited answer** to any question, synthesized from your own past sessions across every tool. | `crossthreads ask "…"` · `crossthreads_ask` |
+| 💡 **Insights** | **Open loops** (unfinished work), a **decision log**, **knowledge cards**, **recurring** problems you keep hitting, a **how-I-work** profile, and a **digest** — over your whole history including skills. | `crossthreads insight <kind>` · `crossthreads_open_loops`, … |
+| 🧬 **Work DNA & metrics** | A quantified, evidence-backed profile of how you work — rhythm, **rework rate**, prompt **specificity**, **delegation** (agent actions/session), **languages**, **model mix**, **session length**, and where **friction** concentrates. The raw numbers need no model. | `crossthreads metrics` / `insight work_dna` · `crossthreads_metrics`, `crossthreads_work_dna` |
+| 🩺 **Gaps & prompt coach** | What you start but don't finish and practices you're missing (+ a draft **CLAUDE.md**); plus your smoothest vs roughest sessions with **before→after rewrites** from your own prompts. | `crossthreads insight gaps` / `prompt_coach` |
+| 🛠️ **Process miner** | Procedures you keep re-deriving, mined into **draft, installable `SKILL.md`** artifacts so you stop repeating them. | `crossthreads insight process_miner` · `crossthreads_process_miner` |
+| 📋 **Proactive weekly review** | Without being asked: what you worked on, how you worked, and **one thing to try next week** — generated in the background and surfaced when ready. | `crossthreads weekly` · `crossthreads_weekly_review` |
+| 🗺️ 📅 🕸️ **Maps** | A **theme map**, a **temporal view** (activity over time), and a **knowledge graph** (projects ↔ tools ↔ tags). All offline. | `crossthreads themes` / `activity` / `graph` |
+
+> The deterministic parts (search, metrics, themes, activity, graph) never call a model. The synthesis parts (ask, insights, Work DNA, weekly review) reuse your existing **Claude Code / Codex / Gemini** login or a key you paste in Settings → Models — nothing leaves your machine unless you set that up.
 
 ## 🧩 Supported tools
 
@@ -239,7 +259,7 @@ CLI/JSON, HTTP, and MCP contracts.
  └──────────────────┘          └───────────────────────┘
 ```
 
-A single-writer daemon owns one SQLite database (conversations, an FTS5 index, vector embeddings, and a separate durable `user_state` table for bookmarks/pins). It serves search/status/context over a loopback socket **and** an HTTP bridge that also serves the web UI. The same daemon backs the CLI, the desktop shell, and the MCP server.
+A single-writer daemon owns one SQLite database (conversations, an FTS5 index, vector embeddings, a durable `user_state` table for bookmarks/pins, and a small `meta_kv` for cached artifacts like the weekly review). It serves search/status/context **and** the higher-level surfaces — themes, the deterministic behavioral metrics, and (with your model login) ask/insights/Work DNA/weekly-review synthesis — over a loopback socket and an HTTP bridge that also serves the web UI. The same daemon backs the CLI, the desktop shell, and the MCP server.
 
 ```text
 crates/
@@ -247,10 +267,13 @@ crates/
   ct-connectors   9 conversation connectors + skills/prompts (+ shared VS Code helpers)
   ct-embed        Embedder trait: deterministic hash (default) + ONNX/all-MiniLM (`onnx`)
   ct-store        one SQLite index: FTS5 + vectors + RRF hybrid + filters + user_state
+                  + themes/clustering + behavioral metrics ("how you work")
   ct-index        indexing orchestration shared by CLI + daemon
-  ct-daemon       crossthreadsd: single-writer daemon + loopback/HTTP API + file watcher
-  ct-cli          crossthreads CLI (index / search / context / status)
-  ct-mcp          MCP server: agents query your history natively
+  ct-llm          optional model backend: reuses your Claude/Codex/Gemini login (or a BYO key)
+  ct-daemon       crossthreadsd: single-writer daemon + loopback/HTTP API + watcher
+                  + insights/ask/weekly synthesis on top of the index
+  ct-cli          crossthreads CLI (index/search/context/themes/insight/ask/activity/graph/metrics/weekly)
+  ct-mcp          MCP server: agents query your history + working profile natively
 ui/               React + Vite frontend (web + Tauri), talks to the daemon
 ```
 
@@ -280,8 +303,9 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP, durable bookmarks/pins, prebuilt releases, **cross-device search** (federation over Tailscale)
-- ⏳ Native desktop app (Tauri shell scaffolded), richer resume/deeplinks, notes & tags on conversations
+- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (21 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, and a **proactive weekly review** — all reusing your existing model login
+- ⏳ Native desktop app (Tauri shell scaffolded), richer resume/deeplinks, scheduled weekly-review delivery (cron/launchd)
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement IDs.
@@ -290,15 +314,16 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Adding a connector is a self-contained change: implement the `Connector` trait, register it in `builtin()`, and add a regression fixture. Security issues: please report privately per [SECURITY.md](SECURITY.md).
 
-> **Status:** pre-release. The backend (connectors, search, daemon, MCP, web UI) is implemented and tested; the native desktop app is scaffolded. Not yet publicly announced.
+> **Status:** pre-release. The backend (connectors, search, the insights/analytics layer, daemon, MCP, web UI) is implemented and tested; the native desktop app is scaffolded. Not yet publicly announced.
 
 ## 🧭 Principles
 
 1. **Local-first & private by default** — no telemetry; your data never leaves your machine unless you opt in.
 2. **Better than grep** — hybrid lexical + semantic retrieval with natural-language queries.
 3. **Actionable, not just searchable** — every result can be opened, resumed, or injected.
-4. **Resilient connectors** — tool formats change; detection is versioned and degrades gracefully.
-5. **Agent-friendly** — agents query Crossthreads over CLI/JSON and MCP.
+4. **Understanding, not just retrieval** — your history reveals how you work; metrics are deterministic, narratives cite them.
+5. **Resilient connectors** — tool formats change; detection is versioned and degrades gracefully.
+6. **Agent-friendly** — agents query Crossthreads over CLI/JSON and MCP.
 
 ## 📄 License
 
