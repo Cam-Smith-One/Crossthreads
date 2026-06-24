@@ -143,6 +143,13 @@ pub enum Request {
     /// device's `GetFederationConfig`), adopt its token if we have none, and
     /// approve the embedded peer.
     PairWithCode { code: String },
+    /// Read LLM provider auth status for the Settings → Models panel (secret-free).
+    GetLlmConfig,
+    /// Store (non-empty) or clear (empty) a provider's bring-your-own API key in
+    /// the OS keychain. `provider` is `anthropic` | `openai`.
+    SetLlmKey { provider: String, key: String },
+    /// Pin the active provider (`anthropic` | `openai`); empty clears the pin.
+    SetLlmProvider { provider: String },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -240,6 +247,12 @@ pub enum Response {
         markdown: String,
         sources: Vec<String>,
         token_estimate: usize,
+    },
+    /// LLM provider auth status for Settings → Models (secret-free).
+    LlmConfig {
+        providers: Vec<ct_llm::ProviderStatus>,
+        /// The pinned active provider id, if any (`anthropic` | `openai`).
+        active: Option<String>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

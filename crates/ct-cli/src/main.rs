@@ -12,9 +12,11 @@ use anyhow::{Context, Result};
 
 mod context;
 mod index;
+mod llm_auth;
 mod search;
 mod skill;
 mod status;
+mod themes;
 
 const USAGE: &str = "\
 crossthreads — search your AI coding sessions across tools
@@ -28,6 +30,9 @@ COMMANDS:
     context <QUERY>   Build a paste-ready context block from top matches
     status            Show index health (local, or --remote for the daemon)
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
+    themes            Cluster your sessions into themes (--k N; --name to label
+                      them with your local Claude/Codex login)
+    llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
 COMMON OPTIONS:
@@ -72,6 +77,8 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("context") => context::run(&args[1..]),
         Some("status") => status::run(&args[1..]),
         Some("skill") => skill::run(&args[1..]),
+        Some("themes") => themes::run(&args[1..]),
+        Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)

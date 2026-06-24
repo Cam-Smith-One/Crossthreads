@@ -1,0 +1,16 @@
+[package]
+name = "ct-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Optional LLM backend for Crossthreads — resolves local Codex/OpenAI auth and makes completions."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+ureq = { workspace = true }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }

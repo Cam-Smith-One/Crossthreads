@@ -183,6 +183,36 @@ export function setFederationConfig(patch: {
   return rpc<FederationConfig>({ op: "set_federation_config", ...patch });
 }
 
+// --- Models (LLM providers) ---------------------------------------------
+
+export interface ProviderStatus {
+  id: string;
+  label: string;
+  /** Resolved credential methods, most-preferred first (secret-free). */
+  methods: string[];
+  has_stored_key: boolean;
+}
+
+export interface LlmConfig {
+  providers: ProviderStatus[];
+  /** Pinned active provider id, if any. */
+  active?: string | null;
+}
+
+export function getLlmConfig(): Promise<LlmConfig> {
+  return rpc<LlmConfig>({ op: "get_llm_config" });
+}
+
+/** Store (non-empty) or clear (empty) a provider's BYO key. */
+export function setLlmKey(provider: string, key: string): Promise<LlmConfig> {
+  return rpc<LlmConfig>({ op: "set_llm_key", provider, key });
+}
+
+/** Pin the active provider (empty clears the pin). */
+export function setLlmProvider(provider: string): Promise<LlmConfig> {
+  return rpc<LlmConfig>({ op: "set_llm_provider", provider });
+}
+
 export async function pairWithCode(code: string): Promise<Device[]> {
   const data = await rpc<{ devices: Device[] }>({ op: "pair_with_code", code });
   return data.devices ?? [];

@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.4.0] - 2026-06-23
+
+### Added
+- **Themes** — `crossthreads themes` clusters your indexed conversations by
+  embedding (k-means over per-conversation centroids) and surfaces the themes you
+  spend time on, labeled by each cluster's most distinctive terms. Fully local and
+  offline. `--name` labels clusters with your local model login (below).
+- **Optional LLM backend** (`ct-llm`) that reuses your **existing** Claude Code or
+  Codex login — no new key required. Tiered, per provider, most-preferred first:
+  a stored key → an API key in the environment → an explicit token → the agent CLI
+  (`claude -p` / `codex exec`) → a best-effort token scavenged from the agent's
+  own login. Secrets are never logged.
+- **Settings → Models** — bring-your-own API key per provider (Anthropic, OpenAI),
+  stored in the **OS keychain**, plus a picker for which provider AI features
+  prefer. New `crossthreads llm-auth` shows what's resolved (secret-free).
+
+### Notes
+- Everything here is opt-in; the index and search never call a model. Override the
+  provider with `CROSSTHREADS_LLM_PROVIDER`, and the model with
+  `CROSSTHREADS_ANTHROPIC_MODEL` / `CROSSTHREADS_OPENAI_MODEL`.
+
 ## [0.3.2] - 2026-06-21
 
 ### Fixed
@@ -139,7 +160,8 @@ scaffolded but not yet released.
 - Local-first; the only optional network call is the one-time embedding-model
   download for ONNX semantic search.
 
-[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Cam-Smith-One/Crossthreads/compare/v0.2.1...v0.3.0
