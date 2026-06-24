@@ -224,6 +224,7 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_activity` | session activity over time (day/week) — **implemented** |
 | `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
 | `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
+| `crossthreads_weekly_review` | proactive weekly review (cached; `force` to regen) — **implemented** |
 | `crossthreads_work_dna` | quantified profile of how the user works — **implemented** |
 | `crossthreads_gaps` | gaps/blind spots + draft CLAUDE.md — **implemented** |
 | `crossthreads_prompt_coach` | prompt coaching from smoothest vs roughest sessions — **implemented** |
@@ -311,8 +312,17 @@ products** so they cite real numbers instead of guessing.
 - **`metrics`** (`crossthreads_metrics`, CLI `crossthreads metrics`, daemon
   `Request::Metrics`) — `WorkMetrics`: turns per task (median/mean), correction
   & first-prompt-miss rates, abandonment, opening-prompt specificity, code/error
-  paste rates, test/commit mention rates, tempo by hour, highest-friction
-  projects. Offline. This is the backbone the four products below are grounded in.
+  paste rates, test/commit mention rates, **delegation** (agent actions/session +
+  top actions), **languages**, **model mix**, **median session minutes**, tempo
+  by hour, highest-friction projects. Offline. This is the backbone the four
+  products below are grounded in. (Agent-action names are persisted at index time
+  — schema v8; re-index to backfill.)
+- **`weekly_review`** (`crossthreads_weekly_review`, CLI `crossthreads weekly`,
+  daemon `Request::WeeklyReview { force }`) — a proactive review of the last 7
+  days: what you worked on, how you worked (cites the metrics), and one concrete
+  thing to try. Cached in the index (`meta_kv`) and regenerated when a week
+  stale; the daemon refreshes it in the background on startup. Degrades to the
+  week's metrics with no model.
 - **`work_dna`** — a quantified profile of how the user works.
 - **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
 - **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with

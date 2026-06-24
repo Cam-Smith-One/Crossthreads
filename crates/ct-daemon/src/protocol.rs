@@ -201,6 +201,12 @@ pub enum Request {
         #[serde(default)]
         filters: Filters,
     },
+    /// The proactive weekly review. Returns the cached one if it's fresh;
+    /// `force` regenerates. Generation uses the model when configured.
+    WeeklyReview {
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -337,6 +343,15 @@ pub enum Response {
     /// Behavioral metrics ("how you work").
     Metrics {
         metrics: ct_store::WorkMetrics,
+    },
+    /// The weekly review (Markdown + provenance). `fresh` is true when this call
+    /// generated it (vs. returned a cached one).
+    WeeklyReview {
+        markdown: String,
+        generated_at: String,
+        period_start: String,
+        llm_used: bool,
+        fresh: bool,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

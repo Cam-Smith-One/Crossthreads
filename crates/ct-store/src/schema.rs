@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -63,7 +63,11 @@ CREATE TABLE IF NOT EXISTS messages (
     seq             INTEGER NOT NULL,
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
-    timestamp       TEXT
+    timestamp       TEXT,
+    -- v8: agent actions in this message — a JSON array of tool-call names
+    -- (e.g. ["Edit","Bash"]). Connectors parse these; persisted for the
+    -- behavioral metrics (delegation signal). NULL on pre-v8 rows until reindex.
+    tool_calls      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_convo ON messages(conversation_id);
@@ -104,5 +108,13 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE TABLE IF NOT EXISTS forgotten (
     session_key  TEXT PRIMARY KEY,
     forgotten_at TEXT NOT NULL
+);
+
+-- Small key→value store for app state that should survive re-indexing but isn't
+-- worth its own table (e.g. the cached weekly review). Additive; old binaries
+-- simply ignore it.
+CREATE TABLE IF NOT EXISTS meta_kv (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 "#;

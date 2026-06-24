@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "ct-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "ct-connectors"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "ct-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -503,10 +503,11 @@ dependencies = [
 
 [[package]]
 name = "ct-daemon"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "ct-core",
  "ct-embed",
  "ct-index",
@@ -522,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "ct-embed"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -530,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "ct-index"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -542,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "ct-llm"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -554,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "ct-mcp"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -569,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "ct-store"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "chrono",

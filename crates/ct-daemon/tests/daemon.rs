@@ -203,6 +203,45 @@ fn activity_and_graph_over_the_wire() {
 }
 
 #[test]
+fn weekly_review_caches_and_returns() {
+    let (addr, _h) = start();
+    let client = Client::new(addr);
+
+    // First call generates (fresh = true) and returns markdown + a period.
+    let first = match client
+        .call(&Request::WeeklyReview { force: false })
+        .unwrap()
+    {
+        Response::WeeklyReview {
+            markdown,
+            period_start,
+            fresh,
+            ..
+        } => {
+            assert!(fresh, "first call should generate");
+            assert!(!markdown.trim().is_empty());
+            assert_eq!(period_start.len(), 10, "YYYY-MM-DD period");
+            markdown
+        }
+        other => panic!("unexpected: {other:?}"),
+    };
+
+    // Second call (not forced) returns the cached one (fresh = false), same body.
+    match client
+        .call(&Request::WeeklyReview { force: false })
+        .unwrap()
+    {
+        Response::WeeklyReview {
+            markdown, fresh, ..
+        } => {
+            assert!(!fresh, "second call should be cached");
+            assert_eq!(markdown, first);
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn metrics_over_the_wire() {
     // Two user turns, one a correction → correction_rate should register.
     let mut store = Store::open_in_memory().unwrap();

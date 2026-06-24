@@ -68,6 +68,8 @@ it and fold what you learn into your work.
 - `crossthreads_work_dna()` / `_gaps()` / `_prompt_coach()` / `_process_miner()` —
   model-backed behavioral insights built on those metrics (profile, blind spots +
   a draft CLAUDE.md, prompt coaching, and repeatable procedures → draft skills).
+- `crossthreads_weekly_review(force?)` — the user's weekly review: what they did,
+  how they worked, and one thing to try next week.
 - `crossthreads_status()` — index health (counts).
 
 ## Notes
