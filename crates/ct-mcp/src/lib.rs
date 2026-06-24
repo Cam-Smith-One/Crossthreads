@@ -222,6 +222,88 @@ impl Server {
                                 "type": "integer",
                                 "description": "Number of themes (clusters) to produce. Default 8.",
                                 "minimum": 1
+                            },
+                            "name": {
+                                "type": "boolean",
+                                "description": "Label each theme with a short LLM-generated \
+                                    name instead of keyword terms (needs a model login)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_open_loops",
+                    "description": "Surface UNRESOLVED work across the user's recent AI \
+                        coding sessions: unanswered questions, half-finished tasks, \
+                        dangling TODOs, and errors never confirmed fixed. Use at the start \
+                        of a work session to see what to pick back up. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~40)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_knowledge_cards",
+                    "description": "Distill durable, reusable KNOWLEDGE CARDS (canonical \
+                        Q→A pairs) from things the user solved or decided across recent \
+                        sessions. Use to capture what's worth remembering. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~80)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_decision_log",
+                    "description": "Extract notable DECISIONS (\"chose X over Y because Z\") \
+                        with rationale from the user's recent sessions — a lightweight, \
+                        auto-built decision log / ADR feed. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~80)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_how_i_work",
+                    "description": "Infer the user's working conventions — tools, languages, \
+                        code style, commit habits, recurring gotchas, and preferences — as a \
+                        concise profile to drop into a CLAUDE.md / AGENTS.md so a new agent \
+                        instantly knows how they operate. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~80)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_digest",
+                    "description": "Write a short reflective DIGEST of the user's recent \
+                        work: what they've been doing, open questions, and things worth \
+                        revisiting. Good for a weekly catch-up. Needs a model login.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent sessions to scan (default ~40)."
                             }
                         }
                     }
@@ -245,6 +327,11 @@ impl Server {
             "crossthreads_status" => Ok(self.call_status()),
             "crossthreads_devices" => Ok(self.call_devices()),
             "crossthreads_themes" => Ok(self.call_themes(&args)),
+            "crossthreads_open_loops" => Ok(self.call_insight("open_loops", &args)),
+            "crossthreads_knowledge_cards" => Ok(self.call_insight("knowledge_cards", &args)),
+            "crossthreads_decision_log" => Ok(self.call_insight("decision_log", &args)),
+            "crossthreads_how_i_work" => Ok(self.call_insight("how_i_work", &args)),
+            "crossthreads_digest" => Ok(self.call_insight("digest", &args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -379,7 +466,8 @@ impl Server {
 
     fn call_themes(&self, args: &Value) -> Value {
         let k = args.get("k").and_then(|v| v.as_u64()).map(|n| n as usize);
-        match self.client.call(&Request::Themes { k }) {
+        let name = args.get("name").and_then(|v| v.as_bool()).unwrap_or(false);
+        match self.client.call(&Request::Themes { k, name }) {
             Ok(Response::Themes { themes }) => {
                 if themes.is_empty() {
                     return tool_text(
@@ -413,6 +501,33 @@ impl Server {
             }
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("themes failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_insight(&self, kind: &str, args: &Value) -> Value {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize);
+        match self.client.call(&Request::Insight {
+            kind: kind.to_string(),
+            limit,
+        }) {
+            Ok(Response::Insight { markdown, sources }) => {
+                if sources.is_empty() {
+                    tool_text(markdown)
+                } else {
+                    tool_text(format!(
+                        "{markdown}\n\n_Drawn from {} recent session(s)._",
+                        sources.len()
+                    ))
+                }
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!(
+                "{kind} failed ({e:#}). Needs a model login (Settings → Models) and a \
+                 running daemon."
+            )),
         }
     }
 }

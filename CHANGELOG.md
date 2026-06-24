@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.6.0] - 2026-06-24
+
+### Added
+- **Insights** — LLM synthesis over your recent sessions, exposed everywhere
+  (CLI, MCP, web app). Five kinds share one engine (`ct-daemon::insights`):
+  - **Open loops** — unresolved work, dangling TODOs, and fixes never confirmed.
+  - **Knowledge cards** — durable Q→A pairs worth remembering.
+  - **Decision log** — notable decisions ("chose X over Y because Z") with rationale.
+  - **How I work** — your conventions, ready to drop into a CLAUDE.md / AGENTS.md.
+  - **Digest** — a short reflective catch-up on recent work.
+- **MCP insight tools** — `crossthreads_open_loops`, `crossthreads_knowledge_cards`,
+  `crossthreads_decision_log`, `crossthreads_how_i_work`, and `crossthreads_digest`,
+  so agents can pull these views natively. Each takes an optional `limit`.
+- **`crossthreads insight <kind>`** CLI command (`--limit N`), with friendly
+  aliases (`loops`, `cards`, `decisions`/`adr`, `profile`, `weekly`).
+- **Insights in the web app** — a 💡 view with tabbed kinds (Open loops,
+  Decisions, Knowledge cards, How I work, Digest), rendered from the same daemon
+  `Insight` endpoint.
+- **AI-named themes** — the theme map gains a "✨ Name with AI" button (and the
+  daemon/MCP `themes` op a `name` flag) that labels each cluster with a short
+  generated name instead of keyword terms; falls back to the keyword label when
+  no model is configured.
+- **Proactive recall in the agent skill** — the installed Claude Code / Codex
+  skill now nudges agents to consult Crossthreads memory *before* planning
+  non-trivial work, and documents the new higher-level tools.
+
+### Notes
+- All insight features and AI naming reuse the existing model-auth layer
+  (Settings → Models / `llm-auth`): your Claude Code / Codex / Gemini login or a
+  BYO key. Search, recall, and offline themes still work with no model at all.
+
 ## [0.5.0] - 2026-06-24
 
 ### Added

@@ -17,6 +17,7 @@ import {
   search,
   getLlmConfig,
   getThemes,
+  getInsight,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -29,6 +30,7 @@ import {
   type Filters,
   type LlmConfig,
   type Theme,
+  type InsightKind,
   type Hit,
   type Mode,
   type Status,
@@ -64,6 +66,7 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "models">("docs");
   const [themes, setThemes] = useState<Theme[] | null>(null);
   const [showThemes, setShowThemes] = useState(false);
+  const [namingThemes, setNamingThemes] = useState(false);
 
   async function openThemes() {
     setShowThemes(true);
@@ -72,6 +75,44 @@ export function App() {
       setThemes(await getThemes(8));
     } catch {
       setThemes([]);
+    }
+  }
+
+  // Re-cluster, asking the model for a short name per theme (feature: LLM-named
+  // themes). Best-effort — the daemon keeps keyword labels where it can't name.
+  async function nameThemes() {
+    setNamingThemes(true);
+    try {
+      setThemes(await getThemes(8, true));
+    } catch {
+      /* keep the existing labels on failure */
+    } finally {
+      setNamingThemes(false);
+    }
+  }
+
+  // Insights (LLM synthesis over recent history).
+  const [showInsights, setShowInsights] = useState(false);
+  const [insightKind, setInsightKind] = useState<InsightKind>("open_loops");
+  const [insightMd, setInsightMd] = useState<string | null>(null);
+  const [insightSources, setInsightSources] = useState<number>(0);
+  const [insightBusyKind, setInsightBusyKind] = useState<InsightKind | null>(null);
+  const [insightError, setInsightError] = useState<string | null>(null);
+
+  async function runInsight(kind: InsightKind) {
+    setShowInsights(true);
+    setInsightKind(kind);
+    setInsightMd(null);
+    setInsightError(null);
+    setInsightBusyKind(kind);
+    try {
+      const res = await getInsight(kind);
+      setInsightMd(res.markdown);
+      setInsightSources(res.sources.length);
+    } catch (err) {
+      setInsightError(String(err));
+    } finally {
+      setInsightBusyKind(null);
     }
   }
 
@@ -397,6 +438,10 @@ export function App() {
         if (e.key === "Escape") setShowThemes(false);
         return;
       }
+      if (showInsights) {
+        if (e.key === "Escape") setShowInsights(false);
+        return;
+      }
       if (showSettings) {
         if (e.key === "Escape") setShowSettings(false);
         return;
@@ -422,7 +467,7 @@ export function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hits, selected, open, showSettings, showThemes]);
+  }, [hits, selected, open, showSettings, showThemes, showInsights]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -483,6 +528,14 @@ export function App() {
             aria-label="Open theme map"
           >
             🗺️
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => runInsight("open_loops")}
+            title="Insights — open loops, decisions, and more from your recent work"
+            aria-label="Open insights"
+          >
+            💡
           </button>
           <button
             className="settings-toggle"
@@ -807,9 +860,19 @@ export function App() {
           >
             <div className="modal-head">
               <h2>Theme map</h2>
-              <button className="secondary" onClick={() => setShowThemes(false)}>
-                Close
-              </button>
+              <div className="modal-head-actions">
+                <button
+                  className="secondary"
+                  onClick={nameThemes}
+                  disabled={namingThemes || !themes || themes.length === 0}
+                  title="Label each theme with a short AI-generated name (needs a model login)"
+                >
+                  {namingThemes ? "Naming…" : "✨ Name with AI"}
+                </button>
+                <button className="secondary" onClick={() => setShowThemes(false)}>
+                  Close
+                </button>
+              </div>
             </div>
             <p className="doc-desc">
               Your indexed sessions clustered by topic — what you've been working on,
@@ -865,6 +928,62 @@ export function App() {
                   );
                 })}
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showInsights && (
+        <div className="overlay" onClick={() => setShowInsights(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Insights"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Insights</h2>
+              <button className="secondary" onClick={() => setShowInsights(false)}>
+                Close
+              </button>
+            </div>
+            <div className="insight-tabs">
+              {(
+                [
+                  ["open_loops", "Open loops"],
+                  ["decision_log", "Decisions"],
+                  ["knowledge_cards", "Knowledge cards"],
+                  ["how_i_work", "How I work"],
+                  ["digest", "Digest"],
+                ] as [InsightKind, string][]
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  className={insightKind === k ? "on" : ""}
+                  onClick={() => runInsight(k)}
+                  disabled={insightBusyKind !== null}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="doc-desc">
+              Synthesized from your recent sessions by your configured model
+              (Settings → Models). Read-only — nothing is sent anywhere you didn't
+              set up.
+            </p>
+            {insightBusyKind && <p className="doc-desc">Synthesizing…</p>}
+            {insightError && <div className="error">{insightError}</div>}
+            {!insightBusyKind && !insightError && insightMd && (
+              <>
+                <pre className="insight-body">{insightMd}</pre>
+                {insightSources > 0 && (
+                  <p className="doc-desc">
+                    Drawn from {insightSources} recent session(s).
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>

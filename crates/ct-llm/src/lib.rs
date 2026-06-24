@@ -56,10 +56,21 @@ pub fn available() -> bool {
     !auth::available_providers().is_empty()
 }
 
-/// Generate a short completion for `user` (steered by an optional `system`).
-/// Tries the selected provider's credentials until one works; errors only when
-/// nothing is available or every attempt failed.
+/// Generate a short completion (~64 tokens) — for labels and names.
 pub fn complete(system: &str, user: &str) -> Result<String> {
+    complete_with(system, user, 64)
+}
+
+/// Generate a longer completion (~1024 tokens) — for synthesis (open loops,
+/// knowledge cards, digests, …).
+pub fn complete_long(system: &str, user: &str) -> Result<String> {
+    complete_with(system, user, 1024)
+}
+
+/// Generate a completion of up to `max_tokens`, trying the selected provider's
+/// credentials until one works; errors only when nothing is available or every
+/// attempt failed.
+pub fn complete_with(system: &str, user: &str, max_tokens: u32) -> Result<String> {
     let providers = provider_order();
     if providers.is_empty() {
         bail!(
@@ -71,9 +82,9 @@ pub fn complete(system: &str, user: &str) -> Result<String> {
     for provider in providers {
         for cred in auth::resolve(provider) {
             let attempt = match provider {
-                Provider::Anthropic => anthropic_complete(&cred, system, user),
-                Provider::OpenAi => openai_complete(&cred, system, user),
-                Provider::Google => google_complete(&cred, system, user),
+                Provider::Anthropic => anthropic_complete(&cred, system, user, max_tokens),
+                Provider::OpenAi => openai_complete(&cred, system, user, max_tokens),
+                Provider::Google => google_complete(&cred, system, user, max_tokens),
             };
             match attempt {
                 Ok(text) => return Ok(text),
@@ -109,7 +120,7 @@ fn env_or(key: &str, default: &str) -> String {
 
 // --- Anthropic ------------------------------------------------------------
 
-fn anthropic_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
+fn anthropic_complete(cred: &Cred, system: &str, user: &str, max_tokens: u32) -> Result<String> {
     if let Cred::Cli = cred {
         return claude_cli(system, user);
     }
@@ -117,7 +128,7 @@ fn anthropic_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
     let url = format!("{}/v1/messages", base.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": env_or("CROSSTHREADS_ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
-        "max_tokens": 64,
+        "max_tokens": max_tokens,
         "system": system,
         "messages": [{ "role": "user", "content": user }],
     });
@@ -156,7 +167,7 @@ fn claude_cli(system: &str, user: &str) -> Result<String> {
 
 // --- OpenAI / Codex -------------------------------------------------------
 
-fn openai_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
+fn openai_complete(cred: &Cred, system: &str, user: &str, max_tokens: u32) -> Result<String> {
     if let Cred::Cli = cred {
         return codex_cli(system, user);
     }
@@ -172,7 +183,7 @@ fn openai_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
             { "role": "system", "content": system },
             { "role": "user", "content": user },
         ],
-        "max_tokens": 64,
+        "max_tokens": max_tokens,
         "temperature": 0.2,
     });
     let resp = ureq::post(&url)
@@ -193,7 +204,7 @@ fn openai_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
 
 // --- Google / Gemini ------------------------------------------------------
 
-fn google_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
+fn google_complete(cred: &Cred, system: &str, user: &str, max_tokens: u32) -> Result<String> {
     if let Cred::Cli = cred {
         return gemini_cli(system, user);
     }
@@ -213,7 +224,7 @@ fn google_complete(cred: &Cred, system: &str, user: &str) -> Result<String> {
     let body = serde_json::json!({
         "systemInstruction": { "parts": [{ "text": system }] },
         "contents": [{ "role": "user", "parts": [{ "text": user }] }],
-        "generationConfig": { "maxOutputTokens": 64, "temperature": 0.2 },
+        "generationConfig": { "maxOutputTokens": max_tokens, "temperature": 0.2 },
     });
     let resp = ureq::post(&url)
         .send_json(body)

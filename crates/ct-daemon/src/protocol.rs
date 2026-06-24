@@ -154,6 +154,19 @@ pub enum Request {
     Themes {
         #[serde(default)]
         k: Option<usize>,
+        /// Label each cluster with a short LLM-generated name (needs a model
+        /// login; falls back to the TF·IDF label when unavailable).
+        #[serde(default)]
+        name: bool,
+    },
+    /// Synthesize an LLM insight over recent history (open loops, knowledge
+    /// cards, a decision log, a "how I work" profile, or a digest). Needs a
+    /// model login (Settings → Models). `kind` is one of `open_loops` |
+    /// `knowledge_cards` | `decision_log` | `how_i_work` | `digest`.
+    Insight {
+        kind: String,
+        #[serde(default)]
+        limit: Option<usize>,
     },
 }
 
@@ -262,6 +275,12 @@ pub enum Response {
     /// Conversation themes (clusters) for the UI map and MCP.
     Themes {
         themes: Vec<ct_store::Theme>,
+    },
+    /// A synthesized insight as Markdown, plus the source conversation ids it
+    /// drew from.
+    Insight {
+        markdown: String,
+        sources: Vec<String>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {
