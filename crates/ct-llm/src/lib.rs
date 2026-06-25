@@ -74,8 +74,11 @@ pub fn complete_with(system: &str, user: &str, max_tokens: u32) -> Result<String
     let providers = provider_order();
     if providers.is_empty() {
         bail!(
-            "no LLM auth found — add a key in Settings → Models, set ANTHROPIC_API_KEY / \
-             OPENAI_API_KEY / GEMINI_API_KEY, or sign into Claude Code / Codex / Gemini"
+            "no usable model credential. Easiest: paste an API key in Settings → Models, or set \
+             ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY. Reusing a login works for \
+             Claude (sign into Claude Code) and via the Codex/Gemini CLIs — note an OpenAI/ChatGPT \
+             *subscription* token can't call the API, so for Codex you need the `codex` CLI \
+             installed or an OpenAI API key."
         );
     }
     let mut last_err = None;
@@ -156,8 +159,16 @@ fn anthropic_complete(cred: &Cred, system: &str, user: &str, max_tokens: u32) ->
     Ok(text)
 }
 
+/// Resolve a CLI to an absolute path when we can (so a GUI-launched daemon with
+/// a stripped PATH still finds it); fall back to the bare name otherwise.
+fn cli_program(name: &str) -> std::ffi::OsString {
+    auth::cli_path(name)
+        .map(std::ffi::OsString::from)
+        .unwrap_or_else(|| name.into())
+}
+
 fn claude_cli(system: &str, user: &str) -> Result<String> {
-    let mut cmd = std::process::Command::new("claude");
+    let mut cmd = std::process::Command::new(cli_program("claude"));
     cmd.arg("-p").arg(user);
     if !system.is_empty() {
         cmd.arg("--append-system-prompt").arg(system);
@@ -247,7 +258,7 @@ fn gemini_cli(system: &str, user: &str) -> Result<String> {
     } else {
         format!("{system}\n\n{user}")
     };
-    let mut cmd = std::process::Command::new("gemini");
+    let mut cmd = std::process::Command::new(cli_program("gemini"));
     cmd.arg("-p").arg(&prompt);
     run_cli(cmd, "gemini")
 }
@@ -258,8 +269,10 @@ fn codex_cli(system: &str, user: &str) -> Result<String> {
     } else {
         format!("{system}\n\n{user}")
     };
-    let mut cmd = std::process::Command::new("codex");
-    cmd.arg("exec").arg(&prompt);
+    let mut cmd = std::process::Command::new(cli_program("codex"));
+    // `--skip-git-repo-check` so it runs from any cwd; output only the final
+    // message so we get a clean completion rather than the agent's full log.
+    cmd.arg("exec").arg("--skip-git-repo-check").arg(&prompt);
     run_cli(cmd, "codex")
 }
 

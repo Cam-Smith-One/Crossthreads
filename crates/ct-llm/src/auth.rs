@@ -134,9 +134,15 @@ fn resolve_openai() -> Vec<Cred> {
     if cli_available("codex") {
         out.push(Cred::Cli);
     }
-    // Scavenged ChatGPT-login token ranks *below* the CLI (reorder per review).
-    if let Some(t) = file_token {
-        out.push(Cred::OAuthToken(t));
+    // A scavenged ChatGPT-login token does NOT authenticate against the public
+    // OpenAI API (it 401s) — a ChatGPT/Codex subscription isn't an API key. So we
+    // do *not* offer it by default; the `codex` CLI above is the real reuse path.
+    // Power users pointing OPENAI_BASE_URL at a gateway that accepts the token can
+    // opt back in.
+    if std::env::var_os("CROSSTHREADS_OPENAI_USE_LOGIN_TOKEN").is_some() {
+        if let Some(t) = file_token {
+            out.push(Cred::OAuthToken(t));
+        }
     }
     out
 }
@@ -235,13 +241,80 @@ fn push_unique(out: &mut Vec<Cred>, c: Cred) {
     }
 }
 
-/// Whether a runnable `<name>` CLI is on PATH.
+/// Whether a runnable `<name>` CLI can be found (on PATH or a common install
+/// location). See [`cli_path`].
 pub fn cli_available(name: &str) -> bool {
-    std::process::Command::new(name)
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    cli_path(name).is_some()
+        // Windows fallback (cli_path looks for the bare name): try to run it.
+        || std::process::Command::new(name)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+}
+
+/// Resolve a CLI binary to an absolute path, searching `PATH` first and then the
+/// usual install locations a **GUI-launched** process often *doesn't* inherit
+/// (Homebrew, `~/.local/bin`, npm/nvm/bun/volta global bins, `~/.codex/bin`).
+/// This is why a desktop-launched daemon couldn't find `codex` and fell back to
+/// a credential that doesn't work — see [`resolve_openai`].
+pub fn cli_path(name: &str) -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join(name);
+            if is_executable(&p) {
+                return Some(p);
+            }
+        }
+    }
+    let mut dirs_to_try: Vec<PathBuf> = vec![
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        for sub in [
+            ".local/bin",
+            ".npm-global/bin",
+            ".bun/bin",
+            ".deno/bin",
+            ".volta/bin",
+            ".cargo/bin",
+            ".codex/bin",
+        ] {
+            dirs_to_try.push(home.join(sub));
+        }
+        // nvm/fnm keep node (and its global bins like `codex`) under a per-version
+        // dir — scan them so an nvm-installed CLI is still found.
+        for base in [".nvm/versions/node", ".local/share/fnm/node-versions"] {
+            if let Ok(rd) = std::fs::read_dir(home.join(base)) {
+                for entry in rd.flatten() {
+                    dirs_to_try.push(entry.path().join("bin"));
+                    dirs_to_try.push(entry.path().join("installation").join("bin"));
+                }
+            }
+        }
+    }
+    dirs_to_try
+        .into_iter()
+        .map(|d| d.join(name))
+        .find(|p| is_executable(p))
+}
+
+/// Whether `p` is a regular file with an executable bit (any) set.
+fn is_executable(p: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p)
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        p.is_file()
+    }
 }
 
 #[cfg(test)]
@@ -276,6 +349,14 @@ mod tests {
             parse_claude_credentials(r#"{ "claudeAiOauth": { "accessToken": "" } }"#),
             None
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_path_resolves_real_binary_not_bogus() {
+        // `sh` exists in /bin on every unix; a nonsense name resolves to None.
+        assert!(cli_path("sh").is_some());
+        assert!(cli_path("ct-nonexistent-binary-zzz").is_none());
     }
 
     #[test]
