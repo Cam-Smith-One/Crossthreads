@@ -612,9 +612,27 @@ impl Server {
 
     fn call_status(&self) -> Value {
         match self.client.call(&Request::Status) {
-            Ok(Response::Status { conversations, embeddings, embedder }) => tool_text(format!(
-                "Crossthreads index: {conversations} conversations, {embeddings} embeddings ({embedder})."
-            )),
+            Ok(Response::Status {
+                conversations,
+                embeddings,
+                embedder,
+                tools,
+            }) => {
+                let mix = tools
+                    .iter()
+                    .map(|(t, threads, skills)| {
+                        if *skills > 0 {
+                            format!("{t} {threads} (+{skills} skills)")
+                        } else {
+                            format!("{t} {threads}")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                tool_text(format!(
+                    "Crossthreads index: {conversations} conversations, {embeddings} embeddings ({embedder}).\nIndexed tools: {mix}."
+                ))
+            }
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("status failed ({e:#}). Is crossthreadsd running?")),
         }

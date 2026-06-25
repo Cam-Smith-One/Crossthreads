@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.10.0] - 2026-06-25
+
+### Added
+- **"What's indexed" tool chips.** The header now shows a chip per detected tool
+  with its conversation count (e.g. *Claude Code 142 · Codex 31*), so you can see
+  at a glance what Crossthreads found — and spot a tool that's under-counting.
+  `Status` carries per-tool counts; `crossthreads status` and the
+  `crossthreads_status` MCP tool report them too.
+
+### Changed
+- **Activity is now insightful.** The temporal view gained a summary (total
+  sessions, active periods, busiest period, average per period), a per-tool
+  **legend**, and **stacked bars colored by tool** — so each bar shows *which*
+  tools you used that week, not just a count.
+- **Ask draws on more of your history.** Default retrieval went from 6 → 12
+  sessions, with the context budget scaled to match, for richer cited answers.
+
 ## [0.9.1] - 2026-06-24
 
 ### Fixed

@@ -44,6 +44,8 @@ export interface Status {
   conversations: number;
   embeddings: number;
   embedder: string;
+  /** Detected tools with indexed counts: [tool, threads, skills], busiest first. */
+  tools?: [string, number, number][];
 }
 
 export interface ContextBlock {
@@ -258,7 +260,7 @@ export interface Answer {
 export function ask(
   question: string,
   filters: Filters = {},
-  limit = 6,
+  limit = 12,
   devices?: string[] | null,
 ): Promise<Answer> {
   return rpc<Answer>({

@@ -477,6 +477,31 @@ body {
   overflow-y: auto;
 }
 
+/* "What's indexed" tool chips under the header status line */
+.tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--card, transparent);
+}
+.tool-chip-icon { font-size: 12px; line-height: 1; }
+.tool-chip-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 /* Proactive weekly-review banner + toolbar badge */
 .weekly-banner {
   display: flex;
@@ -543,12 +568,23 @@ body {
 }
 .ask-form button:disabled { opacity: 0.6; cursor: default; }
 
-/* Activity: simple horizontal bar chart */
-.activity-chart { display: flex; flex-direction: column; gap: 4px; max-height: 56vh; overflow-y: auto; }
+/* Activity: per-tool stacked bar chart with a summary + legend */
+.activity-summary {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  padding: 8px 10px; margin: 4px 0; background: var(--border); border-radius: 8px;
+  font-size: 12px; color: var(--muted);
+}
+.activity-summary b { color: var(--text); font-variant-numeric: tabular-nums; }
+.activity-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 10px; font-size: 12px; color: var(--muted); }
+.activity-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.activity-legend-count { color: var(--text); font-variant-numeric: tabular-nums; }
+.activity-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.activity-chart { display: flex; flex-direction: column; gap: 4px; max-height: 48vh; overflow-y: auto; }
 .activity-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .activity-period { width: 92px; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .activity-bar-wrap { flex: 1; background: var(--border); border-radius: 4px; height: 14px; overflow: hidden; }
-.activity-bar { display: block; height: 100%; background: var(--accent); border-radius: 4px; min-width: 2px; }
+.activity-bar { display: flex; height: 100%; border-radius: 4px; overflow: hidden; min-width: 2px; }
+.activity-seg { height: 100%; min-width: 1px; }
 .activity-count { width: 32px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Knowledge graph: grouped node cloud + edge list */

@@ -409,10 +409,25 @@ impl Daemon {
 
     fn status(&self) -> Result<Response> {
         let store = self.read_lock();
+        // Roll the per-(tool, kind) counts up into (tool, threads, skills) for
+        // the "what's indexed" chips, busiest tool first.
+        let mut by_tool: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
+        for (tool, kind, n) in store.counts_by_tool()? {
+            let e = by_tool.entry(tool).or_default();
+            if kind == "skill" {
+                e.1 += n;
+            } else {
+                e.0 += n;
+            }
+        }
+        let mut tools: Vec<(String, i64, i64)> =
+            by_tool.into_iter().map(|(t, (a, b))| (t, a, b)).collect();
+        tools.sort_by(|a, b| (b.1 + b.2).cmp(&(a.1 + a.2)).then_with(|| a.0.cmp(&b.0)));
         Ok(Response::Status {
             conversations: store.conversation_count()?,
             embeddings: store.embedding_count()?,
             embedder: self.embedder.id().to_string(),
+            tools,
         })
     }
 
@@ -806,7 +821,10 @@ impl Daemon {
         f: &Filters,
         devices: Option<&[String]>,
     ) -> Result<Response> {
-        let block = self.context_block(question, Mode::Hybrid, limit, 9000, f, devices)?;
+        // Budget scales with how many sessions we draw on, so a wider retrieval
+        // isn't immediately truncated away.
+        let max_chars = (limit * 1400).clamp(9000, 24000);
+        let block = self.context_block(question, Mode::Hybrid, limit, max_chars, f, devices)?;
         if block.sources.is_empty() {
             return Ok(Response::Answer {
                 markdown: format!("No past sessions found relevant to \u{201c}{question}\u{201d}."),

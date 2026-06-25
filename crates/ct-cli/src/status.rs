@@ -44,10 +44,19 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
                 conversations,
                 embeddings,
                 embedder,
+                tools,
             } => {
                 println!("daemon: running");
                 println!("  conversations: {conversations}");
                 println!("  embeddings:    {embeddings} ({embedder})");
+                for (tool, threads, skills) in tools {
+                    let skills = if skills > 0 {
+                        format!(" (+{skills} skills)")
+                    } else {
+                        String::new()
+                    };
+                    println!("  {tool:<14} {threads}{skills}");
+                }
             }
             Response::Error { message } => bail!("daemon error: {message}"),
             other => bail!("unexpected response: {other:?}"),
@@ -60,5 +69,8 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     println!("index: {}", db_path.display());
     println!("  conversations: {}", store.conversation_count()?);
     println!("  embeddings:    {}", store.embedding_count()?);
+    for (tool, kind, n) in store.counts_by_tool()? {
+        println!("  {tool:<14} {n} {kind}s");
+    }
     Ok(ExitCode::SUCCESS)
 }

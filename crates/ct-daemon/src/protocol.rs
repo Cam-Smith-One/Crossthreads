@@ -241,7 +241,7 @@ fn default_context_limit() -> usize {
     3
 }
 fn default_ask_limit() -> usize {
-    6
+    12
 }
 fn default_max_chars() -> usize {
     6000
@@ -256,6 +256,10 @@ pub enum Response {
         conversations: i64,
         embeddings: i64,
         embedder: String,
+        /// Detected tools with their indexed counts: `(tool, threads, skills)`,
+        /// busiest first — for the "what's indexed" chips in the UI.
+        #[serde(default)]
+        tools: Vec<(String, i64, i64)>,
     },
     Facets {
         tools: Vec<String>,
