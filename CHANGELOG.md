@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.9.1] - 2026-06-24
+
+### Fixed
+- **Codex / OpenAI model auth (401).** Insights failed for Codex users with
+  `OpenAI (Codex) via reused login token: status code 401`. A ChatGPT/Codex
+  *subscription* token isn't an API key and can't call the public OpenAI API, so
+  Crossthreads no longer offers it by default — the **`codex` CLI** is the real
+  reuse path. It also now finds the `codex` (and `claude`/`gemini`) CLI even when
+  the daemon is launched from the desktop app with a stripped `PATH`, searching
+  Homebrew, `~/.local/bin`, and npm/nvm/bun/volta global bins. With no usable
+  OpenAI credential the error is now actionable (install the CLI, paste a key, or
+  use Claude/Gemini) instead of a raw 401. Power users can opt the login token
+  back in with `CROSSTHREADS_OPENAI_USE_LOGIN_TOKEN=1` (e.g. behind a gateway).
+
 ## [0.9.0] - 2026-06-24
 
 ### Added
