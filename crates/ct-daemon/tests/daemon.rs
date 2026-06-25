@@ -87,10 +87,14 @@ fn ping_status_and_search_over_the_wire() {
             conversations,
             embeddings,
             embedder,
+            tools,
         } => {
             assert_eq!(conversations, 2);
             assert_eq!(embeddings, 2);
             assert_eq!(embedder, "hash-bow-v1");
+            // Two tools seeded (claude-code + cursor), one thread each.
+            assert_eq!(tools.len(), 2);
+            assert!(tools.iter().any(|(t, n, _)| t == "claude-code" && *n == 1));
         }
         other => panic!("unexpected: {other:?}"),
     }

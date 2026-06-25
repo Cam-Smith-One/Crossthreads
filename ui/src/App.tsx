@@ -50,6 +50,26 @@ import {
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
 const PAGE = 25;
 
+// Friendly label + glyph per tool slug, for the "what's indexed" chips and the
+// activity breakdown. Unknown tools fall back to the slug and a neutral dot.
+const TOOL_META: Record<string, { label: string; icon: string }> = {
+  "claude-code": { label: "Claude Code", icon: "✳️" },
+  codex: { label: "Codex", icon: "◆" },
+  cursor: { label: "Cursor", icon: "▱" },
+  aider: { label: "Aider", icon: "✦" },
+  cline: { label: "Cline", icon: "◈" },
+  copilot: { label: "Copilot", icon: "⊕" },
+  "gemini-cli": { label: "Gemini CLI", icon: "✶" },
+  windsurf: { label: "Windsurf", icon: "🌊" },
+  antigravity: { label: "Antigravity", icon: "🛰️" },
+};
+function toolLabel(slug: string): string {
+  return TOOL_META[slug]?.label ?? slug;
+}
+function toolIcon(slug: string): string {
+  return TOOL_META[slug]?.icon ?? "•";
+}
+
 export function App() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>("hybrid");
@@ -198,7 +218,7 @@ export function App() {
     setAskError(null);
     setAskAnswer(null);
     try {
-      setAskAnswer(await ask(q, {}, 6, deviceArg()));
+      setAskAnswer(await ask(q, {}, 12, deviceArg()));
     } catch (err) {
       setAskError(String(err));
     } finally {
@@ -734,6 +754,23 @@ export function App() {
               {reindexing ? "re-indexing…" : "re-index"}
             </button>
           </p>
+        )}
+        {status?.tools && status.tools.length > 0 && (
+          <div className="tool-chips" aria-label="Detected tools">
+            {status.tools.map(([tool, threads, skills]) => (
+              <span
+                key={tool}
+                className="tool-chip"
+                title={`${threads} conversation${threads === 1 ? "" : "s"}${
+                  skills > 0 ? ` · ${skills} skill${skills === 1 ? "" : "s"}` : ""
+                } from ${toolLabel(tool)}`}
+              >
+                <span className="tool-chip-icon">{toolIcon(tool)}</span>
+                {toolLabel(tool)}
+                <span className="tool-chip-count">{(threads + skills).toLocaleString()}</span>
+              </span>
+            ))}
+          </div>
         )}
       </header>
 
@@ -1332,26 +1369,57 @@ export function App() {
             {activity && activity.length === 0 && (
               <p className="doc-desc">No dated sessions yet — index some first.</p>
             )}
-            {activity && activity.length > 0 && (
-              <div className="activity-chart">
-                {(() => {
-                  const max = Math.max(...activity.map((p) => p.total), 1);
-                  return activity.map((p) => (
-                    <div key={p.period} className="activity-row">
-                      <span className="activity-period">{p.period}</span>
-                      <span className="activity-bar-wrap">
-                        <span
-                          className="activity-bar"
-                          style={{ width: `${(p.total / max) * 100}%` }}
-                          title={p.by_tool.map(([t, n]) => `${t}: ${n}`).join("\n")}
-                        />
+            {activity && activity.length > 0 && (() => {
+              const total = activity.reduce((s, p) => s + p.total, 0);
+              const max = Math.max(...activity.map((p) => p.total), 1);
+              const busiest = activity.reduce((a, b) => (b.total > a.total ? b : a));
+              // Aggregate per-tool totals across all periods, busiest first.
+              const toolTotals = new Map<string, number>();
+              for (const p of activity)
+                for (const [t, n] of p.by_tool)
+                  toolTotals.set(t, (toolTotals.get(t) ?? 0) + n);
+              const tools = [...toolTotals.entries()].sort((a, b) => b[1] - a[1]);
+              const color = (t: string) =>
+                `hsl(${(tools.findIndex(([x]) => x === t) * 67 + 210) % 360} 65% 60%)`;
+              return (
+                <>
+                  <div className="activity-summary">
+                    <span><b>{total.toLocaleString()}</b> sessions</span>
+                    <span><b>{activity.length}</b> active {activityBucket}s</span>
+                    <span>busiest <b>{busiest.period}</b> ({busiest.total})</span>
+                    <span><b>{(total / activity.length).toFixed(1)}</b> avg/{activityBucket}</span>
+                  </div>
+                  <div className="activity-legend">
+                    {tools.map(([t, n]) => (
+                      <span key={t} className="activity-legend-item" title={`${n} sessions`}>
+                        <span className="activity-swatch" style={{ background: color(t) }} />
+                        {toolLabel(t)} <span className="activity-legend-count">{n}</span>
                       </span>
-                      <span className="activity-count">{p.total}</span>
-                    </div>
-                  ));
-                })()}
-              </div>
-            )}
+                    ))}
+                  </div>
+                  <div className="activity-chart">
+                    {activity.map((p) => (
+                      <div key={p.period} className="activity-row">
+                        <span className="activity-period">{p.period}</span>
+                        <span className="activity-bar-wrap">
+                          <span className="activity-bar" style={{ width: `${(p.total / max) * 100}%` }}>
+                            {p.by_tool.map(([t, n]) => (
+                              <span
+                                key={t}
+                                className="activity-seg"
+                                style={{ background: color(t), flexGrow: n }}
+                                title={`${toolLabel(t)}: ${n}`}
+                              />
+                            ))}
+                          </span>
+                        </span>
+                        <span className="activity-count">{p.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
