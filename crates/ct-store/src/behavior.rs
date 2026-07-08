@@ -16,6 +16,8 @@ pub struct RawMessage {
     pub content: String,
     /// Agent-action names recorded on this message (e.g. `["Edit","Bash"]`).
     pub tools: Vec<String>,
+    /// ISO-8601 timestamp of this message, when known.
+    pub ts: Option<String>,
 }
 
 /// One session reduced to its messages + light metadata, the input to [`analyze`].
@@ -96,6 +98,16 @@ pub struct WorkMetrics {
     pub by_model: Vec<(String, i64)>,
     /// Median session length in minutes (from started_at→ended_at), when known.
     pub median_session_minutes: f64,
+    // --- sharper diagnostics (v0.11) ---
+    /// Median seconds from the opening user message to the first assistant
+    /// reply — a responsiveness / prompt-clarity signal. 0 when unknown.
+    pub median_time_to_first_response_secs: f64,
+    /// Of sessions where an error/stack trace was pasted, the fraction that
+    /// still ended resolved — an error-recovery signal.
+    pub error_recovery_rate: f64,
+    /// Mean distinct projects touched per active day — a context-switching cost
+    /// signal (higher = more switching).
+    pub avg_projects_per_active_day: f64,
 }
 
 /// Words that, opening a user turn after the first, signal a correction / rework.
@@ -191,11 +203,23 @@ fn hour_of(started_at: Option<&str>) -> Option<i64> {
 /// Minutes between two ISO timestamps, if both parse and the span is sane
 /// (0 < mins ≤ 24h — guards against clock skew / multi-day idle sessions).
 fn span_minutes(start: Option<&str>, end: Option<&str>) -> Option<f64> {
+    span_seconds(start, end)
+        .map(|s| s / 60.0)
+        .filter(|m| *m <= 24.0 * 60.0)
+}
+
+/// Seconds between two ISO timestamps, if both parse and end ≥ start.
+fn span_seconds(start: Option<&str>, end: Option<&str>) -> Option<f64> {
     use chrono::DateTime;
     let s = DateTime::parse_from_rfc3339(start?).ok()?;
     let e = DateTime::parse_from_rfc3339(end?).ok()?;
-    let mins = (e - s).num_seconds() as f64 / 60.0;
-    (mins > 0.0 && mins <= 24.0 * 60.0).then_some(mins)
+    let secs = (e - s).num_seconds() as f64;
+    (secs >= 0.0).then_some(secs)
+}
+
+/// The ISO date prefix (`YYYY-MM-DD`) of a timestamp.
+fn day_of(started_at: Option<&str>) -> Option<String> {
+    started_at.map(|s| s.get(..10).unwrap_or(s).to_string())
 }
 
 /// Languages named on fenced code blocks in `text` (the token right after an
@@ -239,6 +263,11 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
     let mut model_counts: std::collections::BTreeMap<String, i64> = Default::default();
     let mut total_actions = 0i64;
     let mut duration_samples: Vec<f64> = Vec::new();
+    // Sharper diagnostics (v0.11).
+    let mut ttfr_samples: Vec<f64> = Vec::new(); // time-to-first-response, secs
+    let (mut error_sessions, mut error_recovered) = (0i64, 0i64);
+    let mut day_projects: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        Default::default();
 
     for s in sessions {
         *tool_counts.entry(s.tool.clone()).or_default() += 1;
@@ -253,6 +282,27 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         }
         if let Some(mins) = span_minutes(s.started_at.as_deref(), s.ended_at.as_deref()) {
             duration_samples.push(mins);
+        }
+        // Context switching: distinct projects touched per calendar day.
+        if let (Some(day), Some(p)) = (day_of(s.started_at.as_deref()), s.project.clone()) {
+            day_projects.entry(day).or_default().insert(p);
+        }
+        // Time-to-first-response: first user message ts → first later assistant ts.
+        let first_user_ts = s
+            .messages
+            .iter()
+            .find(|m| is_user(&m.role))
+            .and_then(|m| m.ts.clone());
+        let first_asst_ts = s
+            .messages
+            .iter()
+            .skip_while(|m| !is_user(&m.role))
+            .find(|m| m.role.eq_ignore_ascii_case("assistant"))
+            .and_then(|m| m.ts.clone());
+        if let Some(secs) = span_seconds(first_user_ts.as_deref(), first_asst_ts.as_deref()) {
+            if secs <= 3600.0 {
+                ttfr_samples.push(secs); // ignore idle-overnight outliers
+            }
         }
 
         let user_msgs: Vec<&str> = s
@@ -302,7 +352,8 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         if has_code(&whole) {
             code += 1;
         }
-        if has_error(&whole) {
+        let had_error = has_error(&whole);
+        if had_error {
             error += 1;
         }
         if mentions(
@@ -324,6 +375,13 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
             .unwrap_or(false);
         if !resolved {
             abandoned += 1;
+        }
+        // Error recovery: of sessions where an error was pasted, did it resolve?
+        if had_error {
+            error_sessions += 1;
+            if resolved {
+                error_recovered += 1;
+            }
         }
 
         if let Some(p) = &s.project {
@@ -389,6 +447,17 @@ pub fn analyze(sessions: &[RawSession]) -> (WorkMetrics, Vec<SessionMetrics>) {
         top_languages: top(lang_counts, 8),
         by_model: top(model_counts, 6),
         median_session_minutes: median_f64(&mut durations),
+        median_time_to_first_response_secs: median_f64(&mut ttfr_samples),
+        error_recovery_rate: if error_sessions > 0 {
+            error_recovered as f64 / error_sessions as f64
+        } else {
+            0.0
+        },
+        avg_projects_per_active_day: if day_projects.is_empty() {
+            0.0
+        } else {
+            day_projects.values().map(|s| s.len() as f64).sum::<f64>() / day_projects.len() as f64
+        },
     };
     (metrics, per)
 }
@@ -473,6 +542,9 @@ pub fn summarize(m: &WorkMetrics) -> String {
          Languages: {langs}.\n\
          Models: {models}.\n\
          Median session length: {dur}.\n\
+         Time to first response: {ttfr}.\n\
+         Error-recovery rate: {recov}.\n\
+         Context switching: {switch:.1} projects/active-day.\n\
          Busiest hour: {busiest}.\n\
          Highest-friction projects (avg user turns): {friction}.",
         sessions = m.sessions,
@@ -492,6 +564,13 @@ pub fn summarize(m: &WorkMetrics) -> String {
         top_actions = join(&m.top_actions, 5),
         langs = join(&m.top_languages, 6),
         models = join(&m.by_model, 4),
+        ttfr = if m.median_time_to_first_response_secs > 0.0 {
+            format!("{:.0}s", m.median_time_to_first_response_secs)
+        } else {
+            "—".into()
+        },
+        recov = pct(m.error_recovery_rate),
+        switch = m.avg_projects_per_active_day,
     )
 }
 
@@ -514,6 +593,7 @@ mod tests {
                     role: r.to_string(),
                     content: c.to_string(),
                     tools: Vec::new(),
+                    ts: None,
                 })
                 .collect(),
         }

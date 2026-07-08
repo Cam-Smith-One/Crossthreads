@@ -20,6 +20,7 @@ use ct_store::Store;
 pub mod federation;
 mod http;
 pub mod insights;
+pub mod optimize;
 pub mod protocol;
 pub mod weekly;
 pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
@@ -329,6 +330,8 @@ impl Daemon {
             Request::Graph { limit } => self.graph(limit.unwrap_or(40)).unwrap_or_else(err),
             Request::Metrics { filters } => self.metrics(&filters).unwrap_or_else(err),
             Request::WeeklyReview { force } => self.weekly_review(force).unwrap_or_else(err),
+            Request::Trends { days } => self.trends(days).unwrap_or_else(err),
+            Request::Optimize { force } => self.optimize(force).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -885,6 +888,25 @@ impl Daemon {
         let store = self.read_lock();
         let (metrics, _per) = store.work_metrics(f)?;
         Ok(Response::Metrics { metrics })
+    }
+
+    /// Behavioral trends (current window vs previous). Deterministic.
+    fn trends(&self, days: Option<i64>) -> Result<Response> {
+        let days = days.unwrap_or(optimize::WINDOW_DAYS).clamp(1, 365);
+        let store = self.read_lock();
+        let rows = optimize::trends(&store, chrono::Utc::now(), days)?;
+        Ok(Response::Trends { rows })
+    }
+
+    /// The "optimize how you work" loop. Persists a prescription, so it takes
+    /// the writer lock; all deterministic (no model), so it's brief.
+    fn optimize(&self, force: bool) -> Result<Response> {
+        let store = self.write_lock();
+        let report = optimize::run(&store, chrono::Utc::now(), force)?;
+        Ok(Response::Optimize {
+            markdown: report.markdown,
+            has_active: report.has_active,
+        })
     }
 
     /// The proactive weekly review: return the cached one when it's fresh, else

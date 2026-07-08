@@ -23,6 +23,7 @@ import {
   getGraph,
   getMetrics,
   getWeeklyReview,
+  getOptimize,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -41,6 +42,7 @@ import {
   type Graph,
   type WorkMetrics,
   type WeeklyReview,
+  type OptimizeReport,
   type Hit,
   type Mode,
   type Status,
@@ -181,6 +183,25 @@ export function App() {
       /* ignore */
     } finally {
       setWeeklyBusy(false);
+    }
+  }
+
+  // Optimize loop ("how you work" → biggest lever + measured verdict + trends).
+  const [showOptimize, setShowOptimize] = useState(false);
+  const [optimize, setOptimize] = useState<OptimizeReport | null>(null);
+  const [optimizeBusy, setOptimizeBusy] = useState(false);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
+
+  async function openOptimize(force = false) {
+    setShowOptimize(true);
+    setOptimizeBusy(true);
+    setOptimizeError(null);
+    try {
+      setOptimize(await getOptimize(force));
+    } catch (err) {
+      setOptimizeError(String(err));
+    } finally {
+      setOptimizeBusy(false);
     }
   }
 
@@ -586,6 +607,10 @@ export function App() {
         if (e.key === "Escape") setShowWeekly(false);
         return;
       }
+      if (showOptimize) {
+        if (e.key === "Escape") setShowOptimize(false);
+        return;
+      }
       if (showAsk) {
         if (e.key === "Escape") setShowAsk(false);
         return;
@@ -631,6 +656,7 @@ export function App() {
     showThemes,
     showInsights,
     showWeekly,
+    showOptimize,
     showAsk,
     showActivity,
     showGraph,
@@ -711,6 +737,14 @@ export function App() {
             aria-label="Open weekly review"
           >
             📋
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => openOptimize(false)}
+            title="Optimize — the biggest change to make now, and whether the last one worked"
+            aria-label="Open optimize"
+          >
+            🎯
           </button>
           <button
             className="settings-toggle"
@@ -1279,6 +1313,45 @@ export function App() {
             {weekly && !weeklyBusy && <pre className="insight-body">{weekly.markdown}</pre>}
             {!weekly && !weeklyBusy && (
               <p className="doc-desc">No review yet — index some sessions first.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showOptimize && (
+        <div className="overlay" onClick={() => setShowOptimize(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Optimize how you work"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Optimize how you work</h2>
+              <div className="modal-head-actions">
+                <button
+                  className="secondary"
+                  onClick={() => openOptimize(true)}
+                  disabled={optimizeBusy}
+                  title="Grade the current focus now instead of waiting ~7 days"
+                >
+                  {optimizeBusy ? "…" : "↻ Grade now"}
+                </button>
+                <button className="secondary" onClick={() => setShowOptimize(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <p className="doc-desc">
+              The single highest-impact change to make now — grounded in your metrics — plus a
+              measured verdict on the last change you tried, and your trends. Deterministic; no
+              model.
+            </p>
+            {optimizeBusy && <p className="doc-desc">Computing…</p>}
+            {optimizeError && <div className="error">{optimizeError}</div>}
+            {!optimizeBusy && !optimizeError && optimize && (
+              <pre className="insight-body">{optimize.markdown}</pre>
             )}
           </div>
         </div>

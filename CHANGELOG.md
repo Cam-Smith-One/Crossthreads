@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.11.0] - 2026-06-25
+
+### Added
+- **Optimize how you work — a closed loop.** A new 🎯 view (and `crossthreads
+  optimize` / `crossthreads_optimize`) that turns the behavioral metrics from
+  *descriptive* into *prescriptive and verified*:
+  - computes the **single highest-impact change** to make now (a concrete,
+    testable prescription grounded in your metrics — e.g. front-load constraints,
+    close loops, ask for tests, batch by project);
+  - **measures whether the last change worked** — a week later it grades the
+    targeted metric against its baseline (a validation-gated verdict: improved /
+    regressed / no clear change), like SkillOpt but for a person;
+  - keeps a running **optimization log** of what you changed and what it did.
+  Deterministic — no model. State survives re-indexing.
+- **Trends over time** — every metric compared to the previous window with a
+  direction (↑ better / ↓ worse). New `crossthreads trends` and
+  `crossthreads_trends`; also embedded in the optimize view.
+- **Sharper diagnostics** — three new signals from data we already store:
+  **time-to-first-response** (from per-message timestamps), **error-recovery
+  rate** (of sessions with a pasted error, the fraction resolved), and
+  **context-switching cost** (distinct projects per active day). They flow into
+  `metrics`, Work DNA, and the levers above.
+
+### Notes
+- MCP now exposes **23 tools**.
+
 ## [0.10.0] - 2026-06-25
 
 ### Added
