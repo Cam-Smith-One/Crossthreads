@@ -453,6 +453,39 @@ impl Server {
                             }
                         }
                     }
+                },
+                {
+                    "name": "crossthreads_trends",
+                    "description": "How the user's working metrics are trending — the last 30 days \
+                        vs the previous 30 — with direction (better/worse) per metric: rework, \
+                        first-prompt miss, unresolved rate, prompt specificity, tests, context \
+                        switching, median turns. Deterministic; no model.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "days": {
+                                "type": "integer",
+                                "description": "Window size in days to compare (default 30)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_optimize",
+                    "description": "The 'optimize how you work' loop: the single highest-impact \
+                        change the user should make right now (a concrete, testable prescription \
+                        grounded in their metrics), a measured verdict on the last change they \
+                        tried (did the metric actually move?), and their trends. Use to give \
+                        focused, evidence-backed, actionable coaching. Deterministic; no model.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "force": {
+                                "type": "boolean",
+                                "description": "Grade the active prescription now instead of waiting ~7 days."
+                            }
+                        }
+                    }
                 }
             ]
         })
@@ -488,6 +521,8 @@ impl Server {
             "crossthreads_prompt_coach" => Ok(self.call_insight("prompt_coach", &args)),
             "crossthreads_process_miner" => Ok(self.call_insight("process_miner", &args)),
             "crossthreads_weekly_review" => Ok(self.call_weekly(&args)),
+            "crossthreads_trends" => Ok(self.call_trends(&args)),
+            "crossthreads_optimize" => Ok(self.call_optimize(&args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -810,6 +845,54 @@ impl Server {
             Err(e) => tool_error(format!(
                 "weekly_review failed ({e:#}). Is crossthreadsd running?"
             )),
+        }
+    }
+
+    fn call_optimize(&self, args: &Value) -> Value {
+        let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        match self.client.call(&Request::Optimize { force }) {
+            Ok(Response::Optimize { markdown, .. }) => tool_text(markdown),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!(
+                "optimize failed ({e:#}). Is crossthreadsd running?"
+            )),
+        }
+    }
+
+    fn call_trends(&self, args: &Value) -> Value {
+        let days = args.get("days").and_then(|v| v.as_i64());
+        match self.client.call(&Request::Trends { days }) {
+            Ok(Response::Trends { rows }) => {
+                if rows.is_empty() {
+                    return tool_text("Not enough history to compute trends yet.".to_string());
+                }
+                let mut out = String::from("Trends (last 30 days vs previous):\n");
+                for r in rows {
+                    let fmt = |v: f64| {
+                        if r.is_pct {
+                            format!("{:.0}%", v * 100.0)
+                        } else {
+                            format!("{v:.1}")
+                        }
+                    };
+                    let dir = if r.delta.abs() < 1e-9 {
+                        "—"
+                    } else if r.improved {
+                        "better"
+                    } else {
+                        "worse"
+                    };
+                    out.push_str(&format!(
+                        "\n- {}: {} (was {}) {dir}",
+                        r.label,
+                        fmt(r.current),
+                        fmt(r.previous)
+                    ));
+                }
+                tool_text(out)
+            }
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("trends failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

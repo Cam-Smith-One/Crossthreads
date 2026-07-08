@@ -207,6 +207,17 @@ pub enum Request {
         #[serde(default)]
         force: bool,
     },
+    /// Behavioral trends: the last 30 days vs the previous 30, per metric.
+    Trends {
+        #[serde(default)]
+        days: Option<i64>,
+    },
+    /// The "optimize how you work" loop: grade the active prescription when ripe,
+    /// then prescribe the current biggest lever. `force` grades immediately.
+    Optimize {
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -356,6 +367,15 @@ pub enum Response {
         period_start: String,
         llm_used: bool,
         fresh: bool,
+    },
+    /// Behavioral trends, one row per metric.
+    Trends {
+        rows: Vec<crate::optimize::TrendRow>,
+    },
+    /// The optimize report (Markdown) + whether a focus is active.
+    Optimize {
+        markdown: String,
+        has_active: bool,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

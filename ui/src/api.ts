@@ -362,6 +362,31 @@ export function getWeeklyReview(force = false): Promise<WeeklyReview> {
   return rpc<WeeklyReview>({ op: "weekly_review", force });
 }
 
+// --- Optimize / trends ("optimize how you work") ------------------------
+
+export interface OptimizeReport {
+  markdown: string;
+  has_active: boolean;
+}
+
+export function getOptimize(force = false): Promise<OptimizeReport> {
+  return rpc<OptimizeReport>({ op: "optimize", force });
+}
+
+export interface TrendRow {
+  label: string;
+  current: number;
+  previous: number;
+  delta: number;
+  improved: boolean;
+  is_pct: boolean;
+}
+
+export async function getTrends(days?: number): Promise<TrendRow[]> {
+  const data = await rpc<{ rows: TrendRow[] }>({ op: "trends", days });
+  return data.rows ?? [];
+}
+
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
 export function setLlmKey(provider: string, key: string): Promise<LlmConfig> {
   return rpc<LlmConfig>({ op: "set_llm_key", provider, key });

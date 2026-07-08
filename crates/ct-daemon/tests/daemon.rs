@@ -246,6 +246,24 @@ fn weekly_review_caches_and_returns() {
 }
 
 #[test]
+fn optimize_and_trends_over_the_wire() {
+    let (addr, _h) = start();
+    let client = Client::new(addr);
+
+    // Optimize returns a report (deterministic; no model). The seeded convos are
+    // undated so the 30-day window is empty — that's a valid, clean response.
+    match client.call(&Request::Optimize { force: false }).unwrap() {
+        Response::Optimize { markdown, .. } => assert!(!markdown.trim().is_empty()),
+        other => panic!("unexpected: {other:?}"),
+    }
+    // Trends returns one row per tracked metric.
+    match client.call(&Request::Trends { days: Some(30) }).unwrap() {
+        Response::Trends { rows } => assert!(!rows.is_empty()),
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn metrics_over_the_wire() {
     // Two user turns, one a correction → correction_rate should register.
     let mut store = Store::open_in_memory().unwrap();

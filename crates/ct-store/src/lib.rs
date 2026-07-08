@@ -1062,7 +1062,7 @@ impl Store {
         // Attach messages (content bounded to keep this cheap on big corpora),
         // carrying the persisted agent-action names (v8).
         let mut msg = self.conn.prepare(
-            "SELECT conversation_id, role, substr(content, 1, 2000), tool_calls
+            "SELECT conversation_id, role, substr(content, 1, 2000), tool_calls, timestamp
              FROM messages ORDER BY seq",
         )?;
         let mrows = msg.query_map([], |r| {
@@ -1071,10 +1071,11 @@ impl Store {
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
             ))
         })?;
         for row in mrows {
-            let (cid, role, content, tool_calls) = row?;
+            let (cid, role, content, tool_calls, ts) = row?;
             if let Some(s) = sessions.get_mut(&cid) {
                 let tools = tool_calls
                     .as_deref()
@@ -1084,6 +1085,7 @@ impl Store {
                     role,
                     content,
                     tools,
+                    ts,
                 });
             }
         }

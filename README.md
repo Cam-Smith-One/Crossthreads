@@ -95,6 +95,8 @@ crossthreads status                                              # index health
 crossthreads themes --k 8                                        # cluster your work into themes
 crossthreads themes --name                                       # …and name them with your local model login
 crossthreads metrics                                             # how you work, by the numbers (no model)
+crossthreads optimize                                            # the biggest change to make now + a verdict on the last one
+crossthreads trends                                              # how your metrics are trending (30d vs previous)
 crossthreads weekly                                              # your weekly review + one thing to try
 crossthreads insight work_dna                                    # a quantified profile of how you work
 crossthreads insight process_miner                               # repeatable procedures → draft skills
@@ -138,7 +140,8 @@ Search answers *"where's that thread?"*. The layer on top answers *"how do I wor
 |---|---|---|
 | 💬 **Ask** | A **cited answer** to any question, synthesized from your own past sessions across every tool. | `crossthreads ask "…"` · `crossthreads_ask` |
 | 💡 **Insights** | **Open loops** (unfinished work), a **decision log**, **knowledge cards**, **recurring** problems you keep hitting, a **how-I-work** profile, and a **digest** — over your whole history including skills. | `crossthreads insight <kind>` · `crossthreads_open_loops`, … |
-| 🧬 **Work DNA & metrics** | A quantified, evidence-backed profile of how you work — rhythm, **rework rate**, prompt **specificity**, **delegation** (agent actions/session), **languages**, **model mix**, **session length**, and where **friction** concentrates. The raw numbers need no model. | `crossthreads metrics` / `insight work_dna` · `crossthreads_metrics`, `crossthreads_work_dna` |
+| 🧬 **Work DNA & metrics** | A quantified, evidence-backed profile of how you work — rhythm, **rework rate**, prompt **specificity**, **delegation** (agent actions/session), **languages**, **model mix**, **session length**, **time-to-first-response**, **error recovery**, **context-switching**, and where **friction** concentrates. The raw numbers need no model. | `crossthreads metrics` / `insight work_dna` · `crossthreads_metrics`, `crossthreads_work_dna` |
+| 🎯 **Optimize (closed loop)** | Turns the metrics from *descriptive* into *prescriptive and verified*: the **single highest-impact change** to make now, then a week later a **measured verdict** on whether it worked (validation-gated), plus **trends** (↑ better / ↓ worse vs last month) and a running optimization log. Deterministic. | `crossthreads optimize` / `trends` · `crossthreads_optimize`, `crossthreads_trends` |
 | 🩺 **Gaps & prompt coach** | What you start but don't finish and practices you're missing (+ a draft **CLAUDE.md**); plus your smoothest vs roughest sessions with **before→after rewrites** from your own prompts. | `crossthreads insight gaps` / `prompt_coach` |
 | 🛠️ **Process miner** | Procedures you keep re-deriving, mined into **draft, installable `SKILL.md`** artifacts so you stop repeating them. | `crossthreads insight process_miner` · `crossthreads_process_miner` |
 | 📋 **Proactive weekly review** | Without being asked: what you worked on, how you worked, and **one thing to try next week** — generated in the background and surfaced when ready. | `crossthreads weekly` · `crossthreads_weekly_review` |
@@ -197,7 +200,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets twenty-one tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets twenty-three tools:
 
 | Tool | Purpose |
 |---|---|
@@ -211,6 +214,8 @@ Point any MCP client at the `ct-mcp` binary and your agent gets twenty-one tools
 | `crossthreads_activity` | session activity over time (day/week), with a per-tool breakdown |
 | `crossthreads_graph` | a knowledge graph of projects, tools, and tags with co-occurrence edges |
 | `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, delegation, languages, tempo) |
+| `crossthreads_optimize` | the biggest change to make now + a measured verdict on the last one + trends |
+| `crossthreads_trends` | how each working metric is trending (last 30 days vs previous) |
 | `crossthreads_weekly_review` | the user's weekly review: what they did, how they worked, one thing to try |
 | `crossthreads_work_dna` | a quantified, evidence-backed profile of how the user works |
 | `crossthreads_gaps` | gaps & blind spots, plus a personalized draft CLAUDE.md |

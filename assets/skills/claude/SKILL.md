@@ -70,6 +70,9 @@ it and fold what you learn into your work.
   a draft CLAUDE.md, prompt coaching, and repeatable procedures → draft skills).
 - `crossthreads_weekly_review(force?)` — the user's weekly review: what they did,
   how they worked, and one thing to try next week.
+- `crossthreads_optimize(force?)` — the single highest-impact change to make now,
+  a measured verdict on the last one, and trends. `crossthreads_trends(days?)` —
+  how each working metric is trending.
 - `crossthreads_status()` — index health (counts).
 
 ## Notes

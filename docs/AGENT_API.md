@@ -224,6 +224,8 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_activity` | session activity over time (day/week) — **implemented** |
 | `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
 | `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
+| `crossthreads_optimize` | biggest change to make now + measured verdict on the last — **implemented** |
+| `crossthreads_trends` | metric trends (last 30d vs previous) — **implemented** |
 | `crossthreads_weekly_review` | proactive weekly review (cached; `force` to regen) — **implemented** |
 | `crossthreads_work_dna` | quantified profile of how the user works — **implemented** |
 | `crossthreads_gaps` | gaps/blind spots + draft CLAUDE.md — **implemented** |
@@ -323,6 +325,15 @@ products** so they cite real numbers instead of guessing.
   thing to try. Cached in the index (`meta_kv`) and regenerated when a week
   stale; the daemon refreshes it in the background on startup. Degrades to the
   week's metrics with no model.
+- **`optimize`** (`crossthreads_optimize`, CLI `crossthreads optimize`, daemon
+  `Request::Optimize { force }`) — the closed "how you work" loop
+  (`ct-daemon::optimize`): score a catalog of behavioral *levers* by expected
+  impact, prescribe the single biggest one and persist it, and on the next run
+  **grade** whether the targeted metric moved vs its baseline (validation-gated
+  verdict) into an optimization log. Deterministic; state in `meta_kv`.
+- **`trends`** (`crossthreads_trends`, CLI `crossthreads trends`, daemon
+  `Request::Trends { days }`) — each tracked metric over the last window vs the
+  previous, with a `improved` direction flag. Deterministic.
 - **`work_dna`** — a quantified profile of how the user works.
 - **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
 - **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with
