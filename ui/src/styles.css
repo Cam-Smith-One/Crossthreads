@@ -805,3 +805,76 @@ body {
   border: 1px solid #4c3f7a;
   white-space: nowrap;
 }
+
+/* AI-fluency view (4D scores + reflection) */
+.fluency { display: flex; flex-direction: column; gap: 14px; margin: 8px 0; }
+.fluency-overall {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fluency-overall-score { font-size: 34px; font-weight: 700; color: var(--accent); line-height: 1; }
+.fluency-overall-cap { font-size: 14px; color: var(--muted); }
+.fluency-overall-meta { margin-left: auto; font-size: 13px; color: var(--muted); }
+.fluency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.fluency-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.fluency-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fluency-card-label { font-weight: 600; font-size: 15px; }
+.fluency-card-score { font-size: 20px; font-weight: 700; display: inline-flex; align-items: baseline; gap: 6px; }
+.fluency-delta { font-size: 12px; font-weight: 600; }
+.fluency-delta.up { color: #3fb950; }
+.fluency-delta.down { color: #f0616d; }
+.fluency-meter {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.fluency-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.fluency-blurb { margin: 0; font-size: 13px; color: var(--text); font-weight: 500; }
+.fluency-read { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.fluency-components { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.fluency-chip {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--panel);
+}
+.fluency-chip strong { color: var(--text); font-weight: 600; }
+.fluency-reflection {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--panel-2);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fluency-reflection-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.fluency-reflection-prompt { margin: 0; font-size: 15px; line-height: 1.55; color: var(--text); }
+.fluency-reflection button { align-self: flex-start; }

@@ -486,6 +486,25 @@ impl Server {
                             }
                         }
                     }
+                },
+                {
+                    "name": "crossthreads_fluency",
+                    "description": "The user's AI-fluency across four dimensions — Delegation \
+                        (what they hand to the agent), Description (how clearly they instruct), \
+                        Discernment (how well they evaluate output), and Diligence (verified, \
+                        responsible use) — each scored 0–100 with its movement vs. the previous \
+                        window, plus a single reflective question about what they might want to \
+                        keep doing themselves. Use for a structured, self-understanding read (the \
+                        reflective complement to optimize's prescriptions). Deterministic; no model.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "window_days": {
+                                "type": "integer",
+                                "description": "Window size in days to score over (default 30)."
+                            }
+                        }
+                    }
                 }
             ]
         })
@@ -523,6 +542,7 @@ impl Server {
             "crossthreads_weekly_review" => Ok(self.call_weekly(&args)),
             "crossthreads_trends" => Ok(self.call_trends(&args)),
             "crossthreads_optimize" => Ok(self.call_optimize(&args)),
+            "crossthreads_fluency" => Ok(self.call_fluency(&args)),
             other => Err((-32602, format!("unknown tool: {other}"))),
         }
     }
@@ -856,6 +876,15 @@ impl Server {
             Err(e) => tool_error(format!(
                 "optimize failed ({e:#}). Is crossthreadsd running?"
             )),
+        }
+    }
+
+    fn call_fluency(&self, args: &Value) -> Value {
+        let window_days = args.get("window_days").and_then(|v| v.as_i64());
+        match self.client.call(&Request::Fluency { window_days }) {
+            Ok(Response::Fluency { report }) => tool_text(report.markdown),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("fluency failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

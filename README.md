@@ -127,7 +127,7 @@ crossthreads llm-auth                                            # which model c
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
-| 🤖 **Agent-native (MCP)** | **21 tools** over MCP — search/recall/ask/build_context plus the whole insights & analytics suite — so your history *and* your working profile become an agent's memory. |
+| 🤖 **Agent-native (MCP)** | **24 tools** over MCP — search/recall/ask/build_context plus the whole insights & analytics suite — so your history *and* your working profile become an agent's memory. |
 | 🛰️ **Live & automatic** | A background daemon watches your tools' storage and re-indexes new sessions as they land. |
 | 🌗 **Polished web UI** | Fast React UI with light/dark themes, filters, keyboard nav, and a full transcript viewer. |
 | 🔒 **Local-first** | No telemetry, no account, nothing leaves your machine. One SQLite file you can back up or delete. |
@@ -142,6 +142,7 @@ Search answers *"where's that thread?"*. The layer on top answers *"how do I wor
 | 💡 **Insights** | **Open loops** (unfinished work), a **decision log**, **knowledge cards**, **recurring** problems you keep hitting, a **how-I-work** profile, and a **digest** — over your whole history including skills. | `crossthreads insight <kind>` · `crossthreads_open_loops`, … |
 | 🧬 **Work DNA & metrics** | A quantified, evidence-backed profile of how you work — rhythm, **rework rate**, prompt **specificity**, **delegation** (agent actions/session), **languages**, **model mix**, **session length**, **time-to-first-response**, **error recovery**, **context-switching**, and where **friction** concentrates. The raw numbers need no model. | `crossthreads metrics` / `insight work_dna` · `crossthreads_metrics`, `crossthreads_work_dna` |
 | 🎯 **Optimize (closed loop)** | Turns the metrics from *descriptive* into *prescriptive and verified*: the **single highest-impact change** to make now, then a week later a **measured verdict** on whether it worked (validation-gated), plus **trends** (↑ better / ↓ worse vs last month) and a running optimization log. Deterministic. | `crossthreads optimize` / `trends` · `crossthreads_optimize`, `crossthreads_trends` |
+| 🧭 **AI-fluency + reflection** | The same signals organized around the **4D framework** — Delegation, Description, Discernment, Diligence — each **scored 0–100** with its movement, the metrics behind it, and a plain read. Ends on a **reflective question, not a to-do** (what to keep doing yourself), which you can talk through in *Ask*. Deterministic. | `crossthreads fluency` · `crossthreads_fluency` |
 | 🩺 **Gaps & prompt coach** | What you start but don't finish and practices you're missing (+ a draft **CLAUDE.md**); plus your smoothest vs roughest sessions with **before→after rewrites** from your own prompts. | `crossthreads insight gaps` / `prompt_coach` |
 | 🛠️ **Process miner** | Procedures you keep re-deriving, mined into **draft, installable `SKILL.md`** artifacts so you stop repeating them. | `crossthreads insight process_miner` · `crossthreads_process_miner` |
 | 📋 **Proactive weekly review** | Without being asked: what you worked on, how you worked, and **one thing to try next week** — generated in the background and surfaced when ready. | `crossthreads weekly` · `crossthreads_weekly_review` |
@@ -200,7 +201,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets twenty-three tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets twenty-four tools:
 
 | Tool | Purpose |
 |---|---|
@@ -216,6 +217,7 @@ Point any MCP client at the `ct-mcp` binary and your agent gets twenty-three too
 | `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, delegation, languages, tempo) |
 | `crossthreads_optimize` | the biggest change to make now + a measured verdict on the last one + trends |
 | `crossthreads_trends` | how each working metric is trending (last 30 days vs previous) |
+| `crossthreads_fluency` | AI-fluency across 4 dimensions (delegation/description/discernment/diligence), scored, + a reflective question |
 | `crossthreads_weekly_review` | the user's weekly review: what they did, how they worked, one thing to try |
 | `crossthreads_work_dna` | a quantified, evidence-backed profile of how the user works |
 | `crossthreads_gaps` | gaps & blind spots, plus a personalized draft CLAUDE.md |
@@ -308,8 +310,8 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (21 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
-- ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, and a **proactive weekly review** — all reusing your existing model login
+- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (24 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ⏳ Native desktop app (Tauri shell scaffolded), richer resume/deeplinks, scheduled weekly-review delivery (cron/launchd)
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 

@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 mod activity;
 mod ask;
 mod context;
+mod fluency;
 mod graph;
 mod index;
 mod insight;
@@ -51,6 +52,8 @@ COMMANDS:
     weekly            Your weekly review: how you worked + one thing to try
     trends            How your metrics are trending (last 30d vs previous)
     optimize          The biggest change to make now + a verdict on the last one
+    fluency           Your AI-fluency (delegation/description/discernment/
+                      diligence) scored, + a reflective question (--days N)
     llm-auth          Show which model credentials are available, per provider
     help              Show this help
 
@@ -105,6 +108,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("weekly") => weekly::run(&args[1..]),
         Some("trends") => trends::run(&args[1..]),
         Some("optimize") => optimize::run(&args[1..]),
+        Some("fluency") => fluency::run(&args[1..]),
         Some("llm-auth") => llm_auth::run(&args[1..]),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
