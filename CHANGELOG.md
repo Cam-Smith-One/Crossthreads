@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.12.0] - 2026-07-11
+
+### Added
+- **Your AI-fluency — a frame, and a reflective mode.** A new 🧭 view (and
+  `crossthreads fluency` / `crossthreads_fluency`) that organizes the behavioral
+  metrics around the **4D AI-Fluency framework** — Delegation, Description,
+  Discernment, Diligence — scoring each dimension 0–100 with its movement vs. the
+  previous window. Where *optimize* is prescriptive ("do X, measured"), fluency is
+  the **understanding** half:
+  - each dimension shows a score, a meter, the exact metrics that fed it, and a
+    plain-language read of what's driving it;
+  - it ends on a **reflective question, not a to-do** — an open prompt about what
+    you might want to keep doing yourself even if the agent could do it faster —
+    which you can talk through via *Ask* (inspired by Anthropic's *Reflect with
+    Claude*). Deterministic — no model.
+
+### Notes
+- MCP now exposes **24 tools**.
+
 ## [0.11.0] - 2026-06-25
 
 ### Added

@@ -18,6 +18,7 @@ use ct_embed::Embedder;
 use ct_store::Store;
 
 pub mod federation;
+pub mod fluency;
 mod http;
 pub mod insights;
 pub mod optimize;
@@ -332,6 +333,7 @@ impl Daemon {
             Request::WeeklyReview { force } => self.weekly_review(force).unwrap_or_else(err),
             Request::Trends { days } => self.trends(days).unwrap_or_else(err),
             Request::Optimize { force } => self.optimize(force).unwrap_or_else(err),
+            Request::Fluency { window_days } => self.fluency(window_days).unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -907,6 +909,15 @@ impl Daemon {
             markdown: report.markdown,
             has_active: report.has_active,
         })
+    }
+
+    /// The 4D AI-fluency view (Delegation/Description/Discernment/Diligence),
+    /// scored from the deterministic metrics with a reflective question. Read-only.
+    fn fluency(&self, window_days: Option<i64>) -> Result<Response> {
+        let days = window_days.unwrap_or(fluency::WINDOW_DAYS);
+        let store = self.read_lock();
+        let report = fluency::report(&store, chrono::Utc::now(), days)?;
+        Ok(Response::Fluency { report })
     }
 
     /// The proactive weekly review: return the cached one when it's fresh, else

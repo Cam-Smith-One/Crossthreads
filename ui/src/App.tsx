@@ -24,6 +24,7 @@ import {
   getMetrics,
   getWeeklyReview,
   getOptimize,
+  getFluency,
   setFederationConfig,
   setFlags,
   setLlmKey,
@@ -43,6 +44,7 @@ import {
   type WorkMetrics,
   type WeeklyReview,
   type OptimizeReport,
+  type FluencyReport,
   type Hit,
   type Mode,
   type Status,
@@ -202,6 +204,25 @@ export function App() {
       setOptimizeError(String(err));
     } finally {
       setOptimizeBusy(false);
+    }
+  }
+
+  // AI-fluency (4D: delegation / description / discernment / diligence + reflection).
+  const [showFluency, setShowFluency] = useState(false);
+  const [fluency, setFluency] = useState<FluencyReport | null>(null);
+  const [fluencyBusy, setFluencyBusy] = useState(false);
+  const [fluencyError, setFluencyError] = useState<string | null>(null);
+
+  async function openFluency() {
+    setShowFluency(true);
+    setFluencyBusy(true);
+    setFluencyError(null);
+    try {
+      setFluency(await getFluency());
+    } catch (err) {
+      setFluencyError(String(err));
+    } finally {
+      setFluencyBusy(false);
     }
   }
 
@@ -611,6 +632,10 @@ export function App() {
         if (e.key === "Escape") setShowOptimize(false);
         return;
       }
+      if (showFluency) {
+        if (e.key === "Escape") setShowFluency(false);
+        return;
+      }
       if (showAsk) {
         if (e.key === "Escape") setShowAsk(false);
         return;
@@ -657,6 +682,7 @@ export function App() {
     showInsights,
     showWeekly,
     showOptimize,
+    showFluency,
     showAsk,
     showActivity,
     showGraph,
@@ -745,6 +771,14 @@ export function App() {
             aria-label="Open optimize"
           >
             🎯
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => openFluency()}
+            title="AI-fluency — how you work across four dimensions, and a question to reflect on"
+            aria-label="Open AI-fluency"
+          >
+            🧭
           </button>
           <button
             className="settings-toggle"
@@ -1352,6 +1386,99 @@ export function App() {
             {optimizeError && <div className="error">{optimizeError}</div>}
             {!optimizeBusy && !optimizeError && optimize && (
               <pre className="insight-body">{optimize.markdown}</pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showFluency && (
+        <div className="overlay" onClick={() => setShowFluency(false)}>
+          <div
+            className="modal themes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Your AI-fluency"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2>Your AI-fluency</h2>
+              <button className="secondary" onClick={() => setShowFluency(false)}>
+                Close
+              </button>
+            </div>
+            <p className="doc-desc">
+              How you work with an agent across four dimensions — Delegation, Description,
+              Discernment, Diligence — each scored from your own metrics, with movement vs. the
+              previous window. Ends on a question, not a to-do. Deterministic; no model.
+            </p>
+            {fluencyBusy && <p className="doc-desc">Computing…</p>}
+            {fluencyError && <div className="error">{fluencyError}</div>}
+            {!fluencyBusy && !fluencyError && fluency && fluency.sessions === 0 && (
+              <p className="doc-desc">No sessions in the last {fluency.window_days} days yet.</p>
+            )}
+            {!fluencyBusy && !fluencyError && fluency && fluency.sessions > 0 && (
+              <div className="fluency">
+                <div className="fluency-overall">
+                  <span className="fluency-overall-score">{fluency.overall}</span>
+                  <span className="fluency-overall-cap">/100 overall</span>
+                  <span className="fluency-overall-meta">
+                    {fluency.sessions} session{fluency.sessions === 1 ? "" : "s"} · last{" "}
+                    {fluency.window_days} days
+                  </span>
+                </div>
+                <div className="fluency-grid">
+                  {fluency.dimensions.map((d) => (
+                    <div key={d.key} className="fluency-card">
+                      <div className="fluency-card-head">
+                        <span className="fluency-card-label">{d.label}</span>
+                        <span className="fluency-card-score">
+                          {d.score}
+                          {d.delta != null && d.delta !== 0 && (
+                            <span
+                              className={`fluency-delta ${d.delta > 0 ? "up" : "down"}`}
+                              title="Change vs. the previous window"
+                            >
+                              {d.delta > 0 ? `▲ +${d.delta}` : `▼ ${d.delta}`}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="fluency-meter">
+                        <div
+                          className="fluency-meter-fill"
+                          style={{ width: `${d.score}%` }}
+                        />
+                      </div>
+                      <p className="fluency-blurb">{d.blurb}</p>
+                      <p className="fluency-read">{d.read}</p>
+                      <div className="fluency-components">
+                        {d.components.map(([k, v]) => (
+                          <span key={k} className="fluency-chip">
+                            {k}: <strong>{v}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {fluency.reflection && (
+                  <div className="fluency-reflection">
+                    <div className="fluency-reflection-head">A question to sit with</div>
+                    <p className="fluency-reflection-prompt">{fluency.reflection.prompt}</p>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setShowFluency(false);
+                        setAskQuery(fluency.reflection!.prompt);
+                        setShowAsk(true);
+                      }}
+                      title="Talk it through with your history"
+                    >
+                      💬 Reflect with Ask
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

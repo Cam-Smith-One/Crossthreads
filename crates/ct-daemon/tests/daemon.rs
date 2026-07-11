@@ -264,6 +264,42 @@ fn optimize_and_trends_over_the_wire() {
 }
 
 #[test]
+fn fluency_over_the_wire() {
+    // One dated session inside the window so the four dimensions actually score.
+    let mut store = Store::open_in_memory().unwrap();
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let convo = dated(
+        Tool::ClaudeCode,
+        "/code/api",
+        "add a retry with backoff, it must be idempotent, and write a test",
+        &today,
+    );
+    store.upsert_conversation(&convo).unwrap();
+    ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    match client
+        .call(&Request::Fluency { window_days: None })
+        .unwrap()
+    {
+        Response::Fluency { report } => {
+            assert_eq!(report.sessions, 1);
+            assert_eq!(report.dimensions.len(), 4, "the four fluency dimensions");
+            assert!(report
+                .dimensions
+                .iter()
+                .any(|d| d.key == "description" && d.score > 0));
+            // A reflection is always a question, never a directive.
+            let r = report.reflection.expect("a reflection should surface");
+            assert!(r.prompt.contains('?'));
+            assert!(report.markdown.contains("AI-fluency"));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn metrics_over_the_wire() {
     // Two user turns, one a correction → correction_rate should register.
     let mut store = Store::open_in_memory().unwrap();

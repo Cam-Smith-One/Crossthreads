@@ -387,6 +387,40 @@ export async function getTrends(days?: number): Promise<TrendRow[]> {
   return data.rows ?? [];
 }
 
+// --- Fluency (the 4D AI-fluency view + reflection) ----------------------
+
+export interface FluencyDimension {
+  key: string;
+  label: string;
+  blurb: string;
+  score: number;
+  delta: number | null;
+  read: string;
+  components: [string, string][];
+}
+
+export interface FluencyReflection {
+  dimension: string;
+  prompt: string;
+}
+
+export interface FluencyReport {
+  sessions: number;
+  window_days: number;
+  overall: number;
+  dimensions: FluencyDimension[];
+  reflection: FluencyReflection | null;
+  markdown: string;
+}
+
+export async function getFluency(windowDays?: number): Promise<FluencyReport> {
+  const data = await rpc<{ report: FluencyReport }>({
+    op: "fluency",
+    window_days: windowDays,
+  });
+  return data.report;
+}
+
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
 export function setLlmKey(provider: string, key: string): Promise<LlmConfig> {
   return rpc<LlmConfig>({ op: "set_llm_key", provider, key });

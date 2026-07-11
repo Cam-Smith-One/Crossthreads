@@ -218,6 +218,13 @@ pub enum Request {
         #[serde(default)]
         force: bool,
     },
+    /// The 4D AI-fluency view: Delegation / Description / Discernment / Diligence
+    /// scored from the behavioral metrics, each with a movement delta, plus a
+    /// single reflective question. Deterministic; no model.
+    Fluency {
+        #[serde(default)]
+        window_days: Option<i64>,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -376,6 +383,10 @@ pub enum Response {
     Optimize {
         markdown: String,
         has_active: bool,
+    },
+    /// The 4D AI-fluency report: scored dimensions, deltas, and a reflection.
+    Fluency {
+        report: crate::fluency::FluencyReport,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

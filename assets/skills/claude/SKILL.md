@@ -73,6 +73,10 @@ it and fold what you learn into your work.
 - `crossthreads_optimize(force?)` — the single highest-impact change to make now,
   a measured verdict on the last one, and trends. `crossthreads_trends(days?)` —
   how each working metric is trending.
+- `crossthreads_fluency(window_days?)` — the user's AI-fluency across four
+  dimensions (Delegation, Description, Discernment, Diligence), each scored with
+  its movement, plus a reflective question about what to keep doing themselves.
+  The reflective complement to `optimize`'s prescriptions.
 - `crossthreads_status()` — index health (counts).
 
 ## Notes

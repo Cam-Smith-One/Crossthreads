@@ -226,6 +226,7 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
 | `crossthreads_optimize` | biggest change to make now + measured verdict on the last — **implemented** |
 | `crossthreads_trends` | metric trends (last 30d vs previous) — **implemented** |
+| `crossthreads_fluency` | 4D AI-fluency scored (delegation/description/discernment/diligence) + a reflective question — **implemented** |
 | `crossthreads_weekly_review` | proactive weekly review (cached; `force` to regen) — **implemented** |
 | `crossthreads_work_dna` | quantified profile of how the user works — **implemented** |
 | `crossthreads_gaps` | gaps/blind spots + draft CLAUDE.md — **implemented** |
@@ -334,6 +335,13 @@ products** so they cite real numbers instead of guessing.
 - **`trends`** (`crossthreads_trends`, CLI `crossthreads trends`, daemon
   `Request::Trends { days }`) — each tracked metric over the last window vs the
   previous, with a `improved` direction flag. Deterministic.
+- **`fluency`** (`crossthreads_fluency`, CLI `crossthreads fluency`, daemon
+  `Request::Fluency { window_days }`) — the same signals organized around the
+  **4D AI-Fluency framework** (`ct-daemon::fluency`): Delegation, Description,
+  Discernment, Diligence, each **scored 0–100** with its movement vs. the
+  previous window, the component metrics that fed it, and a plain-language read.
+  Ends on a **reflective question, not a prescription** (`reflection`) — the
+  agency/intentionality complement to `optimize`. Deterministic; no state.
 - **`work_dna`** — a quantified profile of how the user works.
 - **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
 - **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with
