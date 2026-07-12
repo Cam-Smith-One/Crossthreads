@@ -421,6 +421,56 @@ export async function getFluency(windowDays?: number): Promise<FluencyReport> {
   return data.report;
 }
 
+// --- Glance (the menu-bar tray popover: usage + insight) ----------------
+
+export interface QuotaWindow {
+  used: number;
+  limit: number;
+  resets_at: string;
+  source: string;
+}
+
+export interface ProviderUsage {
+  tool: string;
+  today_sessions: number;
+  week_sessions: number;
+  avg_daily_sessions: number;
+  quota: QuotaWindow | null;
+}
+
+export interface Glance {
+  generated_at: string;
+  today_sessions: number;
+  today_projects: number;
+  week_sessions: number;
+  providers: ProviderUsage[];
+  fluency_overall: number;
+  fluency_weakest: [string, number] | null;
+  unresolved: number;
+  focus: string | null;
+}
+
+export async function getGlance(): Promise<Glance> {
+  const data = await rpc<{ glance: Glance }>({ op: "glance" });
+  return data.glance;
+}
+
+/** True when running inside the native Tauri desktop shell. */
+export function isDesktop(): boolean {
+  return Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+}
+
+/** From the tray popover, bring up the full Crossthreads window. In the browser
+ * this just navigates to the full app (dropping the `?view=glance` param). */
+export async function openMainWindow(): Promise<void> {
+  const tauri = (window as unknown as { __TAURI__?: any }).__TAURI__;
+  if (tauri?.core?.invoke) {
+    await tauri.core.invoke("open_main");
+  } else {
+    window.location.href = "/";
+  }
+}
+
 /** Store (non-empty) or clear (empty) a provider's BYO key. */
 export function setLlmKey(provider: string, key: string): Promise<LlmConfig> {
   return rpc<LlmConfig>({ op: "set_llm_key", provider, key });

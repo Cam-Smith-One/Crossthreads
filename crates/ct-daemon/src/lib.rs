@@ -19,6 +19,7 @@ use ct_store::Store;
 
 pub mod federation;
 pub mod fluency;
+pub mod glance;
 mod http;
 pub mod insights;
 pub mod optimize;
@@ -334,6 +335,7 @@ impl Daemon {
             Request::Trends { days } => self.trends(days).unwrap_or_else(err),
             Request::Optimize { force } => self.optimize(force).unwrap_or_else(err),
             Request::Fluency { window_days } => self.fluency(window_days).unwrap_or_else(err),
+            Request::Glance => self.glance().unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -918,6 +920,13 @@ impl Daemon {
         let store = self.read_lock();
         let report = fluency::report(&store, chrono::Utc::now(), days)?;
         Ok(Response::Fluency { report })
+    }
+
+    /// The menu-bar glance (usage + insight). Deterministic; read-only.
+    fn glance(&self) -> Result<Response> {
+        let store = self.read_lock();
+        let glance = glance::build_now(&store)?;
+        Ok(Response::Glance { glance })
     }
 
     /// The proactive weekly review: return the cached one when it's fresh, else

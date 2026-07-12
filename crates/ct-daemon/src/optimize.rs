@@ -260,6 +260,12 @@ fn save(store: &Store, state: &State) -> Result<()> {
         .context("saving optimize state")
 }
 
+/// The title of the currently-active prescription, if any — a read-only peek at
+/// the persisted state (no grading, no writes), for the menu-bar glance.
+pub fn active_focus(store: &Store) -> Option<String> {
+    load(store).active.map(|p| p.title)
+}
+
 // --- Windowed metrics + trends -------------------------------------------
 
 fn date(d: DateTime<Utc>) -> String {

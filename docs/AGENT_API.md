@@ -342,6 +342,12 @@ products** so they cite real numbers instead of guessing.
   previous window, the component metrics that fed it, and a plain-language read.
   Ends on a **reflective question, not a prescription** (`reflection`) — the
   agency/intentionality complement to `optimize`. Deterministic; no state.
+- **`glance`** (daemon `Request::Glance`, powering the desktop tray popover;
+  `ct-daemon::glance`) — a single cheap bundle that fuses **usage** (per-tool
+  session volume today vs. your baseline + this week; a reserved `QuotaWindow`
+  slot for on-device rate-limit readers) with the **insight read** (fluency
+  score + weakest dimension, unresolved-thread count, the optimize focus).
+  Deterministic; read-only. Not exposed as an agent tool — it's a UI surface.
 - **`work_dna`** — a quantified profile of how the user works.
 - **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
 - **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with

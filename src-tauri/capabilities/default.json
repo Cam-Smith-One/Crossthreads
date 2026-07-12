@@ -1,7 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main window.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Capabilities for the main window and the tray glance popover.",
+  "windows": ["main", "glance"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-position",
+    "core:window:allow-is-visible",
+    "core:tray:default"
+  ]
 }

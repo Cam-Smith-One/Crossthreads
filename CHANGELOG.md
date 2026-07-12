@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.13.0] - 2026-07-12
+
+### Added
+- **Menu-bar / tray app.** The native desktop shell (Tauri) becomes a
+  **menu-bar app** (macOS uses `Accessory` activation — no dock icon, like
+  CodexBar): the tray icon toggles a compact **glance** popover, the tray menu
+  opens the full window, and closing the main window hides it back to the tray.
+  Cross-platform — Mac *and* Windows (and Linux).
+- **The glance — usage × insight in one look.** A new deterministic daemon op
+  (`ct-daemon::glance`) fuses two things no other tool combines:
+  - **Usage** — per-tool session volume *today vs. your own baseline* and this
+    week (CodexBar-style meters, but from your local index — no quota scraping).
+    A `QuotaWindow` slot is reserved for live rate-limit/reset countdowns that an
+    on-device reader fills; the shipping build shows usage-vs-baseline and never
+    fabricates quota numbers.
+  - **Insight** — your fluency score (+ weakest dimension), how many recent
+    threads are unresolved, and the optimize loop's current focus.
+  Surfaced in the tray popover (`index.html?view=glance`).
+
 ## [0.12.0] - 2026-07-11
 
 ### Added

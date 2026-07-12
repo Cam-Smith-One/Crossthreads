@@ -300,6 +300,35 @@ fn fluency_over_the_wire() {
 }
 
 #[test]
+fn glance_over_the_wire() {
+    // A dated session today so usage + insight both populate.
+    let mut store = Store::open_in_memory().unwrap();
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    store
+        .upsert_conversation(&dated(
+            Tool::ClaudeCode,
+            "/code/api",
+            "add a retry with backoff, write a test",
+            &today,
+        ))
+        .unwrap();
+    ct_index::embed_pending(&mut store, &HashEmbedder::default()).unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    match client.call(&Request::Glance).unwrap() {
+        Response::Glance { glance } => {
+            assert_eq!(glance.today_sessions, 1);
+            assert!(glance.providers.iter().any(|p| p.tool == "claude-code"));
+            assert!(glance.fluency_overall <= 100);
+            // No quota is fabricated in a headless build.
+            assert!(glance.providers.iter().all(|p| p.quota.is_none()));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn metrics_over_the_wire() {
     // Two user turns, one a correction → correction_rate should register.
     let mut store = Store::open_in_memory().unwrap();
