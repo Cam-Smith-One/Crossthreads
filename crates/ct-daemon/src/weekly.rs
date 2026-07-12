@@ -5,6 +5,8 @@
 //! start) once it's a week stale. Degrades to the deterministic metrics when no
 //! model is configured.
 
+use std::path::{Path, PathBuf};
+
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use ct_store::{behavior, Filters, Store};
@@ -151,4 +153,94 @@ pub fn persist(store: &Store, review: &WeeklyReview) -> Result<()> {
             &serde_json::to_string(review).context("encoding review")?,
         )
         .context("caching weekly review")
+}
+
+/// Return a current review: the cached one when it's still fresh (unless
+/// `force`), otherwise gather → synthesize → persist a new one. This is the
+/// single entry point the CLI, the `weekly_review` op, and scheduled delivery
+/// share, so they never diverge.
+pub fn ensure_current(store: &Store, force: bool) -> Result<WeeklyReview> {
+    if !force && !is_stale(store) {
+        return Ok(cached(store)?.expect("not stale implies a cached review exists"));
+    }
+    let g = gather(store)?;
+    let r = synthesize(g);
+    persist(store, &r)?;
+    Ok(r)
+}
+
+/// meta_kv key recording the `period_start` of the last delivered review, so a
+/// scheduler that fires more than once a week doesn't re-notify for the same one.
+const DELIVERED_KEY: &str = "weekly_review_delivered_period";
+
+/// The outcome of a [`deliver`] call.
+pub struct Delivery {
+    /// Where the review markdown was written.
+    pub path: PathBuf,
+    /// True when this period had already been delivered before this call — the
+    /// file is refreshed regardless, but callers should skip re-notifying.
+    pub already_delivered: bool,
+}
+
+/// Write `review` to `dir/weekly-<period_start>.md` and record the period as
+/// delivered. Creates `dir` if needed. Idempotent: delivering the same period
+/// twice rewrites the file and reports `already_delivered = true` the second
+/// time so the caller can stay quiet.
+pub fn deliver(store: &Store, review: &WeeklyReview, dir: &Path) -> Result<Delivery> {
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("creating delivery dir {}", dir.display()))?;
+    let path = dir.join(format!("weekly-{}.md", review.period_start));
+    let already_delivered = store.meta_get(DELIVERED_KEY)? == Some(review.period_start.clone());
+    std::fs::write(&path, &review.markdown)
+        .with_context(|| format!("writing review to {}", path.display()))?;
+    store
+        .meta_set(DELIVERED_KEY, &review.period_start)
+        .context("recording delivery")?;
+    Ok(Delivery {
+        path,
+        already_delivered,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn review(period: &str) -> WeeklyReview {
+        WeeklyReview {
+            markdown: format!("# Week of {period}\n\nYou shipped things."),
+            generated_at: Utc::now().to_rfc3339(),
+            period_start: period.to_string(),
+            llm_used: false,
+        }
+    }
+
+    #[test]
+    fn deliver_writes_file_and_dedups_period() {
+        let store = Store::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ct-deliver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let r = review("2026-07-05");
+
+        // First delivery: file written, not previously delivered.
+        let first = deliver(&store, &r, &dir).unwrap();
+        assert!(first.path.ends_with("weekly-2026-07-05.md"));
+        assert!(!first.already_delivered);
+        assert_eq!(
+            std::fs::read_to_string(&first.path).unwrap(),
+            r.markdown,
+            "the review markdown is written verbatim"
+        );
+
+        // Same period again (a scheduler that fired twice): flagged as already
+        // delivered so the caller can stay quiet, but the file is still refreshed.
+        let second = deliver(&store, &r, &dir).unwrap();
+        assert!(second.already_delivered);
+
+        // A new period delivers fresh again.
+        let next = deliver(&store, &review("2026-07-12"), &dir).unwrap();
+        assert!(!next.already_delivered);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

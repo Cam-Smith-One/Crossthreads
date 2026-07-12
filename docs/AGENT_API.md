@@ -325,7 +325,12 @@ products** so they cite real numbers instead of guessing.
   days: what you worked on, how you worked (cites the metrics), and one concrete
   thing to try. Cached in the index (`meta_kv`) and regenerated when a week
   stale; the daemon refreshes it in the background on startup. Degrades to the
-  week's metrics with no model.
+  week's metrics with no model. **Delivery:** `crossthreads weekly --deliver`
+  writes the review to `<data dir>/crossthreads/reviews/weekly-<period>.md` and
+  fires a desktop notification (per-period dedup); `crossthreads schedule
+  install|uninstall|status` (a launchd agent on macOS, a managed crontab block
+  elsewhere; `--day`/`--hour` cadence) runs that delivery weekly. CLI, op, MCP,
+  and the scheduler all route through one `weekly::ensure_current`.
 - **`optimize`** (`crossthreads_optimize`, CLI `crossthreads optimize`, daemon
   `Request::Optimize { force }`) — the closed "how you work" loop
   (`ct-daemon::optimize`): score a catalog of behavioral *levers* by expected

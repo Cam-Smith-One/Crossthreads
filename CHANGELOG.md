@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.14.0] - 2026-07-12
+
+### Added
+- **Scheduled weekly-review delivery — the review pushes itself.** The proactive
+  weekly review was pull-only (you had to open the app or run `crossthreads
+  weekly`). Now it can arrive on its own:
+  - **`crossthreads schedule install|uninstall|status`** installs a platform
+    scheduler entry that runs delivery weekly — a **launchd** user agent on
+    macOS, a **managed crontab** block elsewhere. Pick the cadence with
+    `--day <Mon…Sun|0-6>` and `--hour <0-23>` (default Monday 09:00). The
+    manifest and crontab-block logic (`ct-daemon::schedule`) is pure and
+    unit-tested; the crontab block is marked and idempotent, so reinstalling
+    updates in place and uninstall restores your other lines untouched.
+  - **`crossthreads weekly --deliver [--to <DIR>]`** ensures a current review,
+    writes it to `weekly-<period>.md` (default `<data dir>/crossthreads/reviews`),
+    and fires a desktop notification (`osascript` on macOS, `notify-send`
+    elsewhere; silently skipped when neither exists — the file is the durable
+    artifact). A per-period marker means a scheduler that fires more than once
+    won't re-notify for the same week.
+  - Delivery and the CLI/op/MCP surfaces now share one `weekly::ensure_current`
+    entry point, so they can never drift.
+
 ## [0.13.0] - 2026-07-12
 
 ### Added

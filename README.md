@@ -98,6 +98,7 @@ crossthreads metrics                                             # how you work,
 crossthreads optimize                                            # the biggest change to make now + a verdict on the last one
 crossthreads trends                                              # how your metrics are trending (30d vs previous)
 crossthreads weekly                                              # your weekly review + one thing to try
+crossthreads schedule install --day mon --hour 9                 # deliver that review automatically, every week
 crossthreads insight work_dna                                    # a quantified profile of how you work
 crossthreads insight process_miner                               # repeatable procedures → draft skills
 crossthreads insight open_loops                                  # unresolved work across recent sessions
@@ -145,7 +146,7 @@ Search answers *"where's that thread?"*. The layer on top answers *"how do I wor
 | 🧭 **AI-fluency + reflection** | The same signals organized around the **4D framework** — Delegation, Description, Discernment, Diligence — each **scored 0–100** with its movement, the metrics behind it, and a plain read. Ends on a **reflective question, not a to-do** (what to keep doing yourself), which you can talk through in *Ask*. Deterministic. | `crossthreads fluency` · `crossthreads_fluency` |
 | 🩺 **Gaps & prompt coach** | What you start but don't finish and practices you're missing (+ a draft **CLAUDE.md**); plus your smoothest vs roughest sessions with **before→after rewrites** from your own prompts. | `crossthreads insight gaps` / `prompt_coach` |
 | 🛠️ **Process miner** | Procedures you keep re-deriving, mined into **draft, installable `SKILL.md`** artifacts so you stop repeating them. | `crossthreads insight process_miner` · `crossthreads_process_miner` |
-| 📋 **Proactive weekly review** | Without being asked: what you worked on, how you worked, and **one thing to try next week** — generated in the background and surfaced when ready. | `crossthreads weekly` · `crossthreads_weekly_review` |
+| 📋 **Proactive weekly review** | Without being asked: what you worked on, how you worked, and **one thing to try next week** — generated in the background and surfaced when ready. **Delivers itself** on a schedule you pick (launchd/cron) as a file + desktop notification. | `crossthreads weekly [--deliver]` · `crossthreads schedule` · `crossthreads_weekly_review` |
 | 🗺️ 📅 🕸️ **Maps** | A **theme map**, a **temporal view** (activity over time), and a **knowledge graph** (projects ↔ tools ↔ tags). All offline. | `crossthreads themes` / `activity` / `graph` |
 
 > The deterministic parts (search, metrics, themes, activity, graph) never call a model. The synthesis parts (ask, insights, Work DNA, weekly review) reuse your existing **Claude Code / Codex / Gemini** login or a key you paste in Settings → Models — nothing leaves your machine unless you set that up.
@@ -313,7 +314,8 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 - ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (24 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
-- ⏳ Live provider quota/reset countdowns in the glance (on-device readers), richer resume/deeplinks, scheduled weekly-review delivery (cron/launchd)
+- ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification
+- ⏳ Live provider quota/reset countdowns in the glance (on-device readers), richer resume/deeplinks
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement IDs.
