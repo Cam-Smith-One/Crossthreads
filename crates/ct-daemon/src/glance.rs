@@ -4,13 +4,16 @@
 //! It fuses two things no other tool combines:
 //! - **Usage** — how much you're leaning on each AI tool right now (sessions
 //!   today vs. your own baseline; this week's volume). Real, local, no quota
-//!   scraping. A `quota` slot is reserved for live rate-limit windows that an
-//!   on-device reader fills in ([`read_quota`]); it's `None` where unavailable.
+//!   scraping. A `quota` slot carries a live rate-limit window when an on-device
+//!   reader supplies one via a documented sidecar ([`read_quota_from`]); it's
+//!   `None` where unavailable.
 //! - **Insight** — the behavioral read: your fluency score (and weakest
 //!   dimension), how many recent threads are unresolved, and the single focus
 //!   the optimize loop is tracking.
 //!
 //! Everything here is deterministic (no model) and computed under a read lock.
+
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -23,8 +26,8 @@ use crate::{fluency, optimize};
 const BASELINE_DAYS: i64 = 30;
 
 /// A live rate-limit / quota window for a provider. Populated only when a local
-/// on-device reader can find it ([`read_quota`]); serialized so the tray can
-/// draw a reset countdown when present.
+/// on-device reader supplies it ([`read_quota_from`]); serialized so the tray
+/// can draw a reset countdown when present.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaWindow {
     /// Amount consumed in the current window (units are provider-specific).
@@ -86,17 +89,53 @@ fn window(store: &Store, since: &str, until: &str) -> Result<WorkMetrics> {
     Ok(store.work_metrics(&f)?.0)
 }
 
-/// Best-effort live quota reader for a tool. Rate-limit windows live in
-/// provider-specific local state whose formats aren't stable across versions
-/// and can't be captured in a headless environment, so this returns `None`
-/// today and is the single drop-in point for an on-device reader. Kept as a
-/// function (not a stub inline) so wiring a real source is a one-place change.
-fn read_quota(_tool: &str) -> Option<QuotaWindow> {
-    None
+/// How long after `resets_at` a sidecar window is still considered fresh enough
+/// to show. Providers' rate-limit windows are undocumented and unstable, so we
+/// never scrape them; instead a window is only shown if an on-device reader
+/// recently wrote it. Past this grace period we assume the reader is gone/stale.
+const QUOTA_STALE_AFTER: Duration = Duration::hours(24);
+
+/// The directory holding per-tool quota sidecars: `$CROSSTHREADS_QUOTA_DIR` when
+/// set, else `~/.crossthreads/quota`. `None` if no home dir is resolvable.
+fn quota_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("CROSSTHREADS_QUOTA_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    dirs::home_dir().map(|h| h.join(".crossthreads").join("quota"))
 }
 
-/// Assemble the glance at `now`. Deterministic; read-only.
+/// Live quota reader for a tool. Crossthreads does **not** scrape provider
+/// internals (their rate-limit formats are undocumented and version-unstable);
+/// instead it reads a documented sidecar — `<dir>/<tool>.json` shaped like
+/// [`QuotaWindow`] — that any on-device helper can write (e.g. from
+/// `anthropic-ratelimit-*` response headers). Missing, malformed, or stale
+/// (>[`QUOTA_STALE_AFTER`] past `resets_at`) files yield `None`, so the tray
+/// shows a real window only when one genuinely exists.
+fn read_quota_from(dir: &Path, tool: &str, now: DateTime<Utc>) -> Option<QuotaWindow> {
+    let raw = std::fs::read_to_string(dir.join(format!("{tool}.json"))).ok()?;
+    let q: QuotaWindow = serde_json::from_str(&raw).ok()?;
+    if q.limit <= 0.0 || !q.used.is_finite() || !q.limit.is_finite() {
+        return None;
+    }
+    // Drop windows whose reset is far in the past — the reader has stopped.
+    if let Ok(resets) = DateTime::parse_from_rfc3339(&q.resets_at) {
+        if resets.with_timezone(&Utc) + QUOTA_STALE_AFTER < now {
+            return None;
+        }
+    }
+    Some(q)
+}
+
+/// Assemble the glance at `now`, reading quota sidecars from the default
+/// [`quota_dir`]. Deterministic; read-only.
 pub fn build(store: &Store, now: DateTime<Utc>) -> Result<Glance> {
+    build_in(store, now, quota_dir().as_deref())
+}
+
+/// Like [`build`], but reads quota sidecars from an explicit directory (`None`
+/// disables quota). Exposed so tests and embedders can supply a fixture dir
+/// without touching global state.
+pub fn build_in(store: &Store, now: DateTime<Utc>, quota_dir: Option<&Path>) -> Result<Glance> {
     let today = date(now);
     let week_start = date(now - Duration::days(6));
     let base_start = date(now - Duration::days(BASELINE_DAYS - 1));
@@ -135,7 +174,7 @@ pub fn build(store: &Store, now: DateTime<Utc>) -> Result<Glance> {
                 today_sessions: *today_by.get(&tool).unwrap_or(&0),
                 week_sessions: *week_by.get(&tool).unwrap_or(&0),
                 avg_daily_sessions: avg,
-                quota: read_quota(&tool),
+                quota: quota_dir.and_then(|d| read_quota_from(d, &tool, now)),
                 tool,
             }
         })
@@ -172,10 +211,59 @@ pub fn build_now(store: &Store) -> Result<Glance> {
 mod tests {
     use super::*;
 
+    fn write(dir: &Path, tool: &str, body: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(format!("{tool}.json")), body).unwrap();
+    }
+
     #[test]
-    fn quota_is_absent_without_an_on_device_reader() {
-        // The headless default: no fabricated quota numbers.
-        assert!(read_quota("claude-code").is_none());
-        assert!(read_quota("codex").is_none());
+    fn quota_absent_when_no_sidecar() {
+        let dir = std::env::temp_dir().join(format!("ct-quota-none-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(read_quota_from(&dir, "claude-code", Utc::now()).is_none());
+    }
+
+    #[test]
+    fn quota_read_from_fresh_sidecar() {
+        let now = Utc::now();
+        let dir = std::env::temp_dir().join(format!("ct-quota-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let resets = (now + Duration::hours(3)).to_rfc3339();
+        write(
+            &dir,
+            "claude-code",
+            &format!(r#"{{"used":120,"limit":500,"resets_at":"{resets}","source":"my-reader"}}"#),
+        );
+        let q = read_quota_from(&dir, "claude-code", now).expect("fresh window is read");
+        assert_eq!(q.used, 120.0);
+        assert_eq!(q.limit, 500.0);
+        assert_eq!(q.source, "my-reader");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quota_dropped_when_stale_or_invalid() {
+        let now = Utc::now();
+        let dir = std::env::temp_dir().join(format!("ct-quota-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Reset far in the past → reader has stopped → ignored.
+        let old = (now - Duration::days(5)).to_rfc3339();
+        write(
+            &dir,
+            "claude-code",
+            &format!(r#"{{"used":1,"limit":2,"resets_at":"{old}","source":"x"}}"#),
+        );
+        assert!(read_quota_from(&dir, "claude-code", now).is_none());
+        // Nonsensical limit → ignored (no fabricated/garbage windows).
+        write(
+            &dir,
+            "codex",
+            r#"{"used":1,"limit":0,"resets_at":"2999-01-01T00:00:00Z","source":"x"}"#,
+        );
+        assert!(read_quota_from(&dir, "codex", now).is_none());
+        // Malformed JSON → ignored, never panics.
+        write(&dir, "aider", "not json");
+        assert!(read_quota_from(&dir, "aider", now).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

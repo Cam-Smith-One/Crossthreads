@@ -329,6 +329,83 @@ fn glance_over_the_wire() {
 }
 
 #[test]
+fn quota_sidecar_flows_into_provider() {
+    // With an on-device sidecar present, the matching provider carries the live
+    // window end-to-end through `build`.
+    let mut store = Store::open_in_memory().unwrap();
+    let now = chrono::Utc::now();
+    let today = now.format("%Y-%m-%d").to_string();
+    store
+        .upsert_conversation(&dated(Tool::ClaudeCode, "/code/api", "ship it", &today))
+        .unwrap();
+
+    let dir = std::env::temp_dir().join(format!("ct-glance-quota-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let resets = (now + chrono::Duration::hours(4)).to_rfc3339();
+    std::fs::write(
+        dir.join("claude-code.json"),
+        format!(r#"{{"used":320,"limit":500,"resets_at":"{resets}","source":"demo-reader"}}"#),
+    )
+    .unwrap();
+
+    let glance = ct_daemon::glance::build_in(&store, now, Some(&dir)).unwrap();
+    let p = glance
+        .providers
+        .iter()
+        .find(|p| p.tool == "claude-code")
+        .expect("claude-code active today");
+    let q = p
+        .quota
+        .as_ref()
+        .expect("sidecar window attaches to the provider");
+    assert_eq!(q.limit, 500.0);
+    assert_eq!(q.source, "demo-reader");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn resume_over_the_wire() {
+    // A claude-code session resolves to a runnable `claude --resume <id>` command.
+    let mut store = Store::open_in_memory().unwrap();
+    let mut c = convo(Tool::ClaudeCode, "/home/me/app", "refactor the parser");
+    c.source = Source {
+        path: "/home/me/.claude/projects/-home-me-app/sess-abc-123.jsonl".into(),
+        offset: None,
+        fingerprint: "claude-code/v1".into(),
+    };
+    let id = c.id.clone();
+    store.upsert_conversation(&c).unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    match client.call(&Request::Resume { id }).unwrap() {
+        Response::Resume { resume } => {
+            let r = resume.expect("a known id resolves");
+            match r.action {
+                ct_daemon::resume::Action::Resume { display, args, .. } => {
+                    assert_eq!(args, vec!["--resume", "sess-abc-123"]);
+                    assert_eq!(display, "cd /home/me/app && claude --resume sess-abc-123");
+                }
+                other => panic!("expected a resume command, got {other:?}"),
+            }
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+
+    // An unknown id resolves to no plan (not an error).
+    match client
+        .call(&Request::Resume {
+            id: "cv_does_not_exist".into(),
+        })
+        .unwrap()
+    {
+        Response::Resume { resume } => assert!(resume.is_none()),
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn metrics_over_the_wire() {
     // Two user turns, one a correction → correction_rate should register.
     let mut store = Store::open_in_memory().unwrap();

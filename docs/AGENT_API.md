@@ -347,12 +347,21 @@ products** so they cite real numbers instead of guessing.
   previous window, the component metrics that fed it, and a plain-language read.
   Ends on a **reflective question, not a prescription** (`reflection`) — the
   agency/intentionality complement to `optimize`. Deterministic; no state.
-- **`glance`** (daemon `Request::Glance`, powering the desktop tray popover;
-  `ct-daemon::glance`) — a single cheap bundle that fuses **usage** (per-tool
-  session volume today vs. your baseline + this week; a reserved `QuotaWindow`
-  slot for on-device rate-limit readers) with the **insight read** (fluency
-  score + weakest dimension, unresolved-thread count, the optimize focus).
-  Deterministic; read-only. Not exposed as an agent tool — it's a UI surface.
+- **`glance`** (daemon `Request::Glance`, CLI `crossthreads glance`, powering the
+  desktop tray popover; `ct-daemon::glance`) — a single cheap bundle that fuses
+  **usage** (per-tool session volume today vs. your baseline + this week) with the
+  **insight read** (fluency score + weakest dimension, unresolved-thread count,
+  the optimize focus). Each provider's `quota` window is read from a documented
+  sidecar — `~/.crossthreads/quota/<tool>.json` (or `$CROSSTHREADS_QUOTA_DIR`),
+  shaped like `QuotaWindow` — that an on-device reader writes; Crossthreads never
+  scrapes provider internals, and stale/malformed/missing files show nothing.
+  Deterministic; read-only. Not an agent tool — a UI/CLI surface.
+- **`resume`** (daemon `Request::Resume { id }`, CLI `crossthreads resume <ID>`;
+  `ct-daemon::resume`) — the native way to pick a session back up: a runnable
+  command for tools that have one (Claude Code `claude --resume <id>`, Codex
+  `codex resume <uuid>`, prefixed with `cd <project>`), else reveal the
+  transcript. One source of truth for the CLI, the daemon op, and the web UI's
+  resume button. Deterministic; read-only.
 - **`work_dna`** — a quantified profile of how the user works.
 - **`gaps`** — missing practices, unfinished work, and a draft `CLAUDE.md`.
 - **`prompt_coach`** — smoothest vs roughest sessions (selected by friction) with

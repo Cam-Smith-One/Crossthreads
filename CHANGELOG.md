@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.15.0] - 2026-07-12
+
+### Added
+- **Resume — one canonical "pick up where you left off."** A new deterministic
+  `ct-daemon::resume` produces the native way back into a session: a runnable
+  command for tools that have one — Claude Code (`claude --resume <id>`) and
+  Codex (`codex resume <uuid>`), each prefixed with `cd <project>` so it lands in
+  the right workspace — and a reveal-the-transcript fallback for everything else
+  (never a command we can't stand behind). Exposed as a daemon `resume` op, a new
+  `crossthreads resume <ID> [--run]` CLI, and the web UI's resume button, which
+  now reads this op instead of its own ad-hoc string — **one source of truth**
+  across every surface.
+- **`crossthreads glance`** — the menu-bar popover's usage × insight bundle, now
+  on the command line too (`--json` for the raw shape).
+
+### Changed
+- **Live quota is now real, not reserved.** The glance's per-tool `quota` slot
+  reads a **documented sidecar** — `~/.crossthreads/quota/<tool>.json` (or
+  `$CROSSTHREADS_QUOTA_DIR`) shaped like `QuotaWindow` — that any on-device helper
+  can write (e.g. from `anthropic-ratelimit-*` response headers). Crossthreads
+  still **never scrapes** undocumented provider internals: missing, malformed, or
+  stale (>24 h past `resets_at`) files show nothing, so a window appears only when
+  one genuinely exists. This ships the *contract and reader*; an on-device writer
+  that populates it is the remaining piece.
+
 ## [0.14.0] - 2026-07-12
 
 ### Added

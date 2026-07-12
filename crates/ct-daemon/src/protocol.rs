@@ -94,6 +94,9 @@ pub enum Request {
     Saved,
     /// Open a conversation's source file in the OS default app / reveal it.
     OpenSource { id: String },
+    /// How to resume a conversation in its native tool (a runnable command where
+    /// one exists, else reveal the transcript).
+    Resume { id: String },
     /// Forget a conversation: delete it from the index and tombstone it so it is
     /// not re-indexed.
     Forget { id: String },
@@ -328,6 +331,10 @@ pub enum Response {
     },
     Conversation {
         conversation: Option<StoredConversation>,
+    },
+    /// How to resume a conversation, or `None` if the id is unknown.
+    Resume {
+        resume: Option<crate::resume::Resume>,
     },
     Context {
         markdown: String,

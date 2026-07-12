@@ -99,6 +99,8 @@ crossthreads optimize                                            # the biggest c
 crossthreads trends                                              # how your metrics are trending (30d vs previous)
 crossthreads weekly                                              # your weekly review + one thing to try
 crossthreads schedule install --day mon --hour 9                 # deliver that review automatically, every week
+crossthreads resume <ID>                                         # the native command to pick a session back up
+crossthreads glance                                              # usage × insight at a glance (the tray bundle)
 crossthreads insight work_dna                                    # a quantified profile of how you work
 crossthreads insight process_miner                               # repeatable procedures → draft skills
 crossthreads insight open_loops                                  # unresolved work across recent sessions
@@ -315,7 +317,9 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification
-- ⏳ Live provider quota/reset countdowns in the glance (on-device readers), richer resume/deeplinks
+- ✅ **Resume, unified** — one canonical `resume` op (daemon · `crossthreads resume` · UI) gives the native way back into a session: `claude --resume <id>` / `codex resume <uuid>` (with `cd <project>`), reveal-the-transcript otherwise
+- ✅ **Live quota via a documented sidecar** — the glance renders a real rate-limit window whenever an on-device reader writes `~/.crossthreads/quota/<tool>.json`; Crossthreads never scrapes provider internals
+- ⏳ A bundled on-device quota reader (populates that sidecar from provider response headers); richer cross-tool deeplinks
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement IDs.
