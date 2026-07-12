@@ -24,6 +24,7 @@ mod http;
 pub mod insights;
 pub mod optimize;
 pub mod protocol;
+pub mod schedule;
 pub mod weekly;
 pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
 pub use federation::{Federation, Peer};

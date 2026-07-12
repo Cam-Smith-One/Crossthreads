@@ -20,6 +20,7 @@ mod insight;
 mod llm_auth;
 mod metrics;
 mod optimize;
+mod schedule;
 mod search;
 mod skill;
 mod status;
@@ -50,6 +51,9 @@ COMMANDS:
     graph             Knowledge graph of projects, tools, and tags
     metrics           Behavioral metrics: how you work (turns, friction, tempo)
     weekly            Your weekly review: how you worked + one thing to try
+                      (--deliver writes it to a file + notifies; --to <DIR>)
+    schedule <CMD>    install | uninstall | status a weekly delivery (launchd
+                      on macOS, cron elsewhere): --day <NAME|0-6> --hour <0-23>
     trends            How your metrics are trending (last 30d vs previous)
     optimize          The biggest change to make now + a verdict on the last one
     fluency           Your AI-fluency (delegation/description/discernment/
@@ -106,6 +110,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("graph") => graph::run(&args[1..]),
         Some("metrics") => metrics::run(&args[1..]),
         Some("weekly") => weekly::run(&args[1..]),
+        Some("schedule") => schedule::run(&args[1..]),
         Some("trends") => trends::run(&args[1..]),
         Some("optimize") => optimize::run(&args[1..]),
         Some("fluency") => fluency::run(&args[1..]),
