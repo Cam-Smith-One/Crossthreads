@@ -225,6 +225,10 @@ pub enum Request {
         #[serde(default)]
         window_days: Option<i64>,
     },
+    /// The menu-bar glance: per-tool usage (today vs. your baseline, this week)
+    /// plus the insight read (fluency score, unresolved threads, optimize focus)
+    /// for the desktop tray popover. Deterministic; no model.
+    Glance,
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -387,6 +391,10 @@ pub enum Response {
     /// The 4D AI-fluency report: scored dimensions, deltas, and a reflection.
     Fluency {
         report: crate::fluency::FluencyReport,
+    },
+    /// The menu-bar glance bundle (usage + insight).
+    Glance {
+        glance: crate::glance::Glance,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

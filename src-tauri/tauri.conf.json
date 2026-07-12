@@ -12,11 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Crossthreads",
         "width": 1000,
         "height": 720,
         "minWidth": 720,
-        "minHeight": 480
+        "minHeight": 480,
+        "visible": false
+      },
+      {
+        "label": "glance",
+        "url": "index.html?view=glance",
+        "title": "Crossthreads",
+        "width": 360,
+        "height": 440,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
       }
     ],
     "security": {

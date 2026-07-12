@@ -312,7 +312,8 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 - ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (24 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
-- ⏳ Native desktop app (Tauri shell scaffolded), richer resume/deeplinks, scheduled weekly-review delivery (cron/launchd)
+- ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
+- ⏳ Live provider quota/reset countdowns in the glance (on-device readers), richer resume/deeplinks, scheduled weekly-review delivery (cron/launchd)
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement IDs.
@@ -321,7 +322,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan mapped to requirement
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Adding a connector is a self-contained change: implement the `Connector` trait, register it in `builtin()`, and add a regression fixture. Security issues: please report privately per [SECURITY.md](SECURITY.md).
 
-> **Status:** pre-release. The backend (connectors, search, the insights/analytics layer, daemon, MCP, web UI) is implemented and tested; the native desktop app is scaffolded. Not yet publicly announced.
+> **Status:** pre-release. The backend (connectors, search, the insights/analytics layer, daemon, MCP, web UI) is implemented and tested; the native menu-bar app (Tauri) is built and validated on-device. Not yet publicly announced.
 
 ## 🧭 Principles
 
