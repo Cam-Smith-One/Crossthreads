@@ -10,9 +10,8 @@ ui/dist/
 # Tauri (native shell, excluded from the workspace)
 src-tauri/target/
 src-tauri/gen/
-src-tauri/icons/*.png
-src-tauri/icons/*.ico
-src-tauri/icons/*.icns
+# App icons ARE committed (tauri.conf.json references them) so the desktop
+# shell builds from a clean clone — don't ignore them.
 
 # OS / editor
 .DS_Store
