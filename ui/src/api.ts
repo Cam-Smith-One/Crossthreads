@@ -531,6 +531,25 @@ export async function getSaved(): Promise<Hit[]> {
   return data.hits;
 }
 
+// --- Resume (how to pick a session back up in its native tool) -----------
+
+/** A runnable resume command, or a reveal-the-transcript fallback. Mirrors the
+ * daemon `resume` op — the single source of truth for every surface. */
+export type ResumeAction =
+  | { kind: "resume"; program: string; args: string[]; cwd: string | null; display: string }
+  | { kind: "reveal"; path: string };
+
+export interface ResumePlan {
+  tool: string;
+  action: ResumeAction;
+  source_path: string;
+}
+
+export async function getResume(id: string): Promise<ResumePlan | null> {
+  const data = await rpc<{ resume: ResumePlan | null }>({ op: "resume", id });
+  return data.resume;
+}
+
 export async function openSource(id: string): Promise<boolean> {
   const data = await rpc<{ ok: boolean }>({ op: "open_source", id });
   return data.ok;

@@ -24,6 +24,7 @@ mod http;
 pub mod insights;
 pub mod optimize;
 pub mod protocol;
+pub mod resume;
 pub mod schedule;
 pub mod weekly;
 pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
@@ -344,6 +345,7 @@ impl Daemon {
             } => self.set_flags(&id, bookmarked, pinned).unwrap_or_else(err),
             Request::Saved => self.saved().unwrap_or_else(err),
             Request::OpenSource { id } => self.open_source(&id).unwrap_or_else(err),
+            Request::Resume { id } => self.resume(&id).unwrap_or_else(err),
             Request::Forget { id } => self.forget(&id).unwrap_or_else(err),
             Request::SetNote { id, note } => self.set_note(&id, &note).unwrap_or_else(err),
             Request::SetTags { id, tags } => self.set_tags(&id, &tags).unwrap_or_else(err),
@@ -762,6 +764,17 @@ impl Daemon {
         };
         let ok = open_in_file_manager(&path);
         Ok(Response::Ok { ok })
+    }
+
+    fn resume(&self, id: &str) -> Result<Response> {
+        let conv = {
+            let store = self.read_lock();
+            store.get_conversation(id)?
+        };
+        let resume = conv
+            .filter(|c| !c.source_path.is_empty())
+            .map(|c| crate::resume::resume_for(&c.tool, &c.source_path, c.project.as_deref()));
+        Ok(Response::Resume { resume })
     }
 
     /// Search for the top matches (across devices) and render them into a

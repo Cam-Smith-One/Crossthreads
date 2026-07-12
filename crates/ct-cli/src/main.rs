@@ -14,12 +14,14 @@ mod activity;
 mod ask;
 mod context;
 mod fluency;
+mod glance;
 mod graph;
 mod index;
 mod insight;
 mod llm_auth;
 mod metrics;
 mod optimize;
+mod resume;
 mod schedule;
 mod search;
 mod skill;
@@ -38,6 +40,10 @@ COMMANDS:
     index             Discover, parse, and store local sessions
     search <QUERY>    Search the index (lexical / semantic / hybrid)
     context <QUERY>   Build a paste-ready context block from top matches
+    resume <ID>       How to pick a session back up in its native tool
+                      (runnable command where one exists; --run to exec it)
+    glance            At-a-glance status: per-tool usage, live quota (if a
+                      sidecar provides it), fluency, focus (--json)
     status            Show index health (local, or --remote for the daemon)
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
     themes            Cluster your sessions into themes (--k N; --name to label
@@ -101,6 +107,8 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("index") => index::run(&args[1..]),
         Some("search") => search::run(&args[1..]),
         Some("context") => context::run(&args[1..]),
+        Some("resume") => resume::run(&args[1..]),
+        Some("glance") => glance::run(&args[1..]),
         Some("status") => status::run(&args[1..]),
         Some("skill") => skill::run(&args[1..]),
         Some("themes") => themes::run(&args[1..]),

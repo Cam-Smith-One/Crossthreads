@@ -10,6 +10,7 @@ import {
   getFederationConfig,
   getSaved,
   getStatus,
+  getResume,
   openSource,
   pairWithCode,
   reindex,
@@ -36,6 +37,7 @@ import {
   type FederationConfig,
   type Filters,
   type LlmConfig,
+  type ResumePlan,
   type Theme,
   type InsightKind,
   type Answer,
@@ -307,6 +309,7 @@ export function App() {
   const [discovering, setDiscovering] = useState(false);
   const [unreachable, setUnreachable] = useState<string[]>([]);
   const [openDevice, setOpenDevice] = useState<string | null>(null);
+  const [resumePlan, setResumePlan] = useState<ResumePlan | null>(null);
   const [fedConfig, setFedConfig] = useState<FederationConfig | null>(null);
   const [pairCode, setPairCode] = useState("");
   const [tokenInput, setTokenInput] = useState("");
@@ -493,6 +496,23 @@ export function App() {
       setError(String(err));
     }
   }
+
+  // Resolve how to resume the open conversation (canonical, from the daemon).
+  // Remote sources (on another device) can't be resumed locally.
+  const openId = open?.id;
+  useEffect(() => {
+    if (!openId || openDevice) {
+      setResumePlan(null);
+      return;
+    }
+    let cancelled = false;
+    getResume(openId)
+      .then((r) => !cancelled && setResumePlan(r))
+      .catch(() => !cancelled && setResumePlan(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [openId, openDevice]);
 
   async function saveFedConfig(patch: Parameters<typeof setFederationConfig>[0]) {
     try {
@@ -1128,12 +1148,14 @@ export function App() {
                       Reveal
                     </button>
                   )}
-                  {resumeHint(open.tool, open.source_path) && (
+                  {resumePlan?.action.kind === "resume" && (
                     <button
                       className="secondary"
-                      title="Copy a command to resume this session in its original tool"
+                      title={`Copy: ${resumePlan.action.display}`}
                       onClick={() =>
-                        navigator.clipboard?.writeText(resumeHint(open.tool, open.source_path!)!)
+                        navigator.clipboard?.writeText(
+                          resumePlan.action.kind === "resume" ? resumePlan.action.display : "",
+                        )
                       }
                     >
                       Copy resume cmd
@@ -2089,15 +2111,6 @@ const DOC_LINKS: { title: string; href: string; desc: string }[] = [
 // A copy-pasteable command to reopen a session in its original tool, when one
 // exists. Claude Code and Codex both key resume off the session UUID, which is
 // the source file's stem (Codex prefixes it with `rollout-<timestamp>-`).
-function resumeHint(tool: string, sourcePath: string): string | null {
-  const stem = sourcePath.split("/").pop()?.replace(/\.jsonl$/i, "") ?? "";
-  const uuid =
-    stem.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0] ?? "";
-  if (!uuid) return null;
-  if (tool === "claude-code") return `claude --resume ${uuid}`;
-  if (tool === "codex") return `codex resume ${uuid}`;
-  return null;
-}
 
 // The daemon wraps matched terms in STX…ETX control chars (sentinels that can't
 // occur in content, unlike literal [brackets]); render those as <mark>.
