@@ -36,8 +36,8 @@ work between them.** It adds five things on top of the existing index:
 **Target user:** one developer who uses Claude Code and Codex (and sometimes
 others) on two or more machines. Not teams.
 
-**Commercial stance:** build it as open source first. Whether any of it is worth
-selling is an explicit decision gate (§10), not an assumption.
+**Licence:** fully open source under Apache-2.0, like the rest of Crossthreads.
+There is no paid tier and no hosted service.
 
 ## 2. Problem and evidence
 
@@ -496,17 +496,19 @@ carries the most risk.
 installs, issues and unprompted mentions over about six weeks. No telemetry is
 added to find out.
 
-**Gate after M2: open source or product?** Default to fully open source. Charge
-only if there is pull for something that costs money to run or maintain:
+**Fully open source.** Everything in this spec ships under Apache-2.0. That
+shapes three choices:
 
-| Stays open source (Apache-2.0) | Possible paid add-ons |
-|---|---|
-| Everything in this spec for one person on their own machines | A signed, auto-updating desktop app and a native phone app |
-| | An end-to-end-encrypted relay for people who won't run Tailscale |
-| | Team features (shared threads, audit), which would be a separate product |
+- **Nothing may depend on a service someone has to pay to run.** Cross-device
+  features use the user's own tailnet, never a hosted relay.
+- **Success is measured by use, not revenue**: people running it across two or
+  more machines, outside contributors, and connectors or link detectors written
+  by others.
+- **The extension points are public.** The thread and link model, the hook
+  event format and the peer operations are documented so other tools can write
+  to the same thread graph.
 
-The solo, privacy-first niche is open but small. A team product means competing
-with funded tools, and is out of scope here.
+Team features (shared threads, audit, SSO) remain out of scope.
 
 ## 11. Meat Proxy migration
 
@@ -528,7 +530,7 @@ Proposed ADRs, to be added to [DECISIONS.md](DECISIONS.md) once agreed.
 |---|---|---|
 | ADR-011 | How do devices agree on thread membership? | Exchange thread metadata (no content) between approved peers; keep content federated. A narrow exception to ADR-010's "no replication". |
 | ADR-012 | Where do rooms run? | In the daemon, in Rust. One process, one database, one MCP server. |
-| ADR-013 | How does a phone reach the board? | Authenticated HTTP on the tailnet interface; no hosted relay in the open-source build. |
+| ADR-013 | How does a phone reach the board? | Authenticated HTTP on the tailnet interface; no hosted relay. |
 | ADR-014 | What may dispatch do on the receiver? | One fixed action (start a named tool in an allowlisted repo with a prompt), under the receiver's own permissions. |
 | ADR-015 | Rename "thread" to "session" in the UI? | Yes, so "thread" can mean the cross-tool unit the product is named for. |
 
@@ -542,7 +544,7 @@ Proposed ADRs, to be added to [DECISIONS.md](DECISIONS.md) once agreed.
 | Wrong automatic links erode trust. | Conservative threshold, visible origin, one-click undo, remembered rejections. |
 | Dispatch is abused or misfires. | Off by default, separate grant, allowlist, fixed action, log, optional confirmation. |
 | Scope: five features for one maintainer. | Each milestone stands alone; workspaces and dispatch can be cut without harming M0 to M2. |
-| Nobody wants it. | Gates after M1 and M2; the tool is still useful to its author. |
+| Nobody else wants it. | The gate after M1; the tool is still useful to its author, and being open source there is no revenue target to miss. |
 
 ## 14. Non-goals
 
