@@ -15,7 +15,6 @@ mod ask;
 mod context;
 mod fluency;
 mod glance;
-mod graph;
 mod hooks;
 mod index;
 mod insight;
@@ -62,12 +61,11 @@ COMMANDS:
     themes            Cluster your sessions into themes (--k N; --name to label
                       them with your local Claude/Codex login)
     insight <KIND>    Synthesize over your history with your model login:
-                      open_loops | knowledge_cards | decision_log | how_i_work |
-                      digest | recurrence | work_dna | gaps | prompt_coach |
+                      open_loops | knowledge_cards | decision_log |
+                      recurrence | work_dna | gaps | prompt_coach |
                       process_miner (--limit N)
     ask <QUESTION>    Answer a question from your history (cited; uses your model)
     activity          Session activity over time (--by day|week)
-    graph             Knowledge graph of projects, tools, and tags
     metrics           Behavioral metrics: how you work (turns, friction, tempo)
     weekly            Your weekly review: how you worked + one thing to try
                       (--deliver writes it to a file + notifies; --to <DIR>)
@@ -134,7 +132,6 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("insight") => insight::run(&args[1..]),
         Some("ask") => ask::run(&args[1..]),
         Some("activity") => activity::run(&args[1..]),
-        Some("graph") => graph::run(&args[1..]),
         Some("metrics") => metrics::run(&args[1..]),
         Some("weekly") => weekly::run(&args[1..]),
         Some("schedule") => schedule::run(&args[1..]),

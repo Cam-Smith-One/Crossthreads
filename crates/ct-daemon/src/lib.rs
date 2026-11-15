@@ -360,7 +360,6 @@ impl Daemon {
             Request::Activity { bucket, filters } => self
                 .activity(bucket.as_deref().unwrap_or("day"), &filters)
                 .unwrap_or_else(err),
-            Request::Graph { limit } => self.graph(limit.unwrap_or(40)).unwrap_or_else(err),
             Request::Metrics { filters } => self.metrics(&filters).unwrap_or_else(err),
             Request::WeeklyReview { force } => self.weekly_review(force).unwrap_or_else(err),
             Request::Trends { days } => self.trends(days).unwrap_or_else(err),
@@ -373,6 +372,13 @@ impl Daemon {
             Request::Thread { id, device } => {
                 self.thread(&id, device.as_deref()).unwrap_or_else(err)
             }
+            Request::ThreadHandoff {
+                id,
+                device,
+                max_chars,
+            } => self
+                .thread_handoff(&id, device.as_deref(), max_chars)
+                .unwrap_or_else(err),
             Request::PeerThreads { token, filters } => {
                 self.peer_threads(token.as_deref(), &filters)
             }
@@ -519,7 +525,7 @@ impl Daemon {
         let kind = insights::Kind::parse(kind).ok_or_else(|| {
             anyhow::anyhow!(
                 "unknown insight kind `{kind}` — expected one of: open_loops, \
-                 knowledge_cards, decision_log, how_i_work, digest, recurrence, \
+                 knowledge_cards, decision_log, recurrence, \
                  work_dna, gaps, prompt_coach, process_miner"
             )
         })?;
@@ -1007,14 +1013,6 @@ impl Daemon {
         })
     }
 
-    /// The knowledge graph over the local index, for the graph view and agents.
-    fn graph(&self, limit: usize) -> Result<Response> {
-        let store = self.read_lock();
-        Ok(Response::Graph {
-            graph: store.graph(limit)?,
-        })
-    }
-
     /// Deterministic behavioral metrics ("how you work"), for the profile view
     /// and agents. No model involved.
     fn metrics(&self, f: &Filters) -> Result<Response> {
@@ -1204,6 +1202,29 @@ impl Daemon {
             Response::Error { message } => anyhow::bail!("{remote}: {message}"),
             other => anyhow::bail!("{remote}: unexpected response {other:?}"),
         }
+    }
+
+    /// A handoff for a thread on this device or a peer. The thread and its
+    /// transcripts come from wherever it lives; the brief is rendered here.
+    fn thread_handoff(&self, id: &str, device: Option<&str>, max_chars: usize) -> Result<Response> {
+        let Response::Thread { thread: Some(t) } = self.thread(id, device)? else {
+            anyhow::bail!("no thread or session with id {id}");
+        };
+        let local_name = self.federation.as_ref().map(|f| f.device());
+        let remote = device.filter(|d| Some(*d) != local_name.as_deref());
+        let (Some(first), Some(last)) = (t.sessions.first(), t.sessions.last()) else {
+            anyhow::bail!("thread {id} has no sessions");
+        };
+        let first = self.fetch_conversation(&first.conversation_id, remote);
+        let Some(latest) = self.fetch_conversation(&last.conversation_id, remote) else {
+            anyhow::bail!("couldn't load the latest session of thread {id}");
+        };
+        let block = ct_store::threads::render_handoff(&t, first.as_ref(), &latest, max_chars);
+        Ok(Response::Context {
+            markdown: block.markdown,
+            sources: block.sources,
+            token_estimate: block.token_estimate,
+        })
     }
 
     /// Check a peer request's token. `Err` is the reason to send back.

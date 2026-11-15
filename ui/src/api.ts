@@ -62,6 +62,8 @@ export interface StoredMessage {
 export interface StoredConversation {
   id: string;
   tool: string;
+  /** thread (a session) | skill | exchange (a room conversation). */
+  kind?: string;
   project?: string | null;
   title?: string | null;
   started_at?: string | null;
@@ -232,8 +234,6 @@ export type InsightKind =
   | "open_loops"
   | "knowledge_cards"
   | "decision_log"
-  | "how_i_work"
-  | "digest"
   | "recurrence"
   | "work_dna"
   | "gaps"
@@ -290,31 +290,6 @@ export async function getActivity(
     filters: clean(filters),
   });
   return { bucket: data.bucket, periods: data.periods ?? [] };
-}
-
-// --- Knowledge graph ----------------------------------------------------
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  kind: "project" | "tool" | "tag";
-  weight: number;
-}
-
-export interface GraphEdge {
-  source: string;
-  target: string;
-  weight: number;
-}
-
-export interface Graph {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-export async function getGraph(limit?: number): Promise<Graph> {
-  const data = await rpc<{ graph: Graph }>({ op: "graph", limit });
-  return data.graph ?? { nodes: [], edges: [] };
 }
 
 // --- Behavioral metrics ("how you work") --------------------------------
@@ -773,4 +748,15 @@ export async function postToRoom(room: string, text: string, to?: string): Promi
     ...(to ? { to } : {}),
   });
   return data.id;
+}
+
+/** A paste-ready brief for continuing a thread in another tool or agent: the
+ * goal, every session, and where the latest one left off. */
+export async function getThreadHandoff(id: string, device?: string | null): Promise<string> {
+  const data = await rpc<{ markdown: string }>({
+    op: "thread_handoff",
+    id,
+    ...(device ? { device } : {}),
+  });
+  return data.markdown;
 }

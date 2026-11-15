@@ -161,6 +161,8 @@ fn print_list(threads: &[ThreadSummary]) {
 pub fn run_thread(args: &[String]) -> Result<ExitCode> {
     const USAGE: &str = "usage:
     crossthreads thread <ID> [--json]            show a thread (thread or session id)
+    crossthreads thread <ID> --handoff           a paste-ready brief to continue it
+                                                 in another tool or agent
     crossthreads thread link <A> <B> [--kind K]  put two sessions in one thread
                                                  (also accepts a suggestion)
     crossthreads thread unlink <SESSION>         take a session out of its thread
@@ -170,6 +172,7 @@ pub fn run_thread(args: &[String]) -> Result<ExitCode> {
 
     let mut db: Option<PathBuf> = None;
     let mut json = false;
+    let mut handoff = false;
     let mut kind = "manual".to_string();
     let mut words: Vec<String> = Vec::new();
 
@@ -177,6 +180,7 @@ pub fn run_thread(args: &[String]) -> Result<ExitCode> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--json" => json = true,
+            "--handoff" => handoff = true,
             "--kind" => {
                 kind = it
                     .next()
@@ -215,6 +219,10 @@ pub fn run_thread(args: &[String]) -> Result<ExitCode> {
         ["status", id, status] => match store.set_thread(id, None, Some(status))? {
             Some(id) => println!("{id} is now {status}"),
             None => return not_found("a thread with that id"),
+        },
+        [id] if handoff => match store.thread_handoff(id, 8000)? {
+            Some(block) => print!("{}", block.markdown),
+            None => return not_found("a thread or session with that id"),
         },
         [id] if !matches!(*id, "link" | "unlink" | "reject" | "rename" | "status") => {
             let Some(thread) = store.thread(id)? else {

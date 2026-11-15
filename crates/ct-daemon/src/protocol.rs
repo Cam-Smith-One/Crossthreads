@@ -165,9 +165,9 @@ pub enum Request {
         name: bool,
     },
     /// Synthesize an LLM insight over recent history (open loops, knowledge
-    /// cards, a decision log, a "how I work" profile, a digest, or recurrence).
+    /// cards, a decision log, or recurring patterns).
     /// Needs a model login (Settings → Models). `kind` is one of `open_loops` |
-    /// `knowledge_cards` | `decision_log` | `how_i_work` | `digest` | `recurrence`.
+    /// `knowledge_cards` | `decision_log` | `recurrence`.
     Insight {
         kind: String,
         #[serde(default)]
@@ -192,13 +192,6 @@ pub enum Request {
         bucket: Option<String>,
         #[serde(default)]
         filters: Filters,
-    },
-    /// A knowledge graph of the user's work — projects, tools, and tags as nodes
-    /// with co-occurrence edges, for the graph view and agents.
-    Graph {
-        /// Cap on the number of nodes per category (default 40).
-        #[serde(default)]
-        limit: Option<usize>,
     },
     /// Deterministic behavioral metrics ("how you work") over the indexed
     /// sessions — turns, corrections, friction, tempo, specificity. No model.
@@ -253,6 +246,15 @@ pub enum Request {
         id: String,
         #[serde(default)]
         device: Option<String>,
+    },
+    /// A paste-ready brief for continuing a thread elsewhere: the goal, every
+    /// session, and where the latest one left off. Answers `Context`.
+    ThreadHandoff {
+        id: String,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default = "default_handoff_chars")]
+        max_chars: usize,
     },
     /// A thread list forwarded from a peer: token-gated and local-only, like
     /// `PeerSearch`. Threads with a session outside the serve-scope are left out.
@@ -398,6 +400,9 @@ pub struct DiscoveredDevice {
     pub already_approved: bool,
 }
 
+fn default_handoff_chars() -> usize {
+    8000
+}
 fn default_true() -> bool {
     true
 }
@@ -522,10 +527,6 @@ pub enum Response {
     Activity {
         bucket: String,
         periods: Vec<ct_store::ActivityBucket>,
-    },
-    /// The knowledge graph (nodes + weighted edges).
-    Graph {
-        graph: ct_store::Graph,
     },
     /// Behavioral metrics ("how you work").
     Metrics {

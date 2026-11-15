@@ -3,13 +3,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  getResume,
   getThread,
+  getThreadHandoff,
   getThreads,
   linkSessions,
   rejectLink,
   setThread,
   unlinkSession,
   type Live,
+  type ResumePlan,
   type ThreadDetail,
   type ThreadStatus,
   type ThreadSummary,
@@ -98,9 +101,19 @@ interface Props {
   /** Changes when the index does, so the board reloads. */
   refreshKey: number;
   onError: (message: string) => void;
+  /** A session whose thread should be opened (e.g. from the transcript view). */
+  openThreadFor?: string | null;
+  onThreadOpened?: () => void;
 }
 
-export function Board({ onOpenSession, localDevice, refreshKey, onError }: Props) {
+export function Board({
+  onOpenSession,
+  localDevice,
+  refreshKey,
+  onError,
+  openThreadFor,
+  onThreadOpened,
+}: Props) {
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
   const [unreachable, setUnreachable] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("active");
@@ -110,6 +123,56 @@ export function Board({ onOpenSession, localDevice, refreshKey, onError }: Props
   const [open, setOpen] = useState<ThreadDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  // How to continue the open thread: the latest session's resume command, and
+  // whether a handoff brief was just copied.
+  const [resume, setResume] = useState<ResumePlan | null>(null);
+  const [copied, setCopied] = useState<"resume" | "handoff" | null>(null);
+
+  // Opened from elsewhere (the transcript view's "Thread" button).
+  useEffect(() => {
+    if (!openThreadFor) return;
+    getThread(openThreadFor)
+      .then((t) => {
+        setRenaming(null);
+        setOpen(t);
+      })
+      .catch((e) => onError(String(e)))
+      .finally(() => onThreadOpened?.());
+  }, [openThreadFor, onError, onThreadOpened]);
+
+  // The open thread's latest session, and how to resume it in its own tool.
+  const latest = open?.sessions[open.sessions.length - 1];
+  const latestId = latest?.conversation_id;
+  const latestRemote = !!open && !!open.device && !!localDevice && open.device !== localDevice;
+  useEffect(() => {
+    setCopied(null);
+    setResume(null);
+    if (!latestId || latestRemote) return;
+    let cancelled = false;
+    getResume(latestId)
+      .then((plan) => !cancelled && setResume(plan))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [latestId, latestRemote]);
+
+  async function copy(what: "resume" | "handoff") {
+    if (!open) return;
+    try {
+      const text =
+        what === "resume"
+          ? resume?.action.kind === "resume"
+            ? resume.action.display
+            : ""
+          : await getThreadHandoff(open.id, latestRemote ? open.device : null);
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+    } catch (e) {
+      onError(String(e));
+    }
+  }
 
   const load = useCallback(() => {
     getThreads()
@@ -410,6 +473,35 @@ export function Board({ onOpenSession, localDevice, refreshKey, onError }: Props
                     {s}
                   </button>
                 ))}
+              </div>
+
+              <div className="thread-continue">
+                <div className="thread-continue-text">
+                  <strong>Pick this up</strong>
+                  <span>
+                    {latest
+                      ? `Latest: ${toolLabel(latest.tool)}, ${ago(latest.last_activity)}.`
+                      : ""}{" "}
+                    Resume it where it was, or copy a handoff to paste into another tool or agent.
+                  </span>
+                </div>
+                <div className="thread-continue-actions">
+                  {resume?.action.kind === "resume" && (
+                    <button
+                      onClick={() => copy("resume")}
+                      title={resume.action.display}
+                    >
+                      {copied === "resume" ? "Copied ✓" : `Copy resume command`}
+                    </button>
+                  )}
+                  <button
+                    className="primary"
+                    onClick={() => copy("handoff")}
+                    title="The goal, every session, and where the latest one left off, as Markdown"
+                  >
+                    {copied === "handoff" ? "Copied ✓" : "Copy handoff"}
+                  </button>
+                </div>
               </div>
 
               <ol className="thread-timeline">

@@ -5,6 +5,63 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.19.0] - 2026-11-15
+
+A review of the whole product: fewer places to look, two real bugs fixed, and a
+way to carry a piece of work into another tool.
+
+### Added
+- **Pick this up.** Every thread now offers *Copy resume command* (reopen the
+  latest session in its own tool) and *Copy handoff*: a Markdown brief with the
+  repository, branch, every session, the original request, and the end of the
+  latest session, ready to paste into another tool or agent. Also
+  `crossthreads thread <ID> --handoff`, the `thread_handoff` daemon op, and
+  `handoff: true` on the `crossthreads_thread` MCP tool.
+- A **Thread** button in the session viewer opens the thread that session
+  belongs to.
+- **`/` or Ctrl/Cmd+K** jumps to search.
+- Search can be narrowed to **room exchanges**.
+
+### Changed
+- **The header says what things are.** Eleven unlabelled emoji buttons became
+  three labelled places — **Insights**, **Rooms**, **Ask** — plus theme and
+  settings.
+- **One Insights view** with four tabs replaces six separate panels: *How you
+  work* (AI-fluency scores, your current focus and trends, activity), *Weekly
+  review*, *Themes*, and *Analyses*. Analyses are labelled cards that run only
+  when clicked; without a model you get a "Set up a model" card that opens
+  Settings → Models, not a red error.
+- **Search filters live behind a Filters button**, so the home screen leads
+  with your threads. Modes are named for what they do: best match, by meaning,
+  exact words.
+- **One Save star** replaces the separate pin and bookmark. Existing pins count
+  as saved.
+- The status line counts **sessions**, not every indexed record, and leaves the
+  embedder details to a tooltip. Tool chips count sessions too.
+- Results and the viewer show tool chips and a short project path instead of
+  the full path; export and forget moved to the viewer's footer.
+
+### Removed
+- **The knowledge graph** (web view, `crossthreads graph`, `crossthreads_graph`,
+  the `graph` op). It listed projects, tools and tags with co-occurrence counts,
+  which threads, activity and themes already show better.
+- **The `how_i_work` and `digest` analyses** (and their MCP tools). *Gaps*
+  covers your conventions and drafts a CLAUDE.md; the weekly review covers what
+  the digest did. MCP now exposes 28 tools.
+
+### Fixed
+- **A session that grew showed up twice.** Re-indexing a longer version of a
+  session added a new row but kept the old one, so search listed the session
+  twice and counts were inflated. The older version is now dropped when its
+  messages are a prefix of the new one, and existing indexes are cleaned up on
+  the next index pass. Two different chats that only share a key are left alone.
+- **Codex resume could use the wrong id.** The session UUID was taken from
+  anywhere in the transcript's path, so a UUID in a parent folder name won.
+  It now comes from the file name only.
+- **Themes and activity counted installed skills as work.** The theme map was
+  dominated by `SKILL.md` files and activity counted them as sessions. Both now
+  cover sessions only.
+
 ## [0.18.0] - 2026-11-15
 
 ### Added

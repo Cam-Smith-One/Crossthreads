@@ -206,6 +206,18 @@ fn threads_tools_list_and_open_a_thread() {
         "got: {text}"
     );
 
+    // The same thread as a handoff brief.
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":6,"method":"tools/call",
+            "params":{"name":"crossthreads_thread","arguments":{"id": id, "handoff": true}}}))
+        .unwrap();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("## Handoff: add retry logic with backoff"),
+        "got: {text}"
+    );
+    assert!(text.contains("### The original request"), "got: {text}");
+
     // An unknown id is a plain answer; a missing argument is a tool error.
     let resp = s
         .handle(&json!({"jsonrpc":"2.0","id":7,"method":"tools/call",

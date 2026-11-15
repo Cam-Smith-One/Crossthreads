@@ -493,3 +493,56 @@ fn repo_keys_are_filled_per_project() {
     assert!(store.projects_missing_repo_key().unwrap().is_empty());
     assert_eq!(all(&store)[0].repo_key.as_deref(), Some(REPO));
 }
+
+#[test]
+fn a_handoff_carries_the_goal_and_where_the_work_stands() {
+    let mut store = Store::open_in_memory().unwrap();
+    let claude = session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 30);
+    let codex = transferred_from(&claude, "/s/codex.jsonl", 40);
+    add(&mut store, &claude, REPO);
+    add(&mut store, &codex, REPO);
+    store
+        .link_sessions(&claude.id, &codex.id, "continued", "manual")
+        .unwrap();
+
+    let block = store.thread_handoff(&codex.id, 3000).unwrap().unwrap();
+    let md = &block.markdown;
+    assert!(
+        md.starts_with("## Handoff: Step 0 of the oauth work"),
+        "{md}"
+    );
+    assert!(md.contains("Repository: acme/api"));
+    assert!(md.contains("1. claude-code") && md.contains("2. codex"));
+    // The goal comes from the first session, the state from the latest one.
+    assert!(md.contains("### The original request\n\nStep 0 of the oauth work"));
+    assert!(md.contains("### Where it left off (codex"));
+    assert!(
+        md.trim_end()
+            .ends_with("Picking up from the regression test."),
+        "{md}"
+    );
+    assert!(md.len() <= 3400, "stays near the budget: {}", md.len());
+    assert_eq!(block.sources, vec![claude.id.clone(), codex.id.clone()]);
+
+    // A long latest session keeps its end, not its start.
+    let long = session(
+        Tool::ClaudeCode,
+        "/s/long.jsonl",
+        "/work/web",
+        "billing",
+        500,
+        60,
+    );
+    add(&mut store, &long, "github.com/acme/web");
+    let md = store
+        .thread_handoff(&long.id, 2500)
+        .unwrap()
+        .unwrap()
+        .markdown;
+    assert!(md.contains("earlier messages omitted"));
+    assert!(
+        md.contains("For step 59 of billing") && !md.contains("For step 30 of billing"),
+        "{md}"
+    );
+    assert!(store.thread_handoff("th_missing", 2000).unwrap().is_none());
+}

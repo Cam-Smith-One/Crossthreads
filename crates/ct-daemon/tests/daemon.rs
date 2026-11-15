@@ -143,7 +143,7 @@ fn dated(tool: Tool, project: &str, text: &str, date: &str) -> Conversation {
 }
 
 #[test]
-fn activity_and_graph_over_the_wire() {
+fn activity_over_the_wire() {
     let mut store = Store::open_in_memory().unwrap();
     for c in [
         dated(
@@ -185,22 +185,6 @@ fn activity_and_graph_over_the_wire() {
             let first = periods.iter().find(|p| p.period == "2026-06-01").unwrap();
             assert_eq!(first.total, 2);
             assert_eq!(first.by_tool[0].0, "claude-code");
-        }
-        other => panic!("unexpected: {other:?}"),
-    }
-
-    // Graph: project + tool nodes, with project↔tool edges.
-    match client.call(&Request::Graph { limit: Some(40) }).unwrap() {
-        Response::Graph { graph } => {
-            assert!(graph.nodes.iter().any(|n| n.kind == "project"));
-            assert!(graph
-                .nodes
-                .iter()
-                .any(|n| n.kind == "tool" && n.label == "claude-code"));
-            assert!(graph
-                .edges
-                .iter()
-                .any(|e| e.source.starts_with("project:") && e.target.starts_with("tool:")));
         }
         other => panic!("unexpected: {other:?}"),
     }

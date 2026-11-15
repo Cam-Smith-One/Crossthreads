@@ -1,7 +1,7 @@
 //! `crossthreads insight <kind>` — synthesize a high-level view over your recent
 //! sessions using your local model login (Settings → Models / `llm-auth`):
-//! open loops, knowledge cards, a decision log, a "how I work" profile, or a
-//! digest. The synthesis core is shared with the daemon and MCP server
+//! open loops, knowledge cards, a decision log, recurring patterns, and the
+//! behavioral analyses (Work DNA, gaps, prompt coach, process miner). The synthesis core is shared with the daemon and MCP server
 //! (`ct_daemon::insights`); this renders it for the terminal.
 
 use std::path::PathBuf;
@@ -46,8 +46,6 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
              open_loops      Unresolved work, dangling TODOs, unconfirmed fixes\n  \
              knowledge_cards Durable Q→A cards worth remembering\n  \
              decision_log    Notable decisions and their rationale\n  \
-             how_i_work      A profile of your conventions for a CLAUDE.md/AGENTS.md\n  \
-             digest          A short reflective digest of recent work\n  \
              recurrence      Recurring problems/patterns you keep hitting\n  \
              work_dna        A quantified profile of how you work\n  \
              gaps            Blind spots + a personalized CLAUDE.md\n  \
@@ -85,7 +83,7 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     let Some(kind) = Kind::parse(&kind_arg) else {
         bail!(
             "unknown insight kind `{kind_arg}` — expected one of: open_loops, knowledge_cards, \
-             decision_log, how_i_work, digest, recurrence, work_dna, gaps, prompt_coach, \
+             decision_log, recurrence, work_dna, gaps, prompt_coach, \
              process_miner"
         );
     };

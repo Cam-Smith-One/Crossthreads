@@ -281,37 +281,6 @@ impl Server {
                     }
                 },
                 {
-                    "name": "crossthreads_how_i_work",
-                    "description": "Infer the user's working conventions — tools, languages, \
-                        code style, commit habits, recurring gotchas, and preferences — as a \
-                        concise profile to drop into a CLAUDE.md / AGENTS.md so a new agent \
-                        instantly knows how they operate. Needs a model login.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "How many recent sessions to scan (default ~80)."
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "crossthreads_digest",
-                    "description": "Write a short reflective DIGEST of the user's recent \
-                        work: what they've been doing, open questions, and things worth \
-                        revisiting. Good for a weekly catch-up. Needs a model login.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "How many recent sessions to scan (default ~200)."
-                            }
-                        }
-                    }
-                },
-                {
                     "name": "crossthreads_recurring",
                     "description": "Surface RECURRING problems and patterns — things the user \
                         keeps hitting across sessions (the same bug class, repeated setup \
@@ -387,7 +356,13 @@ impl Server {
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "id": { "type": "string", "description": "Thread id or session id." }
+                            "id": { "type": "string", "description": "Thread id or session id." },
+                            "handoff": {
+                                "type": "boolean",
+                                "description": "Return a paste-ready handoff instead: the goal, every \
+                                    session, and where the latest one left off. Use it to continue \
+                                    work another tool or agent started."
+                            }
                         },
                         "required": ["id"]
                     }
@@ -487,22 +462,6 @@ impl Server {
                             "project": { "type": "string", "description": "Filter by project substring." },
                             "since": { "type": "string", "description": "Only on/after this date (YYYY-MM-DD)." },
                             "until": { "type": "string", "description": "Only on/before this date (YYYY-MM-DD)." }
-                        }
-                    }
-                },
-                {
-                    "name": "crossthreads_graph",
-                    "description": "Return a knowledge graph of the user's work — projects, tools, \
-                        and tags as nodes (sized by session count) with co-occurrence edges \
-                        (which tools/tags go with which projects). Use to map how the user's \
-                        projects, tools, and topics relate. Offline; no model needed.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "Max nodes kept per category (project/tool/tag). Default 40."
-                            }
                         }
                     }
                 },
@@ -643,8 +602,6 @@ impl Server {
             "crossthreads_open_loops" => Ok(self.call_insight("open_loops", &args)),
             "crossthreads_knowledge_cards" => Ok(self.call_insight("knowledge_cards", &args)),
             "crossthreads_decision_log" => Ok(self.call_insight("decision_log", &args)),
-            "crossthreads_how_i_work" => Ok(self.call_insight("how_i_work", &args)),
-            "crossthreads_digest" => Ok(self.call_insight("digest", &args)),
             "crossthreads_recurring" => Ok(self.call_insight("recurrence", &args)),
             "crossthreads_ask" => Ok(self.call_ask(&args)),
             "crossthreads_threads" => Ok(self.call_threads(&args)),
@@ -655,7 +612,6 @@ impl Server {
             | "crossthreads_claim"
             | "crossthreads_release" => Ok(self.call_room(name, &args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
-            "crossthreads_graph" => Ok(self.call_graph(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
             "crossthreads_work_dna" => Ok(self.call_insight("work_dna", &args)),
             "crossthreads_gaps" => Ok(self.call_insight("gaps", &args)),
@@ -964,6 +920,18 @@ impl Server {
         let Some(id) = args.get("id").and_then(|q| q.as_str()) else {
             return tool_error("missing required argument: id".to_string());
         };
+        if args.get("handoff").and_then(|h| h.as_bool()) == Some(true) {
+            return match self.client.call(&Request::ThreadHandoff {
+                id: id.to_string(),
+                device: None,
+                max_chars: 8000,
+            }) {
+                Ok(Response::Context { markdown, .. }) => tool_text(markdown),
+                Ok(Response::Error { message }) => tool_error(message),
+                Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+                Err(e) => tool_error(format!("handoff failed ({e:#}). Is crossthreadsd running?")),
+            };
+        }
         match self.client.call(&Request::Thread {
             id: id.to_string(),
             device: None,
@@ -1082,35 +1050,6 @@ impl Server {
             Err(e) => tool_error(format!(
                 "activity failed ({e:#}). Is crossthreadsd running?"
             )),
-        }
-    }
-
-    fn call_graph(&self, args: &Value) -> Value {
-        let limit = args
-            .get("limit")
-            .and_then(|l| l.as_u64())
-            .map(|n| n as usize);
-        match self.client.call(&Request::Graph { limit }) {
-            Ok(Response::Graph { graph }) => {
-                if graph.nodes.is_empty() {
-                    return tool_text("No graph yet — nothing indexed.".to_string());
-                }
-                let mut out = format!(
-                    "Knowledge graph: {} nodes, {} edges.\n\nTop nodes:",
-                    graph.nodes.len(),
-                    graph.edges.len()
-                );
-                for n in graph.nodes.iter().take(15) {
-                    out.push_str(&format!("\n- [{}] {} ({})", n.kind, n.label, n.weight));
-                }
-                out.push_str("\n\nStrongest links:");
-                for e in graph.edges.iter().take(15) {
-                    out.push_str(&format!("\n- {} ↔ {} ({})", e.source, e.target, e.weight));
-                }
-                tool_text(out)
-            }
-            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
-            Err(e) => tool_error(format!("graph failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

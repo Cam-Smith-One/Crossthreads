@@ -85,7 +85,11 @@ pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resum
         "claude-code" => file_stem(source_path).map(|id| ("claude", id)),
         // Codex: `codex resume <uuid>`; the id is the UUID embedded in the
         // `rollout-<ts>-<uuid>.jsonl` filename (not the whole stem).
-        "codex" => embedded_uuid(source_path).map(|id| ("codex", id)),
+        // Only the file name is searched: a UUID in a parent folder (a project
+        // or home directory named with one) is not the session's.
+        "codex" => file_stem(source_path)
+            .and_then(|stem| embedded_uuid(&stem))
+            .map(|id| ("codex", id)),
         _ => None,
     };
 
@@ -203,6 +207,28 @@ mod tests {
             }
             other => panic!("expected Resume, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn codex_ignores_a_uuid_in_a_parent_folder() {
+        let r = resume_for(
+            "codex",
+            "/home/me/0f0e0d0c-0b0a-4908-8706-050403020100/.codex/sessions/rollout-2026-06-25T00-55-24-1e2d3c4b-5a6f-7089-9abc-def012345678.jsonl",
+            None,
+        );
+        match r.action {
+            Action::Resume { args, .. } => {
+                assert_eq!(args, ["resume", "1e2d3c4b-5a6f-7089-9abc-def012345678"])
+            }
+            other => panic!("expected a resume, got {other:?}"),
+        }
+        // A folder UUID alone, with none in the file name, is not enough.
+        let r = resume_for(
+            "codex",
+            "/home/0f0e0d0c-0b0a-4908-8706-050403020100/.codex/sessions/weird.jsonl",
+            None,
+        );
+        assert!(matches!(r.action, Action::Reveal { .. }));
     }
 
     #[test]

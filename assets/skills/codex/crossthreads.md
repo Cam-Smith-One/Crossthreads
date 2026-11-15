@@ -8,7 +8,7 @@ Topic (optional): $ARGUMENTS
 2. If you're about to solve something that may have been solved before, also run
    `crossthreads_search` (mode: hybrid) and skim the top results.
 3. To see what's still outstanding, call `crossthreads_open_loops`; to match my
-   conventions, `crossthreads_how_i_work`; for past decisions,
+   conventions, `crossthreads_gaps`; for past decisions,
    `crossthreads_decision_log`. (These higher-level tools use my configured
    model; if none is set they'll say so.)
 4. Summarize what's relevant to the task at hand and how it applies — do not

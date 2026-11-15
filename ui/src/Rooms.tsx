@@ -112,16 +112,17 @@ export function Rooms({ onError }: { onError: (message: string) => void }) {
   return (
     <>
       <button
-        className={`settings-toggle ${anyoneListening ? "has-badge" : ""}`}
+        className="nav-btn"
         onClick={() => setOpen(true)}
         title={
           anyoneListening
-            ? "Rooms — an agent is listening"
-            : "Rooms — your agents talking to each other"
+            ? "An agent is waiting in a room"
+            : "Where your agents hand work to each other, and you step in"
         }
         aria-label="Open rooms"
       >
-        🤝
+        <span aria-hidden="true">🤝</span> Rooms
+        {anyoneListening && <span className="nav-dot live" aria-label="an agent is listening" />}
       </button>
 
       {open && (

@@ -224,7 +224,6 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_threads` | the user's threads, most recently active first — **implemented** |
 | `crossthreads_thread` | one thread with its sessions and links — **implemented** |
 | `crossthreads_activity` | session activity over time (day/week) — **implemented** |
-| `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
 | `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
 | `crossthreads_optimize` | biggest change to make now + measured verdict on the last — **implemented** |
 | `crossthreads_trends` | metric trends (last 30d vs previous) — **implemented** |
@@ -237,9 +236,7 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_open_loops` | unresolved work across recent sessions — **implemented** |
 | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering — **implemented** |
 | `crossthreads_decision_log` | notable decisions + rationale — **implemented** |
-| `crossthreads_how_i_work` | the user's working conventions (for CLAUDE.md/AGENTS.md) — **implemented** |
 | `crossthreads_recurring` | recurring problems/patterns, with fixes — **implemented** |
-| `crossthreads_digest` | short reflective digest of recent work — **implemented** |
 | `crossthreads_devices` | list searchable devices (this host + peers) with liveness — **implemented** (ADR-010) |
 | `crossthreads.get_conversation` | §4 — daemon op available (`GetConversation`) |
 | `crossthreads.resume` | §6 — planned |
@@ -279,20 +276,18 @@ over the user's recent sessions with their configured model. One shared engine
 | `open_loops` | `crossthreads_open_loops` | unresolved work, dangling TODOs, unconfirmed fixes |
 | `knowledge_cards` | `crossthreads_knowledge_cards` | durable Q→A cards worth remembering |
 | `decision_log` | `crossthreads_decision_log` | decisions ("chose X over Y because Z") + rationale |
-| `how_i_work` | `crossthreads_how_i_work` | the user's conventions, for a CLAUDE.md / AGENTS.md |
 | `recurrence` | `crossthreads_recurring` | recurring problems/patterns, each with a fix |
-| `digest` | `crossthreads_digest` | a short reflective digest of recent work |
 
 These need a model login (Settings → Models / `crossthreads llm-auth`); without
 one they return a clear hint. The corpus spans the user's **whole history** —
 every tool *and* their skills/prompts, not just recent chat threads — reading a
-large recent subset (200 records for `open_loops`/`digest`, 400 for the others)
+large recent subset (200 records for `open_loops`, 400 for the others)
 bounded to ~300k chars. Override the count with `limit` (CLI `--limit N`, or the
 tools' `limit` arg). The daemon gathers the text under the read lock, releases
 it, then calls the model — searches stay responsive during synthesis. Output is
 Markdown plus the source conversation ids drawn from.
 
-### 7.3 Ask, activity & graph
+### 7.3 Ask & activity
 
 - **`ask`** (`crossthreads_ask`, CLI `crossthreads ask`, daemon `Request::Ask`) —
   retrieval-augmented Q&A over the user's history: hybrid-search the most relevant
@@ -302,11 +297,8 @@ Markdown plus the source conversation ids drawn from.
   synthesize), mirroring `recall`.
 - **`activity`** (`crossthreads_activity`, CLI `crossthreads activity`, daemon
   `Request::Activity`) — session counts bucketed by `day`|`week` with a per-tool
-  breakdown: `{ bucket, periods: [{ period, total, by_tool }] }`. Offline.
-- **`graph`** (`crossthreads_graph`, CLI `crossthreads graph`, daemon
-  `Request::Graph`) — a deterministic knowledge graph: `{ nodes: [{ id, label,
-  kind, weight }], edges: [{ source, target, weight }] }` over projects, tools,
-  and tags. Offline.
+  breakdown: `{ bucket, periods: [{ period, total, by_tool }] }`. Counts sessions
+  only (not skills or room exchanges) unless a `kind` filter says otherwise. Offline.
 
 ### 7.4 Behavioral insights ("how you work")
 
@@ -402,6 +394,12 @@ nobody has linked is a thread of one. All of this is deterministic and offline.
   `set_thread {id, title?, status?}` renames (empty title = derived) or sets
   `active` | `parked` | `done`. `link_sessions` and `set_thread` answer
   `{"type":"thread_id","id":…}`.
+- **Handoff** (`thread_handoff {id, device?, max_chars=8000}` → `Context`; CLI
+  `crossthreads thread <ID> --handoff`; MCP `crossthreads_thread` with
+  `"handoff": true`) — a paste-ready Markdown brief for continuing the work in
+  another tool or agent: repository, branch, every session, the original
+  request from the first session, and the tail of the latest one (where the
+  work stands). Most of the budget goes to the tail.
 
 - **Across devices.** With federation configured, `threads` takes
   `"devices":[…]` (routing, like `search`; omitted = this device and every
