@@ -59,6 +59,8 @@ it and fold what you learn into your work.
   hitting, each with a fix.
 - `crossthreads_themes(k?, name?)` — cluster sessions into themes (set
   `name: true` for short LLM-generated theme names).
+- `crossthreads_threads(status?, tool?, repo?)` — the user's work as threads (sessions linked across tools), most recently active first
+- `crossthreads_thread(id)` — one thread: every session that touched the work, in order
 - `crossthreads_activity(bucket?, filters?)` — session activity over time
   (day/week) with a per-tool breakdown.
 - `crossthreads_graph(limit?)` — knowledge graph of projects, tools, and tags.

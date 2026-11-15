@@ -1003,3 +1003,120 @@ fn multiple_clients_are_served() {
         assert!(h.join().unwrap() >= 1);
     }
 }
+
+#[test]
+fn threads_link_edit_and_unlink_over_the_wire() {
+    let a = dated(
+        Tool::ClaudeCode,
+        "/acme-api",
+        "fix the oauth refresh retry",
+        "2026-11-01",
+    );
+    let b = dated(
+        Tool::Codex,
+        "/acme-api",
+        "review the oauth refresh fix",
+        "2026-11-02",
+    );
+    let c = dated(Tool::Cursor, "/acme-web", "dark mode toggle", "2026-11-03");
+    let store = seed(&[a.clone(), b.clone(), c.clone()]);
+    store
+        .set_repo_key("/acme-api", "github.com/acme/api")
+        .unwrap();
+    let addr = serve(Daemon::new(store, Box::new(HashEmbedder::default())));
+    let client = Client::new(addr);
+
+    // Three sessions, three threads, newest first.
+    let Response::Threads { threads } = client
+        .call(&Request::Threads {
+            filters: Default::default(),
+        })
+        .unwrap()
+    else {
+        panic!("expected threads");
+    };
+    assert_eq!(threads.len(), 3);
+    assert_eq!(threads[0].tools, vec!["cursor"]);
+    assert_eq!(threads[2].repo_label.as_deref(), Some("acme/api"));
+
+    // Link the two oauth sessions; the thread now spans two tools.
+    let Response::ThreadId { id: Some(id) } = client
+        .call(&Request::LinkSessions {
+            a: a.id.clone(),
+            b: b.id.clone(),
+            kind: Some("reviewed".into()),
+        })
+        .unwrap()
+    else {
+        panic!("expected a thread id");
+    };
+    let Response::ThreadId { id: Some(same) } = client
+        .call(&Request::SetThread {
+            id: id.clone(),
+            title: Some("OAuth refresh".into()),
+            status: Some("done".into()),
+        })
+        .unwrap()
+    else {
+        panic!("expected a thread id");
+    };
+    assert_eq!(same, id);
+
+    let Response::Thread { thread: Some(t) } =
+        client.call(&Request::Thread { id: b.id.clone() }).unwrap()
+    else {
+        panic!("expected a thread");
+    };
+    assert_eq!(t.summary.id, id);
+    assert_eq!(t.summary.title, "OAuth refresh");
+    assert_eq!(t.summary.status, "done");
+    assert_eq!(t.summary.tools, vec!["claude-code", "codex"]);
+    assert_eq!(t.links[0].kind, "reviewed");
+
+    // Filters apply on the daemon.
+    let Response::Threads { threads } = client
+        .call(&Request::Threads {
+            filters: ct_store::ThreadFilters {
+                status: Some("done".into()),
+                ..Default::default()
+            },
+        })
+        .unwrap()
+    else {
+        panic!("expected threads");
+    };
+    assert_eq!(threads.len(), 1);
+
+    // A bad status is an error, not a silent no-op.
+    assert!(matches!(
+        client
+            .call(&Request::SetThread {
+                id: id.clone(),
+                title: None,
+                status: Some("archived".into()),
+            })
+            .unwrap(),
+        Response::Error { .. }
+    ));
+
+    // Unlink puts the session back on its own.
+    assert!(matches!(
+        client
+            .call(&Request::UnlinkSession { id: b.id.clone() })
+            .unwrap(),
+        Response::Ok { ok: true }
+    ));
+    let Response::Thread { thread: Some(t) } = client.call(&Request::Thread { id: b.id }).unwrap()
+    else {
+        panic!("expected a thread");
+    };
+    assert_eq!(t.sessions.len(), 1);
+    assert!(matches!(
+        client
+            .call(&Request::Thread {
+                id: "th_missing".into()
+            })
+            .unwrap(),
+        Response::Thread { thread: None }
+    ));
+}

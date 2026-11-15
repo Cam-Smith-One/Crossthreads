@@ -52,29 +52,11 @@ import {
   type Status,
   type StoredConversation,
 } from "./api";
+import { Board } from "./Board";
+import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
 const PAGE = 25;
-
-// Friendly label + glyph per tool slug, for the "what's indexed" chips and the
-// activity breakdown. Unknown tools fall back to the slug and a neutral dot.
-const TOOL_META: Record<string, { label: string; icon: string }> = {
-  "claude-code": { label: "Claude Code", icon: "✳️" },
-  codex: { label: "Codex", icon: "◆" },
-  cursor: { label: "Cursor", icon: "▱" },
-  aider: { label: "Aider", icon: "✦" },
-  cline: { label: "Cline", icon: "◈" },
-  copilot: { label: "Copilot", icon: "⊕" },
-  "gemini-cli": { label: "Gemini CLI", icon: "✶" },
-  windsurf: { label: "Windsurf", icon: "🌊" },
-  antigravity: { label: "Antigravity", icon: "🛰️" },
-};
-function toolLabel(slug: string): string {
-  return TOOL_META[slug]?.label ?? slug;
-}
-function toolIcon(slug: string): string {
-  return TOOL_META[slug]?.icon ?? "•";
-}
 
 export function App() {
   const [query, setQuery] = useState("");
@@ -90,6 +72,9 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  // Bumped whenever the index changes, so the board reloads its threads.
+  const [boardKey, setBoardKey] = useState(0);
+  const reportError = useCallback((message: string) => setError(message), []);
   const [context, setContext] = useState<string | null>(null);
   const [open, setOpen] = useState<StoredConversation | null>(null);
   const [saved, setSaved] = useState<Hit[]>([]);
@@ -355,6 +340,7 @@ export function App() {
     setError(null);
     try {
       await reindex();
+      setBoardKey((k) => k + 1);
       refreshStatus();
       refreshFacets();
       refreshSaved();
@@ -627,6 +613,7 @@ export function App() {
       await forget(id);
       setOpen(null);
       setHits((hs) => hs.filter((h) => h.conversation_id !== id));
+      setBoardKey((k) => k + 1);
       refreshSaved();
     } catch (err) {
       setError(String(err));
@@ -833,7 +820,7 @@ export function App() {
             ⚙️
           </button>
         </div>
-        <p className="tagline">Search every AI coding conversation, across tools.</p>
+        <p className="tagline">Every AI coding thread, across your tools. Search them, or pick one up below.</p>
         {status && (
           <p className="status">
             {status.conversations.toLocaleString()} conversations ·{" "}
@@ -906,8 +893,8 @@ export function App() {
 
       <div className="filters">
         <select value={filters.kind ?? ""} onChange={(e) => setF({ kind: e.target.value || undefined })}>
-          <option value="">threads + skills</option>
-          <option value="thread">threads</option>
+          <option value="">sessions + skills</option>
+          <option value="thread">sessions</option>
           <option value="skill">skills</option>
         </select>
         <select value={filters.tool ?? ""} onChange={(e) => setF({ tool: e.target.value || undefined })}>
@@ -974,6 +961,22 @@ export function App() {
         </section>
       )}
 
+      {searched && (
+        <button
+          className="board-back"
+          onClick={() => {
+            searchGen.current += 1;
+            setSearched(false);
+            setHits([]);
+            setContext(null);
+            setUnreachable([]);
+            setBoardKey((k) => k + 1);
+          }}
+        >
+          ← Back to threads
+        </button>
+      )}
+
       {saved.length > 0 && !searched && (
         <section className="saved">
           <h2>Saved &amp; pinned</h2>
@@ -992,6 +995,14 @@ export function App() {
             ))}
           </div>
         </section>
+      )}
+
+      {!searched && (
+        <Board
+          onOpenSession={(id) => openConversation(id)}
+          refreshKey={boardKey}
+          onError={reportError}
+        />
       )}
 
       {context !== null && (

@@ -356,6 +356,40 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_threads",
+                    "description": "List the user's threads: pieces of work, each one or more \
+                        sessions linked across tools (e.g. a Claude Code session continued in \
+                        Codex), most recently active first. Use to see what the user has been \
+                        working on and where it stands. Offline; no model needed.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "status": {
+                                "type": "string",
+                                "enum": ["active", "parked", "done"],
+                                "description": "Only threads with this status."
+                            },
+                            "tool": { "type": "string", "description": "Only threads this tool took part in." },
+                            "repo": { "type": "string", "description": "Only repositories whose name contains this." },
+                            "limit": { "type": "integer", "description": "Max threads (default 20)." }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_thread",
+                    "description": "Show one thread in full: every session that touched the work, \
+                        in time order across tools, with how they are linked. Pass a thread id \
+                        (from crossthreads_threads) or the id of any session in it (from \
+                        crossthreads_search). Offline; no model needed.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "Thread id or session id." }
+                        },
+                        "required": ["id"]
+                    }
+                },
+                {
                     "name": "crossthreads_activity",
                     "description": "Report the user's session activity over time, bucketed by day \
                         or week, with a per-tool breakdown. Use to see when and with which tools \
@@ -532,6 +566,8 @@ impl Server {
             "crossthreads_digest" => Ok(self.call_insight("digest", &args)),
             "crossthreads_recurring" => Ok(self.call_insight("recurrence", &args)),
             "crossthreads_ask" => Ok(self.call_ask(&args)),
+            "crossthreads_threads" => Ok(self.call_threads(&args)),
+            "crossthreads_thread" => Ok(self.call_thread(&args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
             "crossthreads_graph" => Ok(self.call_graph(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
@@ -785,6 +821,94 @@ impl Server {
             }
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("ask failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_threads(&self, args: &Value) -> Value {
+        let text = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::to_string);
+        let filters = ct_daemon::ThreadFilters {
+            status: text("status"),
+            tool: text("tool"),
+            repo: text("repo"),
+            limit: Some(args.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize),
+        };
+        match self.client.call(&Request::Threads { filters }) {
+            Ok(Response::Threads { threads }) => {
+                if threads.is_empty() {
+                    return tool_text("No threads match.".to_string());
+                }
+                let mut out = format!("{} thread(s), most recently active first:\n", threads.len());
+                for t in &threads {
+                    out.push_str(&format!(
+                        "\n- {} [{}] {}\n  {} · {} · {} session(s) · last active {}",
+                        t.id,
+                        t.status,
+                        t.title,
+                        t.repo_label.as_deref().unwrap_or("no repository"),
+                        t.tools.join(" + "),
+                        t.session_count,
+                        t.last_activity
+                            .as_deref()
+                            .map(|d| &d[..d.len().min(10)])
+                            .unwrap_or("unknown"),
+                    ));
+                }
+                tool_text(out)
+            }
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("threads failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_thread(&self, args: &Value) -> Value {
+        let Some(id) = args.get("id").and_then(|q| q.as_str()) else {
+            return tool_error("missing required argument: id".to_string());
+        };
+        match self.client.call(&Request::Thread { id: id.to_string() }) {
+            Ok(Response::Thread { thread: None }) => {
+                tool_text(format!("No thread or session with id {id}."))
+            }
+            Ok(Response::Thread { thread: Some(t) }) => {
+                let s = &t.summary;
+                let mut out = format!(
+                    "{} [{}]\n{} · {} · {} session(s), {} messages\n\nSessions, oldest first:",
+                    s.title,
+                    s.status,
+                    s.id,
+                    s.repo_label.as_deref().unwrap_or("no repository"),
+                    s.session_count,
+                    s.message_count,
+                );
+                for sess in &t.sessions {
+                    out.push_str(&format!(
+                        "\n- {} {} {} — {}",
+                        sess.started_at
+                            .as_deref()
+                            .map(|d| &d[..d.len().min(10)])
+                            .unwrap_or("undated"),
+                        sess.tool,
+                        sess.conversation_id,
+                        sess.title.as_deref().unwrap_or("(untitled)"),
+                    ));
+                }
+                for l in &t.links {
+                    out.push_str(&format!(
+                        "\n\n{} → {}: {} ({})",
+                        l.from, l.to, l.kind, l.origin
+                    ));
+                }
+                if !t.suggestions.is_empty() {
+                    out.push_str(&format!(
+                        "\n\n{} possibly related session(s) not yet linked.",
+                        t.suggestions.len()
+                    ));
+                }
+                tool_text(out)
+            }
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("thread failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

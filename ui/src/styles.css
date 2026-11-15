@@ -960,3 +960,192 @@ body {
   font-size: 12px;
 }
 .glance-empty { color: var(--muted); padding: 6px 0; }
+
+/* Board: threads grouped by repository (the home screen) */
+.board { margin: 0 0 24px; }
+.board-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.board-head h2 { font-size: 15px; margin: 0; color: var(--muted); font-weight: 600; }
+.board-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.board-tab {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.board-tab:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text); }
+.board-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.board-tab:disabled { cursor: default; }
+.board-tab-count { font-variant-numeric: tabular-nums; opacity: 0.8; margin-left: 2px; }
+.board-filters { display: flex; gap: 8px; margin-bottom: 14px; }
+.board-filters input,
+.board-filters select,
+.thread-rename input,
+.thread-merge select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  min-width: 0;
+}
+.board-filters input { flex: 1; }
+.board-group { margin-bottom: 18px; }
+.board-repo {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.board-repo-count {
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.board-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.board-row:hover { border-color: var(--border-hover); }
+.board-row:focus-visible,
+.board-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.board-row-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.board-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.board-tools { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.board-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.board-badge-hint { color: var(--mark-ink); background: var(--mark); border-color: transparent; }
+.board-status-done { color: var(--muted); text-decoration: line-through; }
+.board-branch {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-when { color: var(--muted); font-size: 13px; white-space: nowrap; padding-top: 1px; }
+.board-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.board-back:hover { text-decoration: underline; }
+
+/* Thread view: one timeline of sessions across tools */
+.thread-modal { width: min(720px, 100%); }
+.thread-head-main { min-width: 0; flex: 1; }
+.thread-title { font-size: 16px; overflow-wrap: anywhere; }
+.thread-rename { display: flex; gap: 8px; }
+.thread-rename input { flex: 1; }
+.thread-body { overflow: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+.thread-status { display: flex; gap: 6px; }
+.thread-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--border); }
+.thread-session { position: relative; padding: 0 0 16px 14px; }
+.thread-session:last-child { padding-bottom: 0; }
+.thread-session::before {
+  content: "";
+  position: absolute;
+  left: -21px;
+  top: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+}
+.thread-link { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.thread-link::first-letter { text-transform: uppercase; }
+.thread-session .tool-chip,
+.thread-suggestion .tool-chip { white-space: nowrap; flex-shrink: 0; }
+.thread-session-row { display: flex; align-items: baseline; gap: 8px; }
+.thread-session-title { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.thread-session-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.thread-session-actions { display: inline-flex; gap: 6px; flex-shrink: 0; }
+.thread-session-actions button,
+.thread-rename button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.thread-session-actions button:hover:not(:disabled) { border-color: var(--border-hover); }
+.thread-session-actions button:disabled { opacity: 0.6; cursor: default; }
+.thread-suggestions h3 { font-size: 14px; margin: 0 0 4px; }
+.thread-suggestion { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; }
+.thread-suggestion-title {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+  min-width: 140px;
+  overflow-wrap: anywhere;
+}
+.thread-suggestion-title:hover { text-decoration: underline; }
+.thread-merge { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* Phones: let the header icons wrap and give the modals the full width. */
+@media (max-width: 600px) {
+  .app { padding: 20px 12px 60px; }
+  .brand-row { flex-wrap: wrap; gap: 8px; }
+  .board-tabs { margin-left: 0; }
+  .board-filters { flex-direction: column; }
+  .board-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .board-title { white-space: normal; overflow-wrap: anywhere; }
+  .overlay { padding: 12px 8px; }
+  .modal-head { flex-direction: column; }
+  .searchbar { flex-wrap: wrap; }
+}

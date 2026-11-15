@@ -221,6 +221,8 @@ Return a resume/handoff target for a result (FR-ACT-04). Capability is **per-too
 | `crossthreads_devices` | list cross-device search targets — **implemented** |
 | `crossthreads_themes` | cluster sessions into themes (`k`, `name` args) — **implemented** |
 | `crossthreads_ask` | cited answer to a question, synthesized from history — **implemented** |
+| `crossthreads_threads` | the user's threads, most recently active first — **implemented** |
+| `crossthreads_thread` | one thread with its sessions and links — **implemented** |
 | `crossthreads_activity` | session activity over time (day/week) — **implemented** |
 | `crossthreads_graph` | knowledge graph (projects/tools/tags + edges) — **implemented** |
 | `crossthreads_metrics` | behavioral metrics (how you work; deterministic) — **implemented** |
@@ -373,6 +375,51 @@ The four products are insight kinds (daemon `Request::Insight { kind }`, the
 under the store lock, drop it, then call the model.
 
 ---
+
+### 7.5 Threads
+
+A **thread** is a piece of work: one or more sessions linked across tools
+([SPEC.md](SPEC.md) §6.1). Every session is in exactly one thread; a session
+nobody has linked is a thread of one. All of this is deterministic and offline.
+
+- **`threads`** (`crossthreads_threads`, CLI `crossthreads threads`, daemon
+  `{"op":"threads","filters":{"status"?,"tool"?,"repo"?,"limit"?}}`) →
+  `{"type":"threads","threads":[ThreadSummary]}`, most recently active first.
+  `ThreadSummary` = `{id, title, status, repo_key, repo_label, tools[],
+  branches[], session_count, message_count, first_activity, last_activity,
+  pending_suggestions}`.
+- **`thread`** (`crossthreads_thread`, CLI `crossthreads thread <ID>`, daemon
+  `{"op":"thread","id":…}`) → `{"type":"thread","thread":ThreadDetail|null}`.
+  `id` is a thread id or the conversation id of any session in it.
+  `ThreadDetail` is a `ThreadSummary` plus `sessions[]` (oldest first; each has
+  a `conversation_id` for `get_conversation` / `resume`), `links[]`
+  (`{from, to, kind, origin, confidence}`) and `suggestions[]` (links proposed
+  but not applied).
+- **Editing** (daemon ops; CLI `crossthreads thread link|unlink|reject|rename|status`):
+  `link_sessions {a, b, kind?}` puts two sessions in one thread and is how a
+  suggestion is accepted; `unlink_session {id}` returns a session to a thread
+  of one; `reject_link {a, b}` dismisses a suggestion for good;
+  `set_thread {id, title?, status?}` renames (empty title = derived) or sets
+  `active` | `parked` | `done`. `link_sessions` and `set_thread` answer
+  `{"type":"thread_id","id":…}`.
+
+**Ids.** A thread of one has the id `th_<its session key>`. A thread with
+several sessions keeps the id of its earliest session. An id can therefore
+change when sessions join or leave; to hold on to a thread, hold a session's
+`conversation_id` and pass that to `thread`.
+
+**Repository identity.** `repo_key` is the normalised `origin` remote
+(`github.com/owner/repo`), else `root:<root commit>`, else `path:<abs path>`
+(device-local). All worktrees of a repository share one key.
+
+**Link detection** runs after each index pass, within one repository only:
+
+| Signal | Result |
+|---|---|
+| A later session opens with text from the tail of an earlier one, including the assistant's words (a transcript transfer or a resume) | applied as `continued`, origin `detected` |
+| A session in a *different tool* starts while an earlier one is active, or within 30 minutes after | suggested only |
+
+A pair the user unlinked or rejected is never proposed again.
 
 ## 8. Conventions
 

@@ -116,9 +116,11 @@ The stored `kind = 'thread'` value does not change.
 Every session belongs to exactly one thread. A session with no links is a thread
 of one, so nothing changes for existing data until links appear.
 
-**Thread ID.** `th_` plus a random 128-bit value, minted on the device that
-first sees the work. It is carried explicitly through every Crossthreads action
-(handoff, room, workspace, dispatch).
+**Thread ID.** A thread of one is `th_` plus its session's key, so it needs no
+storage. A thread with several sessions keeps the id of its earliest session.
+An id can therefore change as sessions join or leave; anything that must hold
+on to a thread holds a session id instead. The thread id is carried explicitly
+through every Crossthreads action (handoff, room, workspace, dispatch).
 
 **Repo key.** Project paths differ per machine, so grouping across devices needs
 a stable key:
@@ -485,6 +487,13 @@ Each milestone is useful on its own and ends with a check on whether to go on.
 | **M2 Rooms** | Meat Proxy semantics in the daemon, indexed into recall, importer; Meat Proxy archived | Meat Proxy's test scenarios pass; one install replaces two |
 | **M3 Workspaces + local dispatch** | Worktree manager, headless launch, same-machine dispatch | A Claude Code thread is continued by Codex in a sibling workspace with no pasting |
 | **M4 Cross-device** | Rooms and dispatch across devices, grants, dispatch log | An unfinished thread on the laptop is continued by an agent on a second machine and appears as one thread on both |
+
+**Status.** M0 has shipped in 0.16.0, together with the board for this device
+(the local half of M1): repo keys, thread and link storage, detection by copied
+content and by proximity, merge/split/rename/status, the CLI, two MCP tools and
+the board as the web app's home screen. Still open from M0: detecting a native
+resume by session id rather than by content, and measuring the false-link rate
+on real history.
 
 **Why this order.** Identity comes first because everything else writes to it.
 The board is next because it has the clearest unmet demand and dispatch needs

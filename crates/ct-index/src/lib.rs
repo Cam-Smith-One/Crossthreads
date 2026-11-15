@@ -87,6 +87,8 @@ pub fn collect(limit: Option<usize>) -> (Vec<Conversation>, usize) {
                 }
             }
             match connector.parse(&session) {
+                // Crossthreads' own model-CLI calls are not the user's work.
+                Ok(convo) if ct_core::is_helper_project(convo.project.as_deref()) => {}
                 Ok(mut convo) => {
                     // Scrub secrets before anything reaches the index (FR-PRIV).
                     redact_conversation(&mut convo);
@@ -159,6 +161,19 @@ pub fn embed_pending(store: &mut Store, embedder: &dyn Embedder) -> Result<usize
     Ok(total)
 }
 
+/// Give every session its repository identity, then look for links between
+/// sessions that are the same work (SPEC §6.1). Cheap after the first pass:
+/// only projects without a key touch the filesystem, and only sessions not
+/// examined before are compared.
+pub fn link_threads(store: &Store) -> Result<ct_store::DetectReport> {
+    for project in store.projects_missing_repo_key()? {
+        if let Some(key) = ct_core::repo::repo_key_for(&project) {
+            store.set_repo_key(&project, &key)?;
+        }
+    }
+    store.detect_links()
+}
+
 /// One full indexing pass: collect, persist (dedup), and embed new messages.
 pub fn index_once(
     store: &mut Store,
@@ -181,6 +196,7 @@ pub fn index_once(
     }
 
     report.embedded = embed_pending(store, embedder)?;
+    link_threads(store)?;
     Ok(report)
 }
 
@@ -199,6 +215,23 @@ mod tests {
             tool_calls: vec![],
             metadata: serde_json::Value::Null,
         }
+    }
+
+    #[test]
+    fn recognises_its_own_helper_directory_on_any_platform() {
+        use ct_core::is_helper_project;
+        assert!(is_helper_project(Some("/tmp/crossthreads-llm-scratch")));
+        assert!(is_helper_project(Some(
+            "/var/folders/ab/T/crossthreads-llm-scratch/"
+        )));
+        assert!(is_helper_project(Some(
+            "C:\\Users\\me\\AppData\\Local\\Temp\\crossthreads-llm-scratch"
+        )));
+        assert!(!is_helper_project(Some("/home/dev/crossthreads")));
+        assert!(!is_helper_project(Some(
+            "/tmp/crossthreads-llm-scratch/nested"
+        )));
+        assert!(!is_helper_project(None));
     }
 
     #[test]

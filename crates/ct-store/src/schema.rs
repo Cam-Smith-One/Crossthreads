@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS conversations (
     pinned             INTEGER NOT NULL DEFAULT 0,
     -- Stable identity for user state: constant as a conversation grows, unlike
     -- the content-hash `id`. See ct_core::hash::session_key.
-    session_key        TEXT NOT NULL DEFAULT ''
+    session_key        TEXT NOT NULL DEFAULT '',
+    -- v9: machine-independent repository identity (ct_core::repo), so sessions
+    -- group by repository across devices and worktrees. NULL until resolved.
+    repo_key           TEXT
 );
 
 -- Indexes on columns that have existed since v1. Indexes on columns added by
@@ -116,5 +119,51 @@ CREATE TABLE IF NOT EXISTS forgotten (
 CREATE TABLE IF NOT EXISTS meta_kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+-- v9: threads (SPEC §6.1). A thread is a piece of work: one or more sessions
+-- linked across tools. Durable like `user_state` and keyed by `session_key`, so
+-- rebuilding the index never loses them. A session with no row in
+-- `thread_sessions` is a thread of one.
+CREATE TABLE IF NOT EXISTS threads (
+    id         TEXT PRIMARY KEY,
+    title      TEXT,
+    status     TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS thread_sessions (
+    session_key TEXT PRIMARY KEY,
+    thread_id   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_thread_sessions_thread ON thread_sessions(thread_id);
+
+-- A typed edge between two sessions. `from_key` is the earlier session.
+-- `state` is 'applied' (the sessions share a thread) or 'suggested' (shown to
+-- the user, not yet acted on).
+CREATE TABLE IF NOT EXISTS links (
+    from_key   TEXT NOT NULL,
+    to_key     TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    origin     TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    state      TEXT NOT NULL DEFAULT 'applied',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (from_key, to_key)
+);
+
+-- Pairs the user has said are not the same work, so detection never proposes
+-- them again. Stored with a_key < b_key.
+CREATE TABLE IF NOT EXISTS link_rejections (
+    a_key TEXT NOT NULL,
+    b_key TEXT NOT NULL,
+    PRIMARY KEY (a_key, b_key)
+);
+
+-- Sessions the link detector has already examined.
+CREATE TABLE IF NOT EXISTS link_scans (
+    session_key TEXT PRIMARY KEY,
+    scanned_at  TEXT NOT NULL
 );
 "#;

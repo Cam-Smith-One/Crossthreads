@@ -17,10 +17,14 @@ use serde::{Deserialize, Serialize};
 pub mod behavior;
 mod schema;
 pub mod themes;
+pub mod threads;
 
 pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
+pub use threads::{
+    DetectReport, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink, ThreadSummary,
+};
 
 /// Minimum cosine similarity for a vector to count as a semantic match.
 /// Tuned to filter near-zero matches for both the hash and ONNX embedders
@@ -382,13 +386,16 @@ impl Store {
         // v7 -> v8: per-message agent actions (tool-call names), for the
         // behavioral metrics. NULL on old rows until a reindex re-parses source.
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
+        // v8 -> v9: machine-independent repository identity for threads.
+        let _ = conn.execute("ALTER TABLE conversations ADD COLUMN repo_key TEXT", []);
 
         // Indexes on migration-added columns, created only now that the ALTERs
         // above guarantee the columns exist (on a fresh DB they came from
         // CREATE TABLE; on an upgrade, from the ALTERs).
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
-             CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);",
+             CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);
+             CREATE INDEX IF NOT EXISTS idx_conversations_repo    ON conversations(repo_key);",
         )
         .context("creating migration-column indexes")?;
 
