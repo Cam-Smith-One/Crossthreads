@@ -832,15 +832,28 @@ impl Server {
             repo: text("repo"),
             limit: Some(args.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize),
         };
-        match self.client.call(&Request::Threads { filters }) {
-            Ok(Response::Threads { threads }) => {
+        match self.client.call(&Request::Threads {
+            filters,
+            devices: None,
+        }) {
+            Ok(Response::Threads { threads, .. }) => {
                 if threads.is_empty() {
                     return tool_text("No threads match.".to_string());
                 }
                 let mut out = format!("{} thread(s), most recently active first:\n", threads.len());
                 for t in &threads {
+                    let live = match t.live.as_ref().map(|l| l.state.as_str()) {
+                        Some("needs_you") => " — WAITING ON THE USER",
+                        Some("running") => " — running now",
+                        _ => "",
+                    };
+                    let device = t
+                        .device
+                        .as_deref()
+                        .map(|d| format!(" · on {d}"))
+                        .unwrap_or_default();
                     out.push_str(&format!(
-                        "\n- {} [{}] {}\n  {} · {} · {} session(s) · last active {}",
+                        "\n- {} [{}] {}{live}\n  {} · {} · {} session(s) · last active {}{device}",
                         t.id,
                         t.status,
                         t.title,
@@ -865,7 +878,10 @@ impl Server {
         let Some(id) = args.get("id").and_then(|q| q.as_str()) else {
             return tool_error("missing required argument: id".to_string());
         };
-        match self.client.call(&Request::Thread { id: id.to_string() }) {
+        match self.client.call(&Request::Thread {
+            id: id.to_string(),
+            device: None,
+        }) {
             Ok(Response::Thread { thread: None }) => {
                 tool_text(format!("No thread or session with id {id}."))
             }

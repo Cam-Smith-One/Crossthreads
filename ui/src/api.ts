@@ -583,6 +583,14 @@ export function buildContext(
 
 export type ThreadStatus = "active" | "parked" | "done";
 
+/** What a session is doing right now. `inferred` = guessed from the transcript
+ * file rather than reported by a hook, so it can't tell "needs you" from idle. */
+export interface Live {
+  state: "running" | "needs_you" | "idle" | "ended";
+  inferred: boolean;
+  since?: string | null;
+}
+
 /** One session: a conversation in one tool, as its latest indexed version. */
 export interface SessionRef {
   conversation_id: string;
@@ -595,6 +603,7 @@ export interface SessionRef {
   last_activity?: string | null;
   branch?: string | null;
   message_count: number;
+  live?: Live | null;
 }
 
 export interface ThreadSummary {
@@ -610,6 +619,10 @@ export interface ThreadSummary {
   first_activity?: string | null;
   last_activity?: string | null;
   pending_suggestions: number;
+  /** The most pressing state among the thread's sessions. */
+  live?: Live | null;
+  /** The device the thread is on, when the list spans devices. */
+  device?: string | null;
 }
 
 export interface ThreadLink {
@@ -638,17 +651,24 @@ export interface ThreadDetail extends ThreadSummary {
   suggestions: ThreadSuggestion[];
 }
 
-export async function getThreads(limit?: number): Promise<ThreadSummary[]> {
-  const data = await rpc<{ threads: ThreadSummary[] }>({
+/** Threads on this device and, with federation set up, on every reachable
+ * peer. `unreachable` names approved devices that didn't answer. */
+export async function getThreads(): Promise<{ threads: ThreadSummary[]; unreachable: string[] }> {
+  const data = await rpc<{ threads: ThreadSummary[]; unreachable?: string[] }>({
     op: "threads",
-    filters: limit ? { limit } : {},
+    filters: {},
   });
-  return data.threads ?? [];
+  return { threads: data.threads ?? [], unreachable: data.unreachable ?? [] };
 }
 
-/** `id` is a thread id or the conversation id of any session in it. */
-export async function getThread(id: string): Promise<ThreadDetail | null> {
-  const data = await rpc<{ thread: ThreadDetail | null }>({ op: "thread", id });
+/** `id` is a thread id or the conversation id of any session in it. `device`
+ * fetches it from the peer it lives on. */
+export async function getThread(id: string, device?: string | null): Promise<ThreadDetail | null> {
+  const data = await rpc<{ thread: ThreadDetail | null }>({
+    op: "thread",
+    id,
+    ...(device ? { device } : {}),
+  });
   return data.thread;
 }
 

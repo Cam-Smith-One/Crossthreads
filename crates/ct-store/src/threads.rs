@@ -44,6 +44,19 @@ const MIN_FINGERPRINT_CHARS: usize = 80;
 const OPENING_MESSAGES: i64 = 60;
 const OPENING_CHARS: usize = 400_000;
 
+/// What a session is doing right now (SPEC §6.2). The store never fills this
+/// in; the daemon does, from tool hooks or from the transcript file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Live {
+    /// `running` | `needs_you` | `idle` | `ended`.
+    pub state: String,
+    /// True when guessed from the transcript file instead of reported by a
+    /// hook. An inferred state can't tell "needs you" from "idle".
+    pub inferred: bool,
+    /// When the session entered this state.
+    pub since: Option<String>,
+}
+
 /// One session, as the latest indexed version of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionRef {
@@ -59,6 +72,12 @@ pub struct SessionRef {
     pub last_activity: Option<String>,
     pub branch: Option<String>,
     pub message_count: i64,
+    /// The transcript this session was read from.
+    #[serde(default)]
+    pub source_path: String,
+    /// Current state, when known. Filled in by the daemon.
+    #[serde(default)]
+    pub live: Option<Live>,
 }
 
 /// A thread as shown in a list.
@@ -80,6 +99,14 @@ pub struct ThreadSummary {
     pub last_activity: Option<String>,
     /// Suggested links waiting for a decision.
     pub pending_suggestions: usize,
+    /// The most pressing state among the thread's sessions, when any is
+    /// known. Filled in by the daemon.
+    #[serde(default)]
+    pub live: Option<Live>,
+    /// The device this thread lives on, when the list spans devices. Filled
+    /// in by the daemon.
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 /// An applied link between two sessions of a thread.
@@ -209,7 +236,8 @@ impl Store {
     fn session_rows(&self) -> Result<Vec<(SessionRef, Option<String>)>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.session_key, c.tool, c.project, c.repo_key, c.title,
-                    c.started_at, c.ended_at, c.git_branch, c.message_count, ts.thread_id
+                    c.started_at, c.ended_at, c.git_branch, c.message_count, ts.thread_id,
+                    c.source_path
              FROM conversations c
              LEFT JOIN thread_sessions ts ON ts.session_key = c.session_key
              WHERE c.kind = 'thread' AND c.session_key <> ''",
@@ -230,6 +258,8 @@ impl Store {
                         started_at,
                         branch: r.get(8)?,
                         message_count: r.get(9)?,
+                        source_path: r.get(11)?,
+                        live: None,
                     },
                     r.get::<_, Option<String>>(10)?,
                 ))
@@ -342,11 +372,25 @@ impl Store {
                 .filter_map(|s| s.last_activity.clone())
                 .max(),
             pending_suggestions: suggestions,
+            live: None,
+            device: None,
         }
     }
 
     /// Threads, most recently active first.
     pub fn threads(&self, f: &ThreadFilters) -> Result<Vec<ThreadSummary>> {
+        Ok(self
+            .threads_with_sessions(f)?
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect())
+    }
+
+    /// Like [`Store::threads`], with each thread's sessions (oldest first).
+    pub fn threads_with_sessions(
+        &self,
+        f: &ThreadFilters,
+    ) -> Result<Vec<(ThreadSummary, Vec<SessionRef>)>> {
         let g = self.grouped()?;
         let mut pending: HashMap<&str, usize> = HashMap::new();
         let suggested = self.suggested_links()?;
@@ -359,24 +403,25 @@ impl Store {
         }
 
         let want_repo = f.repo.as_deref().map(str::to_lowercase);
-        let mut out: Vec<ThreadSummary> = g
+        let mut out: Vec<(ThreadSummary, Vec<SessionRef>)> = g
             .members
             .iter()
             .map(|(id, sessions)| {
-                Self::summarize(
+                let summary = Self::summarize(
                     id,
                     sessions,
                     g.meta.get(id),
                     pending.get(id.as_str()).copied().unwrap_or(0),
-                )
+                );
+                (summary, sessions.clone())
             })
-            .filter(|t| f.status.as_deref().map_or(true, |s| t.status == s))
-            .filter(|t| {
+            .filter(|(t, _)| f.status.as_deref().map_or(true, |s| t.status == s))
+            .filter(|(t, _)| {
                 f.tool
                     .as_deref()
                     .map_or(true, |x| t.tools.iter().any(|y| y == x))
             })
-            .filter(|t| {
+            .filter(|(t, _)| {
                 want_repo.as_deref().map_or(true, |want| {
                     [&t.repo_key, &t.repo_label]
                         .into_iter()
@@ -385,7 +430,7 @@ impl Store {
                 })
             })
             .collect();
-        out.sort_by(|a, b| {
+        out.sort_by(|(a, _), (b, _)| {
             (b.last_activity.is_some(), &b.last_activity, &b.id).cmp(&(
                 a.last_activity.is_some(),
                 &a.last_activity,

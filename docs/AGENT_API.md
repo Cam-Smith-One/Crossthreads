@@ -403,6 +403,26 @@ nobody has linked is a thread of one. All of this is deterministic and offline.
   `active` | `parked` | `done`. `link_sessions` and `set_thread` answer
   `{"type":"thread_id","id":…}`.
 
+- **Across devices.** With federation configured, `threads` takes
+  `"devices":[…]` (routing, like `search`; omitted = this device and every
+  reachable peer) and answers `{"threads":[…],"unreachable":[names]}`; each
+  `ThreadSummary` has a `device`. `thread` takes `"device":…` to fetch a thread
+  from the peer it lives on. Remote threads are read-only from here.
+  CLI: `crossthreads threads --remote`.
+- **Live state.** When known, `ThreadSummary.live` and each session's `live`
+  are `{state, inferred, since}` with `state` one of `running` | `needs_you` |
+  `idle` | `ended`. A thread shows its most pressing session. `inferred: true`
+  means it was guessed from the transcript file's modification time (which
+  can only ever say `running`) rather than reported by a hook.
+- **Hooks.** `crossthreads hooks install|uninstall|status` manages the hook in
+  Claude Code's `settings.json` and Codex's `hooks.json`. The hook runs
+  `crossthreads hook <tool> [event]`, which reads the tool's JSON payload on
+  stdin and sends `{"op":"hook_event","tool":…,"event":…,"transcript_path":…,
+  "session_id"?,"cwd"?,"message"?}` to the daemon. Events map to state as:
+  `SessionStart`/`Stop` → `idle`; `UserPromptSubmit`/`PreToolUse`/`PostToolUse`
+  → `running`; `Notification` mentioning a permission → `needs_you`;
+  `SessionEnd` → `ended`. An event with no `transcript_path` is ignored.
+
 **Ids.** A thread of one has the id `th_<its session key>`. A thread with
 several sessions keeps the id of its earliest session. An id can therefore
 change when sessions join or leave; to hold on to a thread, hold a session's

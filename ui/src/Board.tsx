@@ -9,6 +9,7 @@ import {
   rejectLink,
   setThread,
   unlinkSession,
+  type Live,
   type ThreadDetail,
   type ThreadStatus,
   type ThreadSummary,
@@ -18,6 +19,8 @@ import { toolIcon, toolLabel } from "./tools";
 const STATUSES: ThreadStatus[] = ["active", "parked", "done"];
 const NO_REPO = "No repository";
 const PAGE = 60;
+/** How often the board re-reads live state while it is on screen. */
+const REFRESH_MS = 10_000;
 
 type StatusFilter = ThreadStatus | "all";
 
@@ -45,6 +48,27 @@ function when(ts?: string | null): string {
   });
 }
 
+/** A pill for a state worth interrupting for; nothing for idle or ended. */
+function LiveBadge({ live }: { live?: Live | null }) {
+  if (!live || (live.state !== "needs_you" && live.state !== "running")) return null;
+  const needs = live.state === "needs_you";
+  return (
+    <span
+      className={`board-live ${needs ? "board-live-needs" : "board-live-running"}`}
+      title={
+        live.inferred
+          ? "Guessed from the transcript file. Install hooks for exact state: crossthreads hooks install"
+          : needs
+            ? "Waiting on a permission prompt"
+            : "Working now"
+      }
+    >
+      <span className="board-live-dot" aria-hidden="true" />
+      {needs ? "Needs you" : "Running"}
+    </span>
+  );
+}
+
 function ToolChips({ tools }: { tools: string[] }) {
   return (
     <span className="board-tools">
@@ -59,15 +83,18 @@ function ToolChips({ tools }: { tools: string[] }) {
 }
 
 interface Props {
-  /** Open one session's transcript. */
-  onOpenSession: (conversationId: string) => void;
+  /** Open one session's transcript, from another device when `device` is set. */
+  onOpenSession: (conversationId: string, device?: string | null) => void;
+  /** This device's name when cross-device search is set up. */
+  localDevice?: string;
   /** Changes when the index does, so the board reloads. */
   refreshKey: number;
   onError: (message: string) => void;
 }
 
-export function Board({ onOpenSession, refreshKey, onError }: Props) {
+export function Board({ onOpenSession, localDevice, refreshKey, onError }: Props) {
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
+  const [unreachable, setUnreachable] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("active");
   const [tool, setTool] = useState("");
   const [text, setText] = useState("");
@@ -78,11 +105,35 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
 
   const load = useCallback(() => {
     getThreads()
-      .then(setThreads)
+      .then(({ threads, unreachable }) => {
+        setThreads(threads);
+        setUnreachable(unreachable);
+      })
       .catch((e) => onError(String(e)));
   }, [onError]);
 
   useEffect(load, [load, refreshKey]);
+
+  // Live state goes stale quickly, so re-read it while the page is visible.
+  // A failed refresh is silent: the next one will say if the daemon is gone.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      getThreads()
+        .then(({ threads, unreachable }) => {
+          setThreads(threads);
+          setUnreachable(unreachable);
+        })
+        .catch(() => {});
+    }, REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  /** True when a thread lives on another device (read-only from here). */
+  const isRemote = useCallback(
+    (t: { device?: string | null }) => !!t.device && !!localDevice && t.device !== localDevice,
+    [localDevice],
+  );
 
   const counts = useMemo(() => {
     const c: Record<StatusFilter, number> = { active: 0, parked: 0, done: 0, all: 0 };
@@ -111,11 +162,14 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
     );
   }, [threads, status, tool, text]);
 
+  // Anything blocked on you is pulled out to the top, whatever its repository.
+  const waiting = useMemo(() => visible.filter((t) => t.live?.state === "needs_you"), [visible]);
+
   // Group by repository, keeping the most recently active repository first
   // (the list arrives sorted by last activity).
   const groups = useMemo(() => {
     const out = new Map<string, ThreadSummary[]>();
-    for (const t of visible.slice(0, shown)) {
+    for (const t of visible.filter((t) => t.live?.state !== "needs_you").slice(0, shown)) {
       const key = t.repo_label ?? NO_REPO;
       const list = out.get(key);
       if (list) list.push(t);
@@ -124,10 +178,10 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
     return [...out.entries()];
   }, [visible, shown]);
 
-  async function openThread(id: string) {
+  async function openThread(t: ThreadSummary) {
     try {
       setRenaming(null);
-      setOpen(await getThread(id));
+      setOpen(await getThread(t.id, isRemote(t) ? t.device : null));
     } catch (e) {
       onError(String(e));
     }
@@ -151,11 +205,14 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
 
   // Other threads in the same repository, offered for a manual merge.
   const mergeable = useMemo(() => {
-    if (!open) return [];
+    if (!open || isRemote(open)) return [];
     return (threads ?? [])
-      .filter((t) => t.id !== open.id && (t.repo_key ?? null) === (open.repo_key ?? null))
+      .filter(
+        (t) =>
+          !isRemote(t) && t.id !== open.id && (t.repo_key ?? null) === (open.repo_key ?? null),
+      )
       .slice(0, 50);
-  }, [threads, open]);
+  }, [threads, open, isRemote]);
 
   async function mergeWith(otherId: string) {
     if (!open || !otherId) return;
@@ -167,6 +224,41 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
   }
 
   if (!threads || threads.length === 0) return null;
+
+  const readOnly = !!open && isRemote(open);
+  const row = (t: ThreadSummary) => (
+    <button key={`${t.device ?? ""}:${t.id}`} className="board-row" onClick={() => openThread(t)}>
+      <span className="board-row-main">
+        <span className="board-title">{t.title}</span>
+        <span className="board-meta">
+          <LiveBadge live={t.live} />
+          <ToolChips tools={t.tools} />
+          {isRemote(t) && (
+            <span className="device-chip" title={`on ${t.device}`}>
+              💻 {t.device}
+            </span>
+          )}
+          {t.session_count > 1 && <span className="board-badge">{t.session_count} sessions</span>}
+          {t.branches.length > 0 && (
+            <span className="board-branch" title={t.branches.join(", ")}>
+              ⎇ {t.branches[t.branches.length - 1]}
+            </span>
+          )}
+          {t.pending_suggestions > 0 && (
+            <span className="board-badge board-badge-hint" title="Possibly related sessions to review">
+              {t.pending_suggestions} suggested
+            </span>
+          )}
+          {t.status !== "active" && (
+            <span className={`board-badge board-status-${t.status}`}>{t.status}</span>
+          )}
+        </span>
+      </span>
+      <span className="board-when" title={t.last_activity ?? ""}>
+        {ago(t.last_activity)}
+      </span>
+    </button>
+  );
 
   return (
     <section className="board" aria-label="Threads">
@@ -208,6 +300,22 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
         )}
       </div>
 
+      {unreachable.length > 0 && (
+        <div className="unreachable-banner">
+          ⚠ {unreachable.length} device{unreachable.length > 1 ? "s" : ""} unreachable (
+          {unreachable.join(", ")}) — their threads are missing from this list.
+        </div>
+      )}
+
+      {waiting.length > 0 && (
+        <div className="board-group board-waiting">
+          <h3 className="board-repo">
+            Needs you <span className="board-repo-count">{waiting.length}</span>
+          </h3>
+          {waiting.map(row)}
+        </div>
+      )}
+
       {visible.length === 0 && <p className="empty">No {status === "all" ? "" : status} threads match.</p>}
 
       {groups.map(([repo, list]) => (
@@ -215,41 +323,13 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
           <h3 className="board-repo">
             {repo} <span className="board-repo-count">{list.length}</span>
           </h3>
-          {list.map((t) => (
-            <button key={t.id} className="board-row" onClick={() => openThread(t.id)}>
-              <span className="board-row-main">
-                <span className="board-title">{t.title}</span>
-                <span className="board-meta">
-                  <ToolChips tools={t.tools} />
-                  {t.session_count > 1 && (
-                    <span className="board-badge">{t.session_count} sessions</span>
-                  )}
-                  {t.branches.length > 0 && (
-                    <span className="board-branch" title={t.branches.join(", ")}>
-                      ⎇ {t.branches[t.branches.length - 1]}
-                    </span>
-                  )}
-                  {t.pending_suggestions > 0 && (
-                    <span className="board-badge board-badge-hint" title="Possibly related sessions to review">
-                      {t.pending_suggestions} suggested
-                    </span>
-                  )}
-                  {t.status !== "active" && (
-                    <span className={`board-badge board-status-${t.status}`}>{t.status}</span>
-                  )}
-                </span>
-              </span>
-              <span className="board-when" title={t.last_activity ?? ""}>
-                {ago(t.last_activity)}
-              </span>
-            </button>
-          ))}
+          {list.map(row)}
         </div>
       ))}
 
-      {visible.length > shown && (
+      {visible.length - waiting.length > shown && (
         <button className="load-more" onClick={() => setShown(shown + PAGE)}>
-          Show more ({visible.length - shown} left)
+          Show more ({visible.length - waiting.length - shown} left)
         </button>
       )}
 
@@ -291,9 +371,14 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
                   {open.session_count === 1 ? "" : "s"} · {open.message_count} messages
                   {open.branches.length > 0 && <> · ⎇ {open.branches.join(", ")}</>}
                 </div>
+                {readOnly && (
+                  <div className="project">
+                    💻 On {open.device}. Open Crossthreads there to rename or regroup it.
+                  </div>
+                )}
               </div>
               <div className="modal-head-actions">
-                {renaming === null && (
+                {renaming === null && !readOnly && (
                   <button onClick={() => setRenaming(open.title)} disabled={busy}>
                     Rename
                   </button>
@@ -304,7 +389,7 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
 
             <div className="thread-body">
               <div className="thread-status" role="group" aria-label="Status">
-                {STATUSES.map((s) => (
+                {(readOnly ? [open.status] : STATUSES).map((s) => (
                   <button
                     key={s}
                     className={`board-tab ${open.status === s ? "on" : ""}`}
@@ -346,6 +431,7 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
                           {toolLabel(s.tool)}
                         </span>
                         <span className="thread-session-title">{s.title ?? "(untitled)"}</span>
+                        <LiveBadge live={s.live} />
                       </div>
                       <div className="thread-session-meta">
                         <span>
@@ -353,8 +439,14 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
                           {s.branch ? ` · ⎇ ${s.branch}` : ""}
                         </span>
                         <span className="thread-session-actions">
-                          <button onClick={() => onOpenSession(s.conversation_id)}>Open</button>
-                          {stays && (
+                          <button
+                            onClick={() =>
+                              onOpenSession(s.conversation_id, readOnly ? open.device : null)
+                            }
+                          >
+                            Open
+                          </button>
+                          {stays && !readOnly && (
                             <button
                               disabled={busy}
                               title="Take this session out of the thread"
@@ -372,7 +464,7 @@ export function Board({ onOpenSession, refreshKey, onError }: Props) {
                 })}
               </ol>
 
-              {open.suggestions.length > 0 && (
+              {open.suggestions.length > 0 && !readOnly && (
                 <div className="thread-suggestions">
                   <h3>Possibly the same work</h3>
                   <p className="settings-hint">

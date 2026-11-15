@@ -236,13 +236,44 @@ pub enum Request {
     Glance,
     /// List threads: pieces of work, each one or more sessions linked across
     /// tools (SPEC §6.1). Most recently active first.
+    ///
+    /// With federation configured the list spans devices: `devices` routes it
+    /// like `Search::devices` (`None` = this device and every reachable peer),
+    /// and each thread says which device it is on.
     Threads {
         #[serde(default)]
         filters: ThreadFilters,
+        #[serde(default)]
+        devices: Option<Vec<String>>,
     },
     /// One thread with its sessions, links and pending suggestions. `id` is a
-    /// thread id or the conversation id of any session in it.
-    Thread { id: String },
+    /// thread id or the conversation id of any session in it. `device` fetches
+    /// it from the peer it lives on.
+    Thread {
+        id: String,
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// A thread list forwarded from a peer: token-gated and local-only, like
+    /// `PeerSearch`. Threads with a session outside the serve-scope are left out.
+    PeerThreads {
+        #[serde(default)]
+        token: Option<String>,
+        #[serde(default)]
+        filters: ThreadFilters,
+    },
+    /// One thread fetched by a peer: token-gated, local-only, serve-scoped.
+    PeerThread {
+        #[serde(default)]
+        token: Option<String>,
+        id: String,
+    },
+    /// A session event from a tool's hook (`crossthreads hook …`), used to
+    /// track what each session is doing right now (SPEC §6.2).
+    HookEvent {
+        #[serde(flatten)]
+        event: crate::live::HookEvent,
+    },
     /// Put two sessions (by conversation id) in one thread. Also how a
     /// suggested link is accepted. `kind` defaults to `manual`.
     LinkSessions {
@@ -435,9 +466,12 @@ pub enum Response {
     Glance {
         glance: crate::glance::Glance,
     },
-    /// Threads, most recently active first.
+    /// Threads, most recently active first. `unreachable` names selected
+    /// peers that didn't answer, as for `Hits`.
     Threads {
         threads: Vec<ThreadSummary>,
+        #[serde(default)]
+        unreachable: Vec<String>,
     },
     /// One thread in full, or `None` if the id is unknown.
     Thread {

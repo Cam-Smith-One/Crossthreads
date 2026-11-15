@@ -999,7 +999,8 @@ export function App() {
 
       {!searched && (
         <Board
-          onOpenSession={(id) => openConversation(id)}
+          onOpenSession={(id, device) => openConversation(id, device)}
+          localDevice={localDevice}
           refreshKey={boardKey}
           onError={reportError}
         />

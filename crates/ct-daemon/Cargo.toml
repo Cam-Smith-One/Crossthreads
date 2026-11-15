@@ -37,3 +37,4 @@ keyring = { version = "3", default-features = false, features = ["apple-native",
 
 [dev-dependencies]
 ct-core = { workspace = true }
+tempfile = "3"

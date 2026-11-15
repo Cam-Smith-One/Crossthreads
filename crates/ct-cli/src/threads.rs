@@ -7,7 +7,21 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{bail, Result};
-use ct_store::{Store, ThreadDetail, ThreadFilters, ThreadSummary};
+use ct_daemon::{Client, Request, Response};
+use ct_store::{Live, Store, ThreadDetail, ThreadFilters, ThreadSummary};
+
+/// A short marker for a live state, or nothing when there is none worth showing.
+fn live_tag(live: &Option<Live>) -> String {
+    let Some(l) = live else {
+        return String::new();
+    };
+    let word = match l.state.as_str() {
+        "needs_you" => "NEEDS YOU",
+        "running" => "running",
+        _ => return String::new(),
+    };
+    format!(" ● {word}{}", if l.inferred { " (inferred)" } else { "" })
+}
 
 fn date(ts: &Option<String>) -> &str {
     ts.as_deref().map(|t| &t[..t.len().min(10)]).unwrap_or("-")
@@ -34,6 +48,7 @@ fn take_db(it: &mut std::slice::Iter<'_, String>) -> Result<PathBuf> {
 pub fn run_list(args: &[String]) -> Result<ExitCode> {
     let mut db: Option<PathBuf> = None;
     let mut json = false;
+    let mut remote = false;
     let mut filters = ThreadFilters {
         limit: Some(30),
         ..Default::default()
@@ -54,13 +69,34 @@ pub fn run_list(args: &[String]) -> Result<ExitCode> {
                 )
             }
             "--all" => filters.limit = None,
+            "--remote" => remote = true,
             "--db" => db = Some(take_db(&mut it)?),
             other => bail!("unknown option for `threads`: {other}"),
         }
     }
 
-    let store = Store::open(crate::resolve_db(db)?)?;
-    let threads = store.threads(&filters)?;
+    // `--remote` asks the running daemon, which knows what is live right now
+    // and, with federation set up, what is on your other devices.
+    let threads = if remote {
+        match Client::from_env().call(&Request::Threads {
+            filters,
+            devices: None,
+        })? {
+            Response::Threads {
+                threads,
+                unreachable,
+            } => {
+                if !unreachable.is_empty() {
+                    eprintln!("unreachable: {}", unreachable.join(", "));
+                }
+                threads
+            }
+            Response::Error { message } => bail!(message),
+            other => bail!("unexpected response: {other:?}"),
+        }
+    } else {
+        Store::open(crate::resolve_db(db)?)?.threads(&filters)?
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&threads)?);
         return Ok(ExitCode::SUCCESS);
@@ -102,11 +138,17 @@ fn print_list(threads: &[ThreadSummary]) {
             } else {
                 String::new()
             };
+            let device = t
+                .device
+                .as_deref()
+                .map(|d| format!(" · on {d}"))
+                .unwrap_or_default();
             println!(
-                "  {}  {}  {}{status}\n      {}{sessions}{pending}  {}",
+                "  {}  {}  {}{status}{}\n      {}{sessions}{pending}{device}  {}",
                 date(&t.last_activity),
                 t.id,
                 truncate(&t.title, 70),
+                live_tag(&t.live),
                 t.tools.join(" + "),
                 t.branches.join(", "),
             );
