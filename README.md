@@ -94,6 +94,8 @@ crossthreads context "oauth refresh retry" > prior-context.md   # paste-ready bl
 crossthreads status                                              # index health
 crossthreads threads                                             # your work as threads, grouped by repository
 crossthreads thread <ID>                                         # one thread: every session that touched it
+crossthreads hooks install                                       # let the board show which sessions are running / need you
+crossthreads threads --remote                                    # ask the daemon: live state + your other devices
 crossthreads themes --k 8                                        # cluster your work into themes
 crossthreads themes --name                                       # …and name them with your local model login
 crossthreads metrics                                             # how you work, by the numbers (no model)
@@ -119,7 +121,7 @@ crossthreads llm-auth                                            # which model c
 | | |
 |---|---|
 | 🔎 **Hybrid search** | FTS5 keyword (BM25) **+** semantic embeddings fused with Reciprocal Rank Fusion — finds threads by meaning, not just keywords. |
-| 🧵 **Threads & the board** | The home screen is your work as **threads**: one entry per piece of work, linking every session that touched it across tools (a Claude Code session continued in Codex is one thread). Grouped by repository — the same on every machine and worktree — with status (active / parked / done), rename, merge and split. A transcript transfer or resume is **linked automatically**; a session started in another tool around the same time is **suggested**, never assumed. Web app, `crossthreads threads`, and MCP. Offline; no model. |
+| 🧵 **Threads & the board** | The home screen is your work as **threads**: one entry per piece of work, linking every session that touched it across tools (a Claude Code session continued in Codex is one thread). Grouped by repository — the same on every machine and worktree — with status (active / parked / done), rename, merge and split. A transcript transfer or resume is **linked automatically**; a session started in another tool around the same time is **suggested**, never assumed. With `crossthreads hooks install` the board also shows which sessions are **running** and pins the ones that **need you**; with cross-device search set up it lists your other machines' threads too. Web app, `crossthreads threads`, and MCP. Offline; no model. |
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
 | 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; "✨ Name with AI" labels clusters using your model login. |
@@ -325,7 +327,8 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 - ✅ **Resume, unified** — one canonical `resume` op (daemon · `crossthreads resume` · UI) gives the native way back into a session: `claude --resume <id>` / `codex resume <uuid>` (with `cd <project>`), reveal-the-transcript otherwise
 - ✅ **Live quota via a documented sidecar** — the glance renders a real rate-limit window whenever an on-device reader writes `~/.crossthreads/quota/<tool>.json`; Crossthreads never scrapes provider internals
 - ✅ **Threads & the board** — one identity per piece of work across tools, machine-independent repository keys, automatic and suggested links, and the board as the web app's home screen (first milestone of [docs/SPEC.md](docs/SPEC.md))
-- ⏳ Next from the spec: live session state, the board across devices and on a phone, agent-to-agent rooms, workspaces, dispatch
+- ✅ **Live state & the cross-device board** — `crossthreads hooks install` makes Claude Code and Codex report what each session is doing, so the board shows what is running and pins what needs you; with cross-device search set up, the board lists threads from your other machines too
+- ⏳ Next from the spec: the board on a phone, agent-to-agent rooms, workspaces, dispatch
 - ⏳ A bundled on-device quota reader (populates that sidecar from provider response headers); richer cross-tool deeplinks
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 

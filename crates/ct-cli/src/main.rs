@@ -16,6 +16,7 @@ mod context;
 mod fluency;
 mod glance;
 mod graph;
+mod hooks;
 mod index;
 mod insight;
 mod llm_auth;
@@ -42,13 +43,16 @@ COMMANDS:
     search <QUERY>    Search the index (lexical / semantic / hybrid)
     context <QUERY>   Build a paste-ready context block from top matches
     threads           Your work as threads: sessions linked across tools,
-                      grouped by repository (--status, --tool, --repo, --json)
+                      grouped by repository (--status, --tool, --repo, --json;
+                      --remote asks the daemon: live state + other devices)
     thread <ID>       Show one thread; or `thread link|unlink|reject|rename|
                       status …` to edit how sessions are grouped
     resume <ID>       How to pick a session back up in its native tool
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
                       sidecar provides it), fluency, focus (--json)
+    hooks <CMD>       install | uninstall | status the hooks that report live
+                      session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
     skill install     Install the Crossthreads agent skill for Claude Code/Codex
     themes            Cluster your sessions into themes (--k N; --name to label
@@ -116,6 +120,9 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("thread") => threads::run_thread(&args[1..]),
         Some("resume") => resume::run(&args[1..]),
         Some("glance") => glance::run(&args[1..]),
+        Some("hooks") => hooks::run(&args[1..]),
+        // Called by the tools' hooks. Must never fail or print.
+        Some("hook") => Ok(hooks::run_hook(&args[1..])),
         Some("status") => status::run(&args[1..]),
         Some("skill") => skill::run(&args[1..]),
         Some("themes") => themes::run(&args[1..]),

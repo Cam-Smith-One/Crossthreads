@@ -1027,9 +1027,10 @@ fn threads_link_edit_and_unlink_over_the_wire() {
     let client = Client::new(addr);
 
     // Three sessions, three threads, newest first.
-    let Response::Threads { threads } = client
+    let Response::Threads { threads, .. } = client
         .call(&Request::Threads {
             filters: Default::default(),
+            devices: None,
         })
         .unwrap()
     else {
@@ -1062,8 +1063,12 @@ fn threads_link_edit_and_unlink_over_the_wire() {
     };
     assert_eq!(same, id);
 
-    let Response::Thread { thread: Some(t) } =
-        client.call(&Request::Thread { id: b.id.clone() }).unwrap()
+    let Response::Thread { thread: Some(t) } = client
+        .call(&Request::Thread {
+            id: b.id.clone(),
+            device: None,
+        })
+        .unwrap()
     else {
         panic!("expected a thread");
     };
@@ -1074,12 +1079,13 @@ fn threads_link_edit_and_unlink_over_the_wire() {
     assert_eq!(t.links[0].kind, "reviewed");
 
     // Filters apply on the daemon.
-    let Response::Threads { threads } = client
+    let Response::Threads { threads, .. } = client
         .call(&Request::Threads {
             filters: ct_store::ThreadFilters {
                 status: Some("done".into()),
                 ..Default::default()
             },
+            devices: None,
         })
         .unwrap()
     else {
@@ -1106,7 +1112,12 @@ fn threads_link_edit_and_unlink_over_the_wire() {
             .unwrap(),
         Response::Ok { ok: true }
     ));
-    let Response::Thread { thread: Some(t) } = client.call(&Request::Thread { id: b.id }).unwrap()
+    let Response::Thread { thread: Some(t) } = client
+        .call(&Request::Thread {
+            id: b.id,
+            device: None,
+        })
+        .unwrap()
     else {
         panic!("expected a thread");
     };
@@ -1114,9 +1125,242 @@ fn threads_link_edit_and_unlink_over_the_wire() {
     assert!(matches!(
         client
             .call(&Request::Thread {
-                id: "th_missing".into()
+                id: "th_missing".into(),
+                device: None
             })
             .unwrap(),
         Response::Thread { thread: None }
+    ));
+}
+
+#[test]
+fn hook_events_show_up_as_live_state_on_threads() {
+    let dir = tempfile::tempdir().unwrap();
+    let transcript = dir.path().join("session.jsonl");
+    // An old file, so nothing is inferred from its modification time.
+    std::fs::write(&transcript, "{}\n").unwrap();
+    let mut a = dated(
+        Tool::Cursor,
+        "/acme-api",
+        "fix the oauth refresh retry",
+        "2026-11-01",
+    );
+    a.source.path = transcript.to_str().unwrap().into();
+    let b = dated(Tool::Codex, "/acme-web", "dark mode toggle", "2026-11-02");
+    let addr = serve(Daemon::new(
+        seed(&[a.clone(), b]),
+        Box::new(HashEmbedder::default()),
+    ));
+    let client = Client::new(addr);
+    let live_of = |client: &Client| -> Option<(String, bool)> {
+        let Response::Thread { thread: Some(t) } = client
+            .call(&Request::Thread {
+                id: a.id.clone(),
+                device: None,
+            })
+            .unwrap()
+        else {
+            panic!("expected a thread");
+        };
+        assert_eq!(
+            t.summary.live.as_ref().map(|l| &l.state),
+            t.sessions[0].live.as_ref().map(|l| &l.state)
+        );
+        t.summary.live.map(|l| (l.state, l.inferred))
+    };
+    assert_eq!(live_of(&client), None);
+
+    // The same JSON `crossthreads hook` sends: the op plus the event's fields.
+    let hook = |event: &str, message: Option<&str>| {
+        let req: Request = serde_json::from_value(serde_json::json!({
+            "op": "hook_event",
+            "tool": "cursor",
+            "event": event,
+            "transcript_path": transcript.to_str().unwrap(),
+            "session_id": "abc",
+            "message": message,
+        }))
+        .unwrap();
+        client.call(&req).unwrap()
+    };
+    assert!(matches!(
+        hook("UserPromptSubmit", None),
+        Response::Ok { ok: true }
+    ));
+    assert_eq!(live_of(&client), Some(("running".into(), false)));
+    hook(
+        "Notification",
+        Some("Claude needs your permission to use Bash"),
+    );
+    assert_eq!(live_of(&client), Some(("needs_you".into(), false)));
+
+    // The list carries the state too, and only for the session that reported.
+    let Response::Threads { threads, .. } = client
+        .call(&Request::Threads {
+            filters: Default::default(),
+            devices: None,
+        })
+        .unwrap()
+    else {
+        panic!("expected threads");
+    };
+    let states: Vec<Option<&str>> = threads
+        .iter()
+        .map(|t| t.live.as_ref().map(|l| l.state.as_str()))
+        .collect();
+    assert_eq!(states, vec![None, Some("needs_you")]);
+
+    hook("Stop", None);
+    assert_eq!(live_of(&client), Some(("idle".into(), false)));
+    // An event that names no transcript can't be tied to a session.
+    let req: Request = serde_json::from_value(
+        serde_json::json!({"op":"hook_event","tool":"codex","event":"Stop"}),
+    )
+    .unwrap();
+    assert!(matches!(
+        client.call(&req).unwrap(),
+        Response::Ok { ok: false }
+    ));
+}
+
+#[test]
+fn the_board_spans_devices_and_opens_remote_threads() {
+    let mine = dated(
+        Tool::ClaudeCode,
+        "/acme-api",
+        "fix the oauth refresh retry",
+        "2026-11-01",
+    );
+    let theirs = dated(
+        Tool::Codex,
+        "/srv/acme-api",
+        "review the oauth refresh fix",
+        "2026-11-03",
+    );
+    let hidden = dated(
+        Tool::Cursor,
+        "/srv/secret-project",
+        "do not share this",
+        "2026-11-04",
+    );
+
+    let desk_store = seed(&[theirs.clone(), hidden.clone()]);
+    desk_store
+        .set_repo_key("/srv/acme-api", "github.com/acme/api")
+        .unwrap();
+    let desk = Daemon::new(desk_store, Box::new(HashEmbedder::default())).with_federation(
+        Federation::new(
+            "desk".into(),
+            Some("s3cret".into()),
+            vec![],
+            Duration::from_secs(2),
+        )
+        .with_scope(vec![], vec!["secret".into()]),
+    );
+    let desk_addr = serve(desk);
+
+    let lap_store = seed(std::slice::from_ref(&mine));
+    lap_store
+        .set_repo_key("/acme-api", "github.com/acme/api")
+        .unwrap();
+    let peers = vec![
+        Peer {
+            name: "desk".into(),
+            addr: desk_addr.clone(),
+        },
+        Peer {
+            name: "off".into(),
+            addr: "127.0.0.1:1".into(),
+        },
+    ];
+    let lap = Daemon::new(lap_store, Box::new(HashEmbedder::default()))
+        .with_federation(fed("lap", "s3cret", peers));
+    let client = Client::new(serve(lap));
+
+    let list = |devices: Option<Vec<String>>| {
+        let Response::Threads {
+            threads,
+            unreachable,
+        } = client
+            .call(&Request::Threads {
+                filters: Default::default(),
+                devices,
+            })
+            .unwrap()
+        else {
+            panic!("expected threads");
+        };
+        (threads, unreachable)
+    };
+
+    // One list, newest first, each thread tagged with its device. The same
+    // repository has the same key on both machines despite different paths.
+    let (threads, unreachable) = list(None);
+    let seen: Vec<(&str, &str)> = threads
+        .iter()
+        .map(|t| (t.device.as_deref().unwrap(), t.tools[0].as_str()))
+        .collect();
+    assert_eq!(seen, vec![("desk", "codex"), ("lap", "claude-code")]);
+    assert!(threads
+        .iter()
+        .all(|t| t.repo_key.as_deref() == Some("github.com/acme/api")));
+    assert_eq!(
+        unreachable,
+        vec!["off"],
+        "an offline peer is named, not fatal"
+    );
+    assert!(
+        !threads.iter().any(|t| t.title.contains("do not share")),
+        "serve-scope hides the excluded project"
+    );
+
+    // Routing: only the named devices are asked.
+    let (only_lap, unreachable) = list(Some(vec!["lap".into()]));
+    assert_eq!(only_lap.len(), 1);
+    assert!(unreachable.is_empty());
+
+    // Open the remote thread through this daemon.
+    let remote_id = threads[0].id.clone();
+    let Response::Thread { thread: Some(t) } = client
+        .call(&Request::Thread {
+            id: remote_id,
+            device: Some("desk".into()),
+        })
+        .unwrap()
+    else {
+        panic!("expected the remote thread");
+    };
+    assert_eq!(t.summary.device.as_deref(), Some("desk"));
+    assert_eq!(t.sessions[0].conversation_id, theirs.id);
+
+    // Peers are token-gated, and a scoped-out thread can't be fetched by id.
+    let desk_direct = Client::new(desk_addr);
+    assert!(matches!(
+        desk_direct
+            .call(&Request::PeerThreads {
+                token: Some("wrong".into()),
+                filters: Default::default(),
+            })
+            .unwrap(),
+        Response::Error { .. }
+    ));
+    assert!(matches!(
+        desk_direct
+            .call(&Request::PeerThread {
+                token: Some("s3cret".into()),
+                id: hidden.id,
+            })
+            .unwrap(),
+        Response::Thread { thread: None }
+    ));
+    // An unknown device is an error the UI can show.
+    assert!(matches!(
+        client
+            .call(&Request::Thread {
+                id: "th_x".into(),
+                device: Some("nowhere".into()),
+            })
+            .unwrap(),
+        Response::Error { .. }
     ));
 }

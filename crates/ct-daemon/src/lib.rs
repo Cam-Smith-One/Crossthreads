@@ -22,6 +22,7 @@ pub mod fluency;
 pub mod glance;
 mod http;
 pub mod insights;
+pub mod live;
 pub mod optimize;
 pub mod protocol;
 pub mod resume;
@@ -52,6 +53,8 @@ pub struct Daemon {
     embedder: Arc<dyn Embedder>,
     /// Cross-device federation config (ADR-010); `None` = local-only daemon.
     federation: Option<Arc<Federation>>,
+    /// What each session is doing right now, as reported by tool hooks.
+    live: Arc<live::LiveRegistry>,
 }
 
 impl Daemon {
@@ -64,6 +67,7 @@ impl Daemon {
             next_reader: Arc::new(AtomicUsize::new(0)),
             embedder: Arc::from(embedder),
             federation: None,
+            live: Arc::new(live::LiveRegistry::default()),
         }
     }
 
@@ -349,8 +353,19 @@ impl Daemon {
             Request::Optimize { force } => self.optimize(force).unwrap_or_else(err),
             Request::Fluency { window_days } => self.fluency(window_days).unwrap_or_else(err),
             Request::Glance => self.glance().unwrap_or_else(err),
-            Request::Threads { filters } => self.threads(&filters).unwrap_or_else(err),
-            Request::Thread { id } => self.thread(&id).unwrap_or_else(err),
+            Request::Threads { filters, devices } => self
+                .threads(&filters, devices.as_deref())
+                .unwrap_or_else(err),
+            Request::Thread { id, device } => {
+                self.thread(&id, device.as_deref()).unwrap_or_else(err)
+            }
+            Request::PeerThreads { token, filters } => {
+                self.peer_threads(token.as_deref(), &filters)
+            }
+            Request::PeerThread { token, id } => self.peer_thread(token.as_deref(), &id),
+            Request::HookEvent { event } => Response::Ok {
+                ok: self.live.record(&event, chrono::Utc::now()),
+            },
             Request::LinkSessions { a, b, kind } => self
                 .link_sessions(&a, &b, kind.as_deref())
                 .unwrap_or_else(err),
@@ -950,18 +965,214 @@ impl Daemon {
 
     // ---- threads (SPEC §6.1) ----------------------------------------------
 
-    fn threads(&self, filters: &ct_store::ThreadFilters) -> Result<Response> {
-        let store = self.read_lock();
+    /// This device's threads with live state filled in. `served_only` leaves
+    /// out any thread with a session outside the serve-scope, for peers.
+    fn local_threads(
+        &self,
+        filters: &ct_store::ThreadFilters,
+        served_only: Option<&Federation>,
+    ) -> Result<Vec<ThreadSummary>> {
+        // Scope first, limit after, so a peer still gets a full page.
+        let unlimited = ct_store::ThreadFilters {
+            limit: None,
+            ..filters.clone()
+        };
+        let rows = {
+            let store = self.read_lock();
+            store.threads_with_sessions(&unlimited)?
+        };
+        let now = chrono::Utc::now();
+        let mut out = Vec::new();
+        for (mut thread, mut sessions) in rows {
+            if let Some(fed) = served_only {
+                if !sessions
+                    .iter()
+                    .all(|s| fed.serves(&s.tool, s.project.as_deref()))
+                {
+                    continue;
+                }
+            }
+            self.live.annotate(&mut thread, &mut sessions, now);
+            out.push(thread);
+            if filters.limit.is_some_and(|n| out.len() >= n) {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The board's list. Local unless federation is configured, in which case
+    /// peers are asked in parallel and the lists merged by recency; a peer that
+    /// doesn't answer is named in `unreachable` (ADR-010).
+    fn threads(
+        &self,
+        filters: &ct_store::ThreadFilters,
+        devices: Option<&[String]>,
+    ) -> Result<Response> {
+        let Some(fed) = &self.federation else {
+            return Ok(Response::Threads {
+                threads: self.local_threads(filters, None)?,
+                unreachable: Vec::new(),
+            });
+        };
+        let device = fed.device();
+        let want = |name: &str| devices.map_or(true, |d| d.iter().any(|n| n == name));
+
+        let handles: Vec<_> = fed
+            .peers()
+            .into_iter()
+            .filter(|p| want(&p.name))
+            .map(|peer| {
+                let req = Request::PeerThreads {
+                    token: fed.token(),
+                    filters: filters.clone(),
+                };
+                let timeout = fed.timeout;
+                thread::spawn(move || {
+                    match Client::new(peer.addr.clone()).call_timeout(&req, timeout) {
+                        Ok(Response::Threads { mut threads, .. }) => {
+                            for t in &mut threads {
+                                t.device = Some(peer.name.clone());
+                            }
+                            Ok(threads)
+                        }
+                        Ok(Response::Error { message }) => {
+                            eprintln!("warn: peer {} rejected threads: {message}", peer.name);
+                            Err(peer.name)
+                        }
+                        Ok(_) => Err(peer.name),
+                        Err(e) => {
+                            eprintln!("warn: peer {} unreachable: {e:#}", peer.name);
+                            Err(peer.name)
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        let mut threads = Vec::new();
+        if want(&device) {
+            threads = self.local_threads(filters, None)?;
+            for t in &mut threads {
+                t.device = Some(device.clone());
+            }
+        }
+        let mut unreachable = Vec::new();
+        for h in handles {
+            match h.join() {
+                Ok(Ok(list)) => threads.extend(list),
+                Ok(Err(name)) => unreachable.push(name),
+                Err(_) => {}
+            }
+        }
+        threads.sort_by(|a, b| {
+            (b.last_activity.is_some(), &b.last_activity, &b.id).cmp(&(
+                a.last_activity.is_some(),
+                &a.last_activity,
+                &a.id,
+            ))
+        });
+        if let Some(limit) = filters.limit {
+            threads.truncate(limit);
+        }
         Ok(Response::Threads {
-            threads: store.threads(filters)?,
+            threads,
+            unreachable,
         })
     }
 
-    fn thread(&self, id: &str) -> Result<Response> {
-        let store = self.read_lock();
-        Ok(Response::Thread {
-            thread: store.thread(id)?,
-        })
+    fn local_thread(&self, id: &str) -> Result<Option<ct_store::ThreadDetail>> {
+        let detail = {
+            let store = self.read_lock();
+            store.thread(id)?
+        };
+        Ok(detail.map(|mut t| {
+            self.live
+                .annotate(&mut t.summary, &mut t.sessions, chrono::Utc::now());
+            t
+        }))
+    }
+
+    /// One thread, from this device or from the peer it lives on.
+    fn thread(&self, id: &str, device: Option<&str>) -> Result<Response> {
+        let local_name = self.federation.as_ref().map(|f| f.device());
+        let remote = match (device, local_name.as_deref()) {
+            (Some(d), Some(me)) if d != me => Some(d),
+            _ => None,
+        };
+        let Some(remote) = remote else {
+            let mut thread = self.local_thread(id)?;
+            if let (Some(t), Some(me)) = (&mut thread, local_name) {
+                t.summary.device = Some(me);
+            }
+            return Ok(Response::Thread { thread });
+        };
+        let fed = self.federation.as_ref().expect("checked above");
+        let Some(peer) = fed.peers().into_iter().find(|p| p.name == remote) else {
+            anyhow::bail!("no approved device named `{remote}`");
+        };
+        let req = Request::PeerThread {
+            token: fed.token(),
+            id: id.to_string(),
+        };
+        match Client::new(peer.addr).call_timeout(&req, fed.timeout)? {
+            Response::Thread { mut thread } => {
+                if let Some(t) = &mut thread {
+                    t.summary.device = Some(peer.name);
+                }
+                Ok(Response::Thread { thread })
+            }
+            Response::Error { message } => anyhow::bail!("{remote}: {message}"),
+            other => anyhow::bail!("{remote}: unexpected response {other:?}"),
+        }
+    }
+
+    /// Check a peer request's token. `Err` is the reason to send back.
+    fn peer_auth(&self, token: Option<&str>) -> std::result::Result<&Federation, String> {
+        let Some(fed) = &self.federation else {
+            return Err("federation not enabled on this device".into());
+        };
+        if let Some(expected) = fed.token() {
+            if !token.is_some_and(|t| token_eq(t, &expected)) {
+                return Err("unauthorized peer (bad or missing token)".into());
+            }
+        }
+        Ok(fed)
+    }
+
+    /// Answer a peer's request for this device's threads: token-gated,
+    /// local-only (never re-fanned-out), serve-scoped.
+    fn peer_threads(&self, token: Option<&str>, filters: &ct_store::ThreadFilters) -> Response {
+        let fed = match self.peer_auth(token) {
+            Ok(fed) => fed,
+            Err(message) => return Response::Error { message },
+        };
+        match self.local_threads(filters, Some(fed)) {
+            Ok(threads) => Response::Threads {
+                threads,
+                unreachable: Vec::new(),
+            },
+            Err(e) => err(e),
+        }
+    }
+
+    /// Answer a peer's request for one thread. A thread with any session
+    /// outside the serve-scope is not served at all.
+    fn peer_thread(&self, token: Option<&str>, id: &str) -> Response {
+        let fed = match self.peer_auth(token) {
+            Ok(fed) => fed,
+            Err(message) => return Response::Error { message },
+        };
+        match self.local_thread(id) {
+            Ok(thread) => Response::Thread {
+                thread: thread.filter(|t| {
+                    t.sessions
+                        .iter()
+                        .all(|s| fed.serves(&s.tool, s.project.as_deref()))
+                }),
+            },
+            Err(e) => err(e),
+        }
     }
 
     fn link_sessions(&self, a: &str, b: &str, kind: Option<&str>) -> Result<Response> {

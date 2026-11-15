@@ -1055,6 +1055,27 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.board-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.board-live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.board-live-needs { color: var(--err-text); background: var(--err-bg); border: 1px solid var(--err-border); }
+.board-live-running { color: var(--accent); border: 1px solid var(--accent); }
+.board-live-running .board-live-dot { animation: board-pulse 1.4s ease-in-out infinite; }
+@keyframes board-pulse {
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-live-running .board-live-dot { animation: none; }
+}
+.board-waiting .board-row { border-color: var(--err-border); }
 .board-when { color: var(--muted); font-size: 13px; white-space: nowrap; padding-top: 1px; }
 .board-back {
   background: none;

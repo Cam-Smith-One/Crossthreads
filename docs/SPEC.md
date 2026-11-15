@@ -495,6 +495,16 @@ the board as the web app's home screen. Still open from M0: detecting a native
 resume by session id rather than by content, and measuring the false-link rate
 on real history.
 
+M1 is mostly shipped in 0.17.0: hooks for Claude Code and Codex, live state
+with a transcript fallback, the "needs you" section, and the board across
+devices by fanning the list out to peers. Deviations from this spec, on
+purpose: the hook is a subcommand of the existing CLI rather than a separate
+`ct-hook` binary (one less thing to package; it still runs in a few
+milliseconds); Codex gets only the two hook events known to work; and a thread
+that spans machines is not yet one thread, because that needs the metadata
+exchange in ADR-011. Open from M1: phone access (FR-BRD-04), which waits on
+authenticated HTTP (§8), the tray count, and notifications.
+
 **Why this order.** Identity comes first because everything else writes to it.
 The board is next because it has the clearest unmet demand and dispatch needs
 to know what is idle where. Rooms follow because the hook installer is shared

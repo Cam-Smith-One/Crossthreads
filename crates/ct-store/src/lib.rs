@@ -23,7 +23,8 @@ pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
 pub use threads::{
-    DetectReport, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink, ThreadSummary,
+    DetectReport, Live, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink,
+    ThreadSummary,
 };
 
 /// Minimum cosine similarity for a vector to count as a semantic match.

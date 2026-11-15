@@ -5,6 +5,51 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.17.0] - 2026-11-15
+
+### Added
+- **Live session state.** The board now shows which sessions are **running**
+  and which **need you** (blocked on a permission prompt), and pins anything
+  waiting on you to the top. It refreshes itself every ten seconds while open.
+  - `crossthreads hooks install` adds a hook to Claude Code and Codex that
+    reports session events to the local daemon; `hooks uninstall` and
+    `hooks status` do what they say. The installer only touches its own
+    entries, keeps your key order, and backs each file up once.
+  - The hook (`crossthreads hook <tool>`) prints nothing, waits at most 400 ms,
+    and exits 0 whatever happens, including with no daemon running. It takes a
+    few milliseconds per event.
+  - Without hooks, a session whose transcript was written in the last 45
+    seconds is shown as running and labelled *inferred*. Inference cannot see
+    a permission prompt.
+  - State is held in memory only. A hook that said "running" and then went
+    quiet for 20 minutes is presumed idle; entries are dropped after 12 hours.
+- **The board spans your devices.** With cross-device search set up, the thread
+  list is fanned out to approved peers and merged by recency. Because
+  repository keys are machine-independent, work on the same repository groups
+  together whichever machine it is on. Each remote thread carries a device
+  chip, opens read-only, and its sessions' transcripts open through the same
+  token-gated path search uses. A device that doesn't answer is named in a
+  banner rather than silently missing. Serve-scope applies: a thread with any
+  session outside it is not served.
+- Daemon ops `hook_event`, `peer_threads`, `peer_thread`; `threads` takes
+  `devices` and returns `unreachable`; `thread` takes `device`. CLI
+  `crossthreads threads --remote` asks the daemon (live state + other devices).
+
+### Changed
+- `serde_json` now preserves key order workspace-wide, so rewriting a user's
+  settings file never reorders it. JSON output keys now appear in declaration
+  order rather than alphabetically.
+
+### Not yet (see the spec)
+- Opening the board from a phone: the HTTP bridge is still loopback-only and
+  unauthenticated, and needs its own security work first.
+- Codex reports only "working" and "turn ended"; its permission prompts are not
+  visible to hooks we could verify.
+- The same piece of work on two machines is two threads under one repository;
+  linking them needs thread metadata exchange (ADR-011).
+- The hooks were exercised with simulated payloads, not a live Claude Code or
+  Codex session.
+
 ## [0.16.0] - 2026-11-15
 
 ### Added
