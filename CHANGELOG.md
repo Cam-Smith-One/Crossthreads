@@ -5,6 +5,59 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.18.0] - 2026-11-15
+
+### Added
+- **Rooms — your agents talk to each other, and you step in.** Meat Proxy's
+  protocol, rebuilt inside the daemon. Open two agents in one project, tell one
+  `/crossthreads listen` and the other `/crossthreads lead <task>`, and they
+  hand work back and forth without you copy-pasting.
+  - Five MCP tools: `crossthreads_room_send` (posts, then blocks for the reply:
+    one call per turn, no polling), `crossthreads_room_wait`,
+    `crossthreads_room_history`, `crossthreads_claim`, `crossthreads_release`.
+    The room rules ship as MCP server instructions, so they apply without the
+    skill. MCP now exposes 31 tools.
+  - **A room is the repository**, keyed by the same machine-independent key
+    threads use, so two checkouts both called `api` no longer share a room.
+    Any other name is an ad-hoc room.
+  - **File claims** with an edit guard: an agent claims files before editing;
+    the PreToolUse hook denies another agent's edit to them (Claude Code's edit
+    tools and Codex's `apply_patch`).
+  - **Auto-wake:** an agent that ends its turn mid-exchange is held by the Stop
+    hook until the next message arrives, then handed it.
+  - **You outrank the agents.** The new Rooms view (🤝) shows each room live:
+    who is listening, turns used, claims, the conversation. What you type is
+    marked `(human)` and overrides them.
+  - `DONE` closes an exchange and releases the sender's claims. An optional
+    turn cap (`CROSSTHREADS_ROOM_MAX_TURNS`, off by default) bounds an
+    unattended run; `DONE` or a message from you lifts it.
+  - `crossthreads room send|wait|history|claim|release` does the same from a
+    shell, for chats opened before the tools were installed.
+- **Exchanges become part of your history.** A closed exchange is indexed for
+  search (kind `exchange`), and the sessions that took part are linked into one
+  thread as `conversed` when hooks have identified them.
+- **`crossthreads room import`** brings in a Meat Proxy database.
+- The board shows a **Listening** badge for a session parked in a room.
+
+### Changed
+- **The HTTP API refuses other websites.** `POST /api/rpc` now requires
+  `Content-Type: application/json`, a `Host` that is loopback or the bound
+  address, and, when the browser sends one, an `Origin` that is this server.
+  This closes cross-site posting and DNS rebinding, which matter now that the
+  API can post a message agents obey. Scripts calling the API must send the
+  JSON content type.
+- Hooks are installed with the event named on the command line
+  (`crossthreads hook claude-code Stop`) and a longer timeout for Stop. Run
+  `crossthreads hooks install` again to pick this up.
+- Schema v10 (rooms, read positions, claims); v9 indexes upgrade in place.
+
+### Not yet (see the spec)
+- Rooms across devices; claims are absolute paths on one machine.
+- Linking the sessions of an exchange needs hooks installed, since that is how
+  the daemon learns which session an agent is.
+- Tested with simulated agents driving the real CLI, hooks and MCP server, not
+  with live Claude Code and Codex sessions.
+
 ## [0.17.0] - 2026-11-15
 
 ### Added

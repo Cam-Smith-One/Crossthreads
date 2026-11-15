@@ -117,7 +117,14 @@ fn run() -> Result<()> {
     let read_pool = std::thread::available_parallelism()
         .map(|n| n.get().clamp(2, 8))
         .unwrap_or(4);
-    let mut daemon = Daemon::new(store, embedder).with_read_pool(&db_path, read_pool);
+    // Optional ceiling on agent messages per room exchange (off by default).
+    let turn_cap = std::env::var("CROSSTHREADS_ROOM_MAX_TURNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let mut daemon = Daemon::new(store, embedder)
+        .with_read_pool(&db_path, read_pool)
+        .with_room_turn_cap(turn_cap);
 
     // Federation is always available so the Settings → Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is

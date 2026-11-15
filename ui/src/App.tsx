@@ -53,6 +53,7 @@ import {
   type StoredConversation,
 } from "./api";
 import { Board } from "./Board";
+import { Rooms } from "./Rooms";
 import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
@@ -787,6 +788,7 @@ export function App() {
           >
             🧭
           </button>
+          <Rooms onError={reportError} />
           <button
             className="settings-toggle"
             onClick={() => setShowAsk(true)}

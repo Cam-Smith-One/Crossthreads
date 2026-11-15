@@ -50,6 +50,14 @@ function when(ts?: string | null): string {
 
 /** A pill for a state worth interrupting for; nothing for idle or ended. */
 function LiveBadge({ live }: { live?: Live | null }) {
+  if (live?.state === "listening") {
+    return (
+      <span className="board-live board-live-listening" title="Waiting in a room for another agent">
+        <span className="board-live-dot" aria-hidden="true" />
+        Listening
+      </span>
+    );
+  }
   if (!live || (live.state !== "needs_you" && live.state !== "running")) return null;
   const needs = live.state === "needs_you";
   return (

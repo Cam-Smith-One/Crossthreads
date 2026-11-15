@@ -23,6 +23,7 @@ mod llm_auth;
 mod metrics;
 mod optimize;
 mod resume;
+mod room;
 mod schedule;
 mod search;
 mod skill;
@@ -51,6 +52,9 @@ COMMANDS:
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
                       sidecar provides it), fluency, focus (--json)
+    room <CMD>        Talk to other agents in this project's room: history |
+                      send | wait | claim | release (the MCP room tools, from
+                      a shell), or `room import` a Meat Proxy database
     hooks <CMD>       install | uninstall | status the hooks that report live
                       session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
@@ -120,6 +124,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("thread") => threads::run_thread(&args[1..]),
         Some("resume") => resume::run(&args[1..]),
         Some("glance") => glance::run(&args[1..]),
+        Some("room") => room::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.
         Some("hook") => Ok(hooks::run_hook(&args[1..])),

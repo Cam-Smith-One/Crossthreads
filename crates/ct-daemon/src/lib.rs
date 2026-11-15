@@ -26,6 +26,7 @@ pub mod live;
 pub mod optimize;
 pub mod protocol;
 pub mod resume;
+pub mod rooms;
 pub mod schedule;
 pub mod weekly;
 pub use ct_store::{
@@ -55,6 +56,10 @@ pub struct Daemon {
     federation: Option<Arc<Federation>>,
     /// What each session is doing right now, as reported by tool hooks.
     live: Arc<live::LiveRegistry>,
+    /// Wakes agents waiting in rooms, and tracks who is listening.
+    rooms: Arc<rooms::RoomHub>,
+    /// Agent messages allowed per room exchange; 0 = no cap.
+    room_turn_cap: i64,
 }
 
 impl Daemon {
@@ -68,7 +73,16 @@ impl Daemon {
             embedder: Arc::from(embedder),
             federation: None,
             live: Arc::new(live::LiveRegistry::default()),
+            rooms: Arc::new(rooms::RoomHub::default()),
+            room_turn_cap: 0,
         }
+    }
+
+    /// Cap agent messages per room exchange (0 = no cap). Off by default; a
+    /// ceiling for agents left running unattended.
+    pub fn with_room_turn_cap(mut self, cap: i64) -> Self {
+        self.room_turn_cap = cap.max(0);
+        self
     }
 
     /// Attach `n` read-only connections to the index at `path` (WAL), so searches
@@ -363,6 +377,71 @@ impl Daemon {
                 self.peer_threads(token.as_deref(), &filters)
             }
             Request::PeerThread { token, id } => self.peer_thread(token.as_deref(), &id),
+            Request::RoomSend {
+                me,
+                text,
+                room,
+                to,
+                wait,
+                timeout,
+            } => text_or_err(self.room_send(&me, &text, &room, to.as_deref(), wait, timeout)),
+            Request::RoomWait { me, room, timeout } => {
+                text_or_err(self.room_wait(&me, &room, timeout))
+            }
+            Request::RoomHistory { me, room, limit } => {
+                text_or_err(self.room_history(me.as_deref(), &room, limit))
+            }
+            Request::RoomClaim {
+                me,
+                paths,
+                room,
+                minutes,
+            } => text_or_err(self.room_claim(&me, &paths, &room, minutes)),
+            Request::RoomRelease { me, paths } => {
+                text_or_err(self.room_release(&me, paths.as_deref()))
+            }
+            Request::RoomPost {
+                room,
+                text,
+                to,
+                author,
+            } => self
+                .room_post_human(&room, &text, to.as_deref(), author.as_deref())
+                .map(|id| Response::RoomPosted { id })
+                .unwrap_or_else(err),
+            Request::Rooms => self
+                .room_views()
+                .map(|rooms| Response::Rooms { rooms })
+                .unwrap_or_else(err),
+            Request::RoomMessages { room, after, limit } => {
+                let store = self.read_lock();
+                store
+                    .room_messages_after(&rooms::room_id(&room), after, limit.clamp(1, 500))
+                    .map(|messages| Response::RoomMessages { messages })
+                    .unwrap_or_else(err)
+            }
+            Request::RoomStop {
+                me,
+                room,
+                wait,
+                transcript_path,
+            } => self
+                .room_stop(&me, &room, wait, transcript_path.as_deref())
+                .map(|got| match got {
+                    Some((room, messages)) => Response::RoomStop {
+                        room: Some(room),
+                        messages: Some(messages),
+                    },
+                    None => Response::RoomStop {
+                        room: None,
+                        messages: None,
+                    },
+                })
+                .unwrap_or_else(err),
+            Request::RoomGuard { paths } => self
+                .room_guard(&paths)
+                .map(|claims| Response::RoomGuard { claims })
+                .unwrap_or_else(err),
             Request::HookEvent { event } => Response::Ok {
                 ok: self.live.record(&event, chrono::Utc::now()),
             },
@@ -1405,6 +1484,13 @@ impl Daemon {
     }
 }
 
+fn text_or_err(result: Result<String>) -> Response {
+    match result {
+        Ok(text) => Response::Text { text },
+        Err(e) => err(e),
+    }
+}
+
 fn err(e: anyhow::Error) -> Response {
     Response::Error {
         message: format!("{e:#}"),
@@ -1488,6 +1574,11 @@ pub struct Client {
 impl Client {
     pub fn new(addr: impl Into<String>) -> Self {
         Self { addr: addr.into() }
+    }
+
+    /// The daemon address this client talks to.
+    pub fn addr(&self) -> &str {
+        &self.addr
     }
 
     /// Default client: `CROSSTHREADS_ADDR` or [`DEFAULT_ADDR`].

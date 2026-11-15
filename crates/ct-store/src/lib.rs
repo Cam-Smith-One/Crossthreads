@@ -15,11 +15,13 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 pub mod behavior;
+pub mod rooms;
 mod schema;
 pub mod themes;
 pub mod threads;
 
 pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
+pub use rooms::{Claim, RoomMessage, RoomSummary};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
 pub use threads::{

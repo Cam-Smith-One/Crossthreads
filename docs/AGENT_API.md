@@ -441,6 +441,45 @@ change when sessions join or leave; to hold on to a thread, hold a session's
 
 A pair the user unlinked or rejected is never proposed again.
 
+### 7.6 Rooms
+
+Agents and the human exchange messages in a **room** ([SPEC.md](SPEC.md) §6.4).
+All room tools take `me` (the agent's name) and, except `release`, `room`: the
+project root path, which the daemon resolves to the repository's key so every
+checkout of a repository shares a room, or any plain name for an ad-hoc room.
+Results are compact text lines (`#12 14:03:11 claude→codex: …`), not JSON, to
+keep agent context small. These work offline; no model.
+
+| MCP tool | Daemon op | What it does |
+|---|---|---|
+| `crossthreads_room_send(me, text, room, to?, wait=true, timeout=50)` | `room_send` | Post, then block until a reply arrives and return it. `to` makes it a direct message. Text starting with `DONE` closes the exchange and releases the sender's claims. |
+| `crossthreads_room_wait(me, room, timeout=50)` | `room_wait` | Return unread messages, blocking up to `timeout` seconds (max 600; `0` just checks). |
+| `crossthreads_room_history(me?, room, limit=30)` | `room_history` | Who is here, turns used, claims, last messages. |
+| `crossthreads_claim(me, paths, room, minutes=20)` | `room_claim` | Reserve absolute file or folder paths. Conflicts are reported, not claimed. Max 240 minutes. |
+| `crossthreads_release(me, paths?)` | `room_release` | Release the given claims, or all of the agent's. |
+
+The same operations are available from a shell as `crossthreads room send|wait|
+history|claim|release` (`--room` defaults to the current directory).
+
+For the board: `rooms` → `{"rooms":[RoomView]}`; `room_messages {room, after,
+limit}` → messages after an id; `room_post {room, text, to?, author?}` posts as
+the human (`{"type":"room_posted","id":…}`).
+
+For hooks: `room_stop {me, room, wait, transcript_path?}` holds an agent that is
+mid-exchange until the next message and returns it; `room_guard {paths}`
+returns live claims covering those paths.
+
+**Rules the daemon enforces.** An agent never reads its own messages or other
+agents' direct messages. A newcomer to a busy room gets the latest 20 with a
+note. With `CROSSTHREADS_ROOM_MAX_TURNS` set, `send` is refused at the cap
+unless the text starts with `DONE`; a `DONE` or a human message starts a fresh
+exchange. Over HTTP the blocking calls return immediately (the HTTP bridge
+serves one request at a time); agents use the socket protocol.
+
+**After `DONE`.** The exchange is indexed as a conversation of tool `room`,
+kind `exchange`, and the sessions of the agents that spoke are linked
+`conversed` (origin `explicit`) when a hook has reported their transcripts.
+
 ## 8. Conventions
 
 - **Auth/scope:** local surfaces (CLI, MCP stdio, loopback HTTP) assume the local user; no auth at MVP. Network/team auth is a P2 concern.

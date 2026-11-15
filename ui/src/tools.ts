@@ -11,6 +11,7 @@ const TOOL_META: Record<string, { label: string; icon: string }> = {
   "gemini-cli": { label: "Gemini CLI", icon: "✶" },
   windsurf: { label: "Windsurf", icon: "🌊" },
   antigravity: { label: "Antigravity", icon: "🛰️" },
+  room: { label: "Rooms", icon: "🤝" },
 };
 
 export function toolLabel(slug: string): string {

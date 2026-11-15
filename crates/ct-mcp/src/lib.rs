@@ -116,7 +116,10 @@ impl Server {
         json!({
             "protocolVersion": version,
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION }
+            "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
+            // The room protocol travels with the server, so agents follow it
+            // even without the skill installed.
+            "instructions": ct_daemon::rooms::INSTRUCTIONS
         })
     }
 
@@ -390,6 +393,84 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_room_send",
+                    "description": "Post a message to another AI agent in this project's room, \
+                        then block until the reply arrives and return it. The main room tool: \
+                        one call per turn. Use to brief, hand off to, or answer another agent \
+                        (Claude, Codex, ...) without the user copy-pasting. Start the text with \
+                        DONE to close the exchange.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name, e.g. claude or codex." },
+                            "text": { "type": "string", "description": "The message. Short: what you did, what you need, what's next." },
+                            "room": { "type": "string", "description": "Your project root path (git rev-parse --show-toplevel), or a room name." },
+                            "to": { "type": "string", "description": "Recipient name; omit to broadcast." },
+                            "wait": { "type": "boolean", "description": "Block for the reply (default true)." },
+                            "timeout": { "type": "integer", "description": "Seconds to wait for a reply (default 50)." }
+                        },
+                        "required": ["me", "text", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_room_wait",
+                    "description": "Return your unread room messages, blocking up to `timeout` \
+                        seconds until one arrives. Use to listen for another agent's instructions. \
+                        Don't call it straight after crossthreads_room_send, which already waits.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "timeout": { "type": "integer", "description": "Seconds to wait (default 50, max 600; 0 = just check)." }
+                        },
+                        "required": ["me", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_room_history",
+                    "description": "Catch up on a room: who is here, turns used, active file \
+                        claims, and the last messages. Call once when you join.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "limit": { "type": "integer", "description": "How many messages (default 30)." }
+                        },
+                        "required": ["room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_claim",
+                    "description": "Reserve files or folders (absolute paths) before editing them, \
+                        so another agent doesn't edit them at the same time. Paths someone else \
+                        holds are reported as conflicts and not claimed. Claim again to extend. \
+                        Claims expire, and are released when you send DONE.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "paths": { "type": "array", "items": { "type": "string" }, "description": "Absolute file or folder paths." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "minutes": { "type": "integer", "description": "How long to hold them (default 20, max 240)." }
+                        },
+                        "required": ["me", "paths", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_release",
+                    "description": "Release your file claims on `paths`, or all of them if omitted.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "paths": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths to release; omit for all." }
+                        },
+                        "required": ["me"]
+                    }
+                },
+                {
                     "name": "crossthreads_activity",
                     "description": "Report the user's session activity over time, bucketed by day \
                         or week, with a per-tool breakdown. Use to see when and with which tools \
@@ -568,6 +649,11 @@ impl Server {
             "crossthreads_ask" => Ok(self.call_ask(&args)),
             "crossthreads_threads" => Ok(self.call_threads(&args)),
             "crossthreads_thread" => Ok(self.call_thread(&args)),
+            "crossthreads_room_send"
+            | "crossthreads_room_wait"
+            | "crossthreads_room_history"
+            | "crossthreads_claim"
+            | "crossthreads_release" => Ok(self.call_room(name, &args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
             "crossthreads_graph" => Ok(self.call_graph(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
@@ -925,6 +1011,37 @@ impl Server {
             Ok(Response::Error { message }) => tool_error(message),
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("thread failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    /// The room tools: hand the arguments to the daemon and return its text.
+    /// `send` and `wait` block by design, so the daemon gets that long to answer.
+    fn call_room(&self, name: &str, args: &Value) -> Value {
+        let op = match name {
+            "crossthreads_room_send" => "room_send",
+            "crossthreads_room_wait" => "room_wait",
+            "crossthreads_room_history" => "room_history",
+            "crossthreads_claim" => "room_claim",
+            _ => "room_release",
+        };
+        let mut body = match args {
+            Value::Object(map) => map.clone(),
+            _ => serde_json::Map::new(),
+        };
+        body.insert("op".into(), json!(op));
+        let req: Request = match serde_json::from_value(Value::Object(body)) {
+            Ok(req) => req,
+            Err(e) => return tool_error(format!("bad arguments for {name}: {e}")),
+        };
+        let wait = args.get("timeout").and_then(|t| t.as_u64()).unwrap_or(50);
+        match self
+            .client
+            .call_timeout(&req, std::time::Duration::from_secs(wait.min(600) + 15))
+        {
+            Ok(Response::Text { text }) => tool_text(text),
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("{name} failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

@@ -93,6 +93,90 @@ fn initialize_advertises_server_and_tools() {
     assert!(names.contains(&"crossthreads_status"));
     assert!(names.contains(&"crossthreads_threads"));
     assert!(names.contains(&"crossthreads_thread"));
+    for tool in [
+        "crossthreads_room_send",
+        "crossthreads_room_wait",
+        "crossthreads_room_history",
+        "crossthreads_claim",
+        "crossthreads_release",
+    ] {
+        assert!(names.contains(&tool), "{tool}");
+    }
+    // The room rules travel with the server.
+    assert!(init["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("One call per turn"));
+}
+
+#[test]
+fn room_tools_carry_a_conversation_between_two_agents() {
+    let s = std::sync::Arc::new(server_with_daemon());
+    let call = |s: &Server, name: &str, args: serde_json::Value| -> String {
+        let resp = s
+            .handle(&json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
+                "params":{"name":name,"arguments":args}}))
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false, "{resp}");
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    let listener = {
+        let s = s.clone();
+        thread::spawn(move || {
+            let got = call(
+                &s,
+                "crossthreads_room_wait",
+                json!({"me":"codex","room":"demo","timeout":10}),
+            );
+            assert!(
+                got.contains("claude→codex: please add the retry test"),
+                "{got}"
+            );
+            call(
+                &s,
+                "crossthreads_room_send",
+                json!({"me":"codex","room":"demo","to":"claude","text":"test added","wait":false}),
+            )
+        })
+    };
+    let reply = call(
+        &s,
+        "crossthreads_room_send",
+        json!({"me":"claude","room":"demo","to":"codex","text":"please add the retry test","timeout":10}),
+    );
+    listener.join().unwrap();
+    assert!(reply.contains("codex→claude: test added"), "{reply}");
+
+    let claimed = call(
+        &s,
+        "crossthreads_claim",
+        json!({"me":"codex","room":"demo","paths":["/tmp/ct-demo/src"]}),
+    );
+    assert!(claimed.starts_with("Claimed until"), "{claimed}");
+    let history = call(
+        &s,
+        "crossthreads_room_history",
+        json!({"me":"claude","room":"demo"}),
+    );
+    assert!(
+        history.contains("/tmp/ct-demo/src (codex until"),
+        "{history}"
+    );
+    assert_eq!(
+        call(&s, "crossthreads_release", json!({"me":"codex"})),
+        "Released 1 claim(s)."
+    );
+
+    // A missing required argument is a tool error, not a crash.
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
+            "params":{"name":"crossthreads_room_send","arguments":{"room":"demo"}}}))
+        .unwrap();
+    assert_eq!(resp["result"]["isError"], true);
 }
 
 #[test]

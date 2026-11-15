@@ -25,7 +25,7 @@
 
 Crossthreads is a **local-first session indexer, memory layer, and analytics engine** for AI coding agents. It searches across **Claude Code, Codex, Cursor, Aider, Cline, GitHub Copilot Chat, Gemini CLI, Windsurf, and Antigravity** — auto-discovering each tool's conversation history wherever it lives, normalizing everything into one schema, and giving you **fast hybrid search** (keyword + semantic) over the whole corpus. Then it makes every result *actionable*: open the original, copy a resume command, or build a paste-ready context block for a fresh agent.
 
-But it goes well past search. On top of the same index it builds a layer of **understanding**: ask a question and get a **cited answer** from your own history; synthesize **insights** (open loops, decisions, knowledge cards, recurring patterns); and — uniquely — analyze *how you actually work* from the full width of your data (turns, rework, delegation, languages, tempo) into a quantified **Work DNA** profile, **gaps**, **prompt coaching**, mined **repeatable skills**, and a **proactive weekly review**. A background daemon keeps the index live, an MCP server exposes all of it to your agents (**26 tools**), and **cross-device search** lets one query span your *other* machines too — federated over your own Tailscale network, with no central server.
+But it goes well past search. On top of the same index it builds a layer of **understanding**: ask a question and get a **cited answer** from your own history; synthesize **insights** (open loops, decisions, knowledge cards, recurring patterns); and — uniquely — analyze *how you actually work* from the full width of your data (turns, rework, delegation, languages, tempo) into a quantified **Work DNA** profile, **gaps**, **prompt coaching**, mined **repeatable skills**, and a **proactive weekly review**. A background daemon keeps the index live, an MCP server exposes all of it to your agents (**31 tools**), and **cross-device search** lets one query span your *other* machines too — federated over your own Tailscale network, with no central server.
 
 > **Where's the thread where we fixed the OAuth refresh retry?** — one query, every tool, instant answer.
 >
@@ -94,7 +94,8 @@ crossthreads context "oauth refresh retry" > prior-context.md   # paste-ready bl
 crossthreads status                                              # index health
 crossthreads threads                                             # your work as threads, grouped by repository
 crossthreads thread <ID>                                         # one thread: every session that touched it
-crossthreads hooks install                                       # let the board show which sessions are running / need you
+crossthreads hooks install                                       # live state on the board, plus room auto-wake and the claim guard
+crossthreads room history --me claude                            # the room tools from a shell (send | wait | claim | release)
 crossthreads threads --remote                                    # ask the daemon: live state + your other devices
 crossthreads themes --k 8                                        # cluster your work into themes
 crossthreads themes --name                                       # …and name them with your local model login
@@ -122,6 +123,7 @@ crossthreads llm-auth                                            # which model c
 |---|---|
 | 🔎 **Hybrid search** | FTS5 keyword (BM25) **+** semantic embeddings fused with Reciprocal Rank Fusion — finds threads by meaning, not just keywords. |
 | 🧵 **Threads & the board** | The home screen is your work as **threads**: one entry per piece of work, linking every session that touched it across tools (a Claude Code session continued in Codex is one thread). Grouped by repository — the same on every machine and worktree — with status (active / parked / done), rename, merge and split. A transcript transfer or resume is **linked automatically**; a session started in another tool around the same time is **suggested**, never assumed. With `crossthreads hooks install` the board also shows which sessions are **running** and pins the ones that **need you**; with cross-device search set up it lists your other machines' threads too. Web app, `crossthreads threads`, and MCP. Offline; no model. |
+| 🤝 **Rooms** | Stop being the copy-paste layer between your agents. Two agents in one project hand work to each other directly — brief, implement, review, done — through a room keyed to the repository. `send` blocks for the reply (no polling), **file claims** stop them clobbering each other, a hook **wakes** an agent that stopped mid-task, and you watch and step in from the Rooms view (🤝). Closed exchanges are searchable and link the sessions into one thread. Works with Claude Code, Codex, or two of the same. |
 | 🧩 **9 tools, one index** | Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf, Antigravity — auto-detected, deduped by content hash. |
 | 🖥️ **Cross-device search** | Search the history on your *other* machines too — federated over your private Tailscale tunnel, results tagged by device, local-first. [Set up →](docs/MULTI_DEVICE_SETUP.md) |
 | 🗺️ **Theme map** | Clusters your sessions by topic so you can see what you've been working on across tools — in the web app (🗺️) and as `crossthreads themes`. Offline; "✨ Name with AI" labels clusters using your model login. |
@@ -135,7 +137,7 @@ crossthreads llm-auth                                            # which model c
 | 🧠 **Skills & prompts too** | Searches reusable Claude `SKILL.md` and Codex prompts alongside conversations (`kind` filter). |
 | 📌 **Bookmarks & pins** | Durable, kept in a separate store keyed by a stable session id — they survive re-indexing *and* a conversation growing. |
 | 🔗 **Actionable results** | Open the original file in your file manager, copy a `claude --resume` / `codex resume` command, or build a context block to inject into a new agent. |
-| 🤖 **Agent-native (MCP)** | **26 tools** over MCP — search/recall/ask/build_context plus the whole insights & analytics suite — so your history *and* your working profile become an agent's memory. |
+| 🤖 **Agent-native (MCP)** | **31 tools** over MCP — search/recall/ask/build_context plus the whole insights & analytics suite — so your history *and* your working profile become an agent's memory. |
 | 🛰️ **Live & automatic** | A background daemon watches your tools' storage and re-indexes new sessions as they land. |
 | 🌗 **Polished web UI** | Fast React UI with light/dark themes, filters, keyboard nav, and a full transcript viewer. |
 | 🔒 **Local-first** | No telemetry, no account, nothing leaves your machine. One SQLite file you can back up or delete. |
@@ -209,7 +211,7 @@ All modes support **filters**: tool, `kind` (thread/skill), project substring, a
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets twenty-six tools:
+Point any MCP client at the `ct-mcp` binary and your agent gets thirty-one tools:
 
 | Tool | Purpose |
 |---|---|
@@ -222,6 +224,10 @@ Point any MCP client at the `ct-mcp` binary and your agent gets twenty-six tools
 | `crossthreads_themes` | cluster the user's sessions into themes (`name` for AI labels) |
 | `crossthreads_threads` | the user's threads: pieces of work, each one or more sessions linked across tools |
 | `crossthreads_thread` | one thread in full: every session that touched the work, in time order |
+| `crossthreads_room_send` | message another agent in this project's room and wait for the reply |
+| `crossthreads_room_wait` | listen for the next room message |
+| `crossthreads_room_history` | who is in the room, claims, and recent messages |
+| `crossthreads_claim` / `crossthreads_release` | reserve files before editing them, and let them go |
 | `crossthreads_activity` | session activity over time (day/week), with a per-tool breakdown |
 | `crossthreads_graph` | a knowledge graph of projects, tools, and tags with co-occurrence edges |
 | `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, delegation, languages, tempo) |
@@ -320,7 +326,7 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (26 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (31 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring / digest), theme map, temporal view, knowledge graph, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification
@@ -328,7 +334,8 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 - ✅ **Live quota via a documented sidecar** — the glance renders a real rate-limit window whenever an on-device reader writes `~/.crossthreads/quota/<tool>.json`; Crossthreads never scrapes provider internals
 - ✅ **Threads & the board** — one identity per piece of work across tools, machine-independent repository keys, automatic and suggested links, and the board as the web app's home screen (first milestone of [docs/SPEC.md](docs/SPEC.md))
 - ✅ **Live state & the cross-device board** — `crossthreads hooks install` makes Claude Code and Codex report what each session is doing, so the board shows what is running and pins what needs you; with cross-device search set up, the board lists threads from your other machines too
-- ⏳ Next from the spec: the board on a phone, agent-to-agent rooms, workspaces, dispatch
+- ✅ **Rooms** — agent-to-agent messaging with file claims, auto-wake and a live view you can type into; replaces the standalone Meat Proxy tool
+- ⏳ Next from the spec: the board on a phone, workspaces, dispatch, rooms across devices
 - ⏳ A bundled on-device quota reader (populates that sidecar from provider response headers); richer cross-tool deeplinks
 - 🔭 `sqlite-vec` ANN for very large corpora, offline cross-device access (index replication) + team sharing, community connector plugins
 

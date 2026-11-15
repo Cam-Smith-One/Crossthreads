@@ -268,6 +268,85 @@ pub enum Request {
         token: Option<String>,
         id: String,
     },
+    // ---- rooms (SPEC §6.4) ------------------------------------------------
+    /// Post a message to a room and, unless `wait` is false, block until a
+    /// reply arrives (up to `timeout` seconds). Answers `Text`.
+    RoomSend {
+        me: String,
+        text: String,
+        #[serde(default)]
+        room: String,
+        #[serde(default)]
+        to: Option<String>,
+        #[serde(default = "default_true")]
+        wait: bool,
+        #[serde(default = "default_room_wait")]
+        timeout: u64,
+    },
+    /// Return an agent's unread messages, blocking up to `timeout` seconds.
+    RoomWait {
+        me: String,
+        #[serde(default)]
+        room: String,
+        #[serde(default = "default_room_wait")]
+        timeout: u64,
+    },
+    /// Who is in a room, turns used, claims, and the last `limit` messages.
+    RoomHistory {
+        #[serde(default)]
+        me: Option<String>,
+        #[serde(default)]
+        room: String,
+        #[serde(default = "default_room_history")]
+        limit: usize,
+    },
+    /// Reserve files or folders (absolute paths) for `minutes`.
+    RoomClaim {
+        me: String,
+        paths: Vec<String>,
+        #[serde(default)]
+        room: String,
+        #[serde(default = "default_claim_minutes")]
+        minutes: i64,
+    },
+    /// Release an agent's claims on `paths`, or all of them.
+    RoomRelease {
+        me: String,
+        #[serde(default)]
+        paths: Option<Vec<String>>,
+    },
+    /// A message from the human, typed into the board.
+    RoomPost {
+        room: String,
+        text: String,
+        #[serde(default)]
+        to: Option<String>,
+        #[serde(default)]
+        author: Option<String>,
+    },
+    /// Every room with its agents, turns and claims, for the board.
+    Rooms,
+    /// Messages in a room after id `after`, oldest first, for the board.
+    RoomMessages {
+        room: String,
+        #[serde(default)]
+        after: i64,
+        #[serde(default = "default_room_history")]
+        limit: usize,
+    },
+    /// From the Stop hook: if this agent is mid-exchange, hold it up to `wait`
+    /// seconds for the next message and hand it back.
+    RoomStop {
+        me: String,
+        #[serde(default)]
+        room: String,
+        #[serde(default)]
+        wait: u64,
+        #[serde(default)]
+        transcript_path: Option<String>,
+    },
+    /// From the PreToolUse hook: the live claims covering any of `paths`.
+    RoomGuard { paths: Vec<String> },
     /// A session event from a tool's hook (`crossthreads hook …`), used to
     /// track what each session is doing right now (SPEC §6.2).
     HookEvent {
@@ -319,6 +398,18 @@ pub struct DiscoveredDevice {
     pub already_approved: bool,
 }
 
+fn default_true() -> bool {
+    true
+}
+fn default_room_wait() -> u64 {
+    crate::rooms::DEFAULT_WAIT
+}
+fn default_room_history() -> usize {
+    30
+}
+fn default_claim_minutes() -> i64 {
+    20
+}
 fn default_mode() -> Mode {
     Mode::Hybrid
 }
@@ -480,6 +571,31 @@ pub enum Response {
     /// The thread a link or edit landed in, or `None` if nothing matched.
     ThreadId {
         id: Option<String>,
+    },
+    /// A plain-text result for an agent (room tools).
+    Text {
+        text: String,
+    },
+    /// Every room, for the board.
+    Rooms {
+        rooms: Vec<crate::rooms::RoomView>,
+    },
+    RoomMessages {
+        messages: Vec<ct_store::RoomMessage>,
+    },
+    /// The id of a message the human posted.
+    RoomPosted {
+        id: i64,
+    },
+    /// Messages for an agent that was about to stop, or `None` to let it stop.
+    RoomStop {
+        /// The room's display name.
+        room: Option<String>,
+        messages: Option<String>,
+    },
+    /// Claims that cover the paths an agent is about to edit.
+    RoomGuard {
+        claims: Vec<ct_store::Claim>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

@@ -586,7 +586,7 @@ export type ThreadStatus = "active" | "parked" | "done";
 /** What a session is doing right now. `inferred` = guessed from the transcript
  * file rather than reported by a hook, so it can't tell "needs you" from idle. */
 export interface Live {
-  state: "running" | "needs_you" | "idle" | "ended";
+  state: "running" | "needs_you" | "listening" | "idle" | "ended";
   inferred: boolean;
   since?: string | null;
 }
@@ -699,5 +699,78 @@ export async function setThread(
   change: { title?: string; status?: ThreadStatus },
 ): Promise<string | null> {
   const data = await rpc<{ id: string | null }>({ op: "set_thread", id, ...change });
+  return data.id;
+}
+
+// --- Rooms (agents and you, talking in one place) -------------------------
+
+export interface RoomAgent {
+  name: string;
+  /** Epoch seconds of its last call. */
+  seen: number;
+  /** Blocked waiting for a message right now. */
+  listening: boolean;
+}
+
+export interface RoomClaim {
+  path: string;
+  holder: string;
+  room: string;
+  /** Epoch seconds. */
+  expires: number;
+}
+
+export interface RoomView {
+  /** Room id: a repository key, or a plain name. */
+  room: string;
+  /** Short display name. */
+  label: string;
+  messages: number;
+  /** Agent messages in the current exchange. */
+  turns: number;
+  /** Turn cap, or 0 for none. */
+  max_turns: number;
+  last_ts: number;
+  agents: RoomAgent[];
+  /** The latest agent message closed the exchange with DONE. */
+  closed: boolean;
+  claims: RoomClaim[];
+}
+
+export interface RoomMessage {
+  id: number;
+  /** Epoch seconds. */
+  ts: number;
+  room: string;
+  author: string;
+  to?: string | null;
+  text: string;
+  human: boolean;
+}
+
+export async function getRooms(): Promise<RoomView[]> {
+  const data = await rpc<{ rooms: RoomView[] }>({ op: "rooms" });
+  return data.rooms ?? [];
+}
+
+/** Messages in a room after id `after`, oldest first. */
+export async function getRoomMessages(room: string, after = 0): Promise<RoomMessage[]> {
+  const data = await rpc<{ messages: RoomMessage[] }>({
+    op: "room_messages",
+    room,
+    after,
+    limit: 300,
+  });
+  return data.messages ?? [];
+}
+
+/** Post as the human. Agents treat these as instructions that override theirs. */
+export async function postToRoom(room: string, text: string, to?: string): Promise<number> {
+  const data = await rpc<{ id: number }>({
+    op: "room_post",
+    room,
+    text,
+    ...(to ? { to } : {}),
+  });
   return data.id;
 }

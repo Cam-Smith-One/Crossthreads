@@ -48,7 +48,7 @@ const OPENING_CHARS: usize = 400_000;
 /// in; the daemon does, from tool hooks or from the transcript file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Live {
-    /// `running` | `needs_you` | `idle` | `ended`.
+    /// `running` | `needs_you` | `listening` | `idle` | `ended`.
     pub state: String,
     /// True when guessed from the transcript file instead of reported by a
     /// hook. An inferred state can't tell "needs you" from "idle".
