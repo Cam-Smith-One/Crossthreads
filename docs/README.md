@@ -9,6 +9,8 @@ End-to-end docs for the project, from product intent down to how the code runs.
   several of your machines so one search spans all of them.
 
 ## Product
+- [SPEC.md](SPEC.md) — the next product spec (draft): threads, board, rooms,
+  workspaces, dispatch. Folds Meat Proxy into Crossthreads.
 - [PRD.md](PRD.md) — vision, users, scope, metrics, GTM, risks, open questions.
 - [REQUIREMENTS.md](REQUIREMENTS.md) — functional & non-functional requirements
   with IDs and acceptance criteria.
