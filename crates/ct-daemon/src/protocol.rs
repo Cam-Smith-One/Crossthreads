@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use ct_store::{Filters, SearchHit, StoredConversation};
+use ct_store::{
+    Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
+};
 
 /// Default loopback address. Override with `CROSSTHREADS_ADDR`.
 pub const DEFAULT_ADDR: &str = "127.0.0.1:47100";
@@ -232,6 +234,36 @@ pub enum Request {
     /// plus the insight read (fluency score, unresolved threads, optimize focus)
     /// for the desktop tray popover. Deterministic; no model.
     Glance,
+    /// List threads: pieces of work, each one or more sessions linked across
+    /// tools (SPEC §6.1). Most recently active first.
+    Threads {
+        #[serde(default)]
+        filters: ThreadFilters,
+    },
+    /// One thread with its sessions, links and pending suggestions. `id` is a
+    /// thread id or the conversation id of any session in it.
+    Thread { id: String },
+    /// Put two sessions (by conversation id) in one thread. Also how a
+    /// suggested link is accepted. `kind` defaults to `manual`.
+    LinkSessions {
+        a: String,
+        b: String,
+        #[serde(default)]
+        kind: Option<String>,
+    },
+    /// Take a session out of its thread, back to a thread of one.
+    UnlinkSession { id: String },
+    /// Dismiss a suggested link between two sessions, for good.
+    RejectLink { a: String, b: String },
+    /// Rename a thread and/or set its status (`active` | `parked` | `done`).
+    /// An empty title restores the derived one.
+    SetThread {
+        id: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
+    },
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -402,6 +434,18 @@ pub enum Response {
     /// The menu-bar glance bundle (usage + insight).
     Glance {
         glance: crate::glance::Glance,
+    },
+    /// Threads, most recently active first.
+    Threads {
+        threads: Vec<ThreadSummary>,
+    },
+    /// One thread in full, or `None` if the id is unknown.
+    Thread {
+        thread: Option<ThreadDetail>,
+    },
+    /// The thread a link or edit landed in, or `None` if nothing matched.
+    ThreadId {
+        id: Option<String>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
     Ok {

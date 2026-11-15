@@ -27,7 +27,9 @@ pub mod protocol;
 pub mod resume;
 pub mod schedule;
 pub mod weekly;
-pub use ct_store::{behavior, Filters, SearchHit, StoredConversation};
+pub use ct_store::{
+    behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
+};
 pub use federation::{Federation, Peer};
 pub use protocol::{DeviceInfo, Mode, Request, Response, DEFAULT_ADDR};
 
@@ -157,6 +159,15 @@ impl Daemon {
                 store.store_embeddings(self.embedder.id(), &rows)?;
             }
             report.embedded += rows.len();
+        }
+
+        // Group the new sessions into threads. A failure here must not fail
+        // the index pass: search still works without it.
+        {
+            let store = self.write_lock();
+            if let Err(e) = ct_index::link_threads(&store) {
+                eprintln!("warn: thread linking failed: {e:#}");
+            }
         }
 
         Ok(report)
@@ -338,6 +349,16 @@ impl Daemon {
             Request::Optimize { force } => self.optimize(force).unwrap_or_else(err),
             Request::Fluency { window_days } => self.fluency(window_days).unwrap_or_else(err),
             Request::Glance => self.glance().unwrap_or_else(err),
+            Request::Threads { filters } => self.threads(&filters).unwrap_or_else(err),
+            Request::Thread { id } => self.thread(&id).unwrap_or_else(err),
+            Request::LinkSessions { a, b, kind } => self
+                .link_sessions(&a, &b, kind.as_deref())
+                .unwrap_or_else(err),
+            Request::UnlinkSession { id } => self.unlink_session(&id).unwrap_or_else(err),
+            Request::RejectLink { a, b } => self.reject_link(&a, &b).unwrap_or_else(err),
+            Request::SetThread { id, title, status } => self
+                .set_thread(&id, title.as_deref(), status.as_deref())
+                .unwrap_or_else(err),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -924,6 +945,50 @@ impl Daemon {
         Ok(Response::Optimize {
             markdown: report.markdown,
             has_active: report.has_active,
+        })
+    }
+
+    // ---- threads (SPEC §6.1) ----------------------------------------------
+
+    fn threads(&self, filters: &ct_store::ThreadFilters) -> Result<Response> {
+        let store = self.read_lock();
+        Ok(Response::Threads {
+            threads: store.threads(filters)?,
+        })
+    }
+
+    fn thread(&self, id: &str) -> Result<Response> {
+        let store = self.read_lock();
+        Ok(Response::Thread {
+            thread: store.thread(id)?,
+        })
+    }
+
+    fn link_sessions(&self, a: &str, b: &str, kind: Option<&str>) -> Result<Response> {
+        let store = self.write_lock();
+        Ok(Response::ThreadId {
+            id: store.link_sessions(a, b, kind.unwrap_or("manual"), "manual")?,
+        })
+    }
+
+    fn unlink_session(&self, id: &str) -> Result<Response> {
+        let store = self.write_lock();
+        Ok(Response::Ok {
+            ok: store.unlink_session(id)?,
+        })
+    }
+
+    fn reject_link(&self, a: &str, b: &str) -> Result<Response> {
+        let store = self.write_lock();
+        Ok(Response::Ok {
+            ok: store.reject_link(a, b)?,
+        })
+    }
+
+    fn set_thread(&self, id: &str, title: Option<&str>, status: Option<&str>) -> Result<Response> {
+        let store = self.write_lock();
+        Ok(Response::ThreadId {
+            id: store.set_thread(id, title, status)?,
         })
     }
 

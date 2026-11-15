@@ -5,6 +5,56 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.16.0] - 2026-11-15
+
+### Added
+- **Threads — one identity for a piece of work across tools.** The first
+  milestone of the new [product spec](docs/SPEC.md). Every session now belongs
+  to a thread; a session nobody has linked is a thread of one. A Claude Code
+  session continued in Codex is one thread with two sessions. Threads have a
+  status (`active` / `parked` / `done`), can be renamed, merged and split, and
+  live in durable tables keyed by `session_key`, so rebuilding the index never
+  loses them (schema v9; v8 indexes upgrade in place).
+- **Repository identity that is the same on every machine.** Sessions get a
+  `repo_key`: the normalised `origin` remote (`github.com/owner/repo`), else the
+  root commit, else the path. Worktrees share their repository's key.
+  Credentials in a remote URL are never kept.
+- **Automatic and suggested links.** After each index pass a deterministic
+  detector (no model) links a session that opens with the tail of an earlier
+  one in the same repository — a transcript transfer or a resume — and
+  *suggests* a session started in another tool around the same time. Unlinking
+  or rejecting is remembered, so a pair is never proposed twice.
+- **The board is the web app's home screen.** Threads grouped by repository,
+  most recently active first, with tool chips, branch, session count and
+  status tabs. Opening a thread shows one timeline of its sessions across
+  tools, with rename, status, remove, merge, and accept/dismiss for
+  suggestions. Search stays at the top; "Back to threads" returns from results.
+  Usable at phone width.
+- **Everywhere else:** daemon ops `threads`, `thread`, `link_sessions`,
+  `unlink_session`, `reject_link`, `set_thread`; CLI `crossthreads threads` and
+  `crossthreads thread …`; MCP tools `crossthreads_threads` and
+  `crossthreads_thread` (MCP now exposes 26 tools).
+- **[docs/SPEC.md](docs/SPEC.md)** — the product spec for threads, the board,
+  rooms, workspaces and dispatch.
+
+### Changed
+- The web app says "sessions" for single conversations, so "thread" can mean
+  the cross-tool unit. The stored `kind = 'thread'` value is unchanged.
+
+### Fixed
+- **Crossthreads no longer indexes its own model calls.** The weekly review,
+  insights and theme naming run the Claude / Codex / Gemini CLI, which records
+  each run as a session; those were being indexed as if they were your work.
+  They now run from a dedicated directory and the indexer skips it. Helper
+  sessions indexed before this release stay until you forget them.
+- A test in `ct-cli` that newer stable Rust rejects under `-D warnings`.
+
+### Not yet (see the spec)
+- Live session state, the board across devices, and phone access over the
+  tailnet. The board shows this device's threads and when each was last active.
+- Detecting a native resume by session id, and using `/codex:transfer` markers
+  directly; both currently rely on copied content.
+
 ## [0.15.0] - 2026-07-12
 
 ### Added

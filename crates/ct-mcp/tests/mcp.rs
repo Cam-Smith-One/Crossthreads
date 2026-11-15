@@ -91,6 +91,51 @@ fn initialize_advertises_server_and_tools() {
     assert!(names.contains(&"crossthreads_recall"));
     assert!(names.contains(&"crossthreads_build_context"));
     assert!(names.contains(&"crossthreads_status"));
+    assert!(names.contains(&"crossthreads_threads"));
+    assert!(names.contains(&"crossthreads_thread"));
+}
+
+#[test]
+fn threads_tools_list_and_open_a_thread() {
+    let s = server_with_daemon();
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":5,"method":"tools/call",
+            "params":{"name":"crossthreads_threads","arguments":{}}}))
+        .unwrap();
+    assert_eq!(resp["result"]["isError"], false);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("1 thread(s)"), "got: {text}");
+    assert!(text.contains("add retry logic with backoff"), "got: {text}");
+
+    // The listed thread id opens the thread and shows its session.
+    let id = text
+        .split_whitespace()
+        .find(|w| w.starts_with("th_"))
+        .unwrap();
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":6,"method":"tools/call",
+            "params":{"name":"crossthreads_thread","arguments":{"id": id}}}))
+        .unwrap();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("claude-code") && text.contains("cv_"),
+        "got: {text}"
+    );
+
+    // An unknown id is a plain answer; a missing argument is a tool error.
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":7,"method":"tools/call",
+            "params":{"name":"crossthreads_thread","arguments":{"id":"th_nope"}}}))
+        .unwrap();
+    assert!(resp["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("No thread or session"));
+    let resp = s
+        .handle(&json!({"jsonrpc":"2.0","id":8,"method":"tools/call",
+            "params":{"name":"crossthreads_thread","arguments":{}}}))
+        .unwrap();
+    assert_eq!(resp["result"]["isError"], true);
 }
 
 #[test]

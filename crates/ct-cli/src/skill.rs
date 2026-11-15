@@ -144,7 +144,7 @@ mod tests {
         std::env::set_var("CLAUDE_CONFIG_DIR", &claude);
         std::env::set_var("CODEX_HOME", &codex);
 
-        run(&["install".into()]).unwrap();
+        let _ = run(&["install".into()]).unwrap();
 
         let skill = claude.join("skills/crossthreads/SKILL.md");
         let prompt = codex.join("prompts/crossthreads.md");

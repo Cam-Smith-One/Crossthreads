@@ -277,6 +277,13 @@ fn codex_cli(system: &str, user: &str) -> Result<String> {
 }
 
 fn run_cli(mut cmd: std::process::Command, name: &str) -> Result<String> {
+    // These CLIs record every run as a session in the directory it ran from.
+    // Run from a dedicated directory so the indexer can tell our own calls
+    // from the user's work and leave them out (`ct_core::is_helper_project`).
+    let scratch = std::env::temp_dir().join(ct_core::HELPER_PROJECT_DIR);
+    if std::fs::create_dir_all(&scratch).is_ok() {
+        cmd.current_dir(&scratch);
+    }
     let out = cmd.output().with_context(|| format!("spawning {name}"))?;
     if !out.status.success() {
         bail!(

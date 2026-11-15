@@ -27,6 +27,7 @@ mod search;
 mod skill;
 mod status;
 mod themes;
+mod threads;
 mod trends;
 mod weekly;
 
@@ -40,6 +41,10 @@ COMMANDS:
     index             Discover, parse, and store local sessions
     search <QUERY>    Search the index (lexical / semantic / hybrid)
     context <QUERY>   Build a paste-ready context block from top matches
+    threads           Your work as threads: sessions linked across tools,
+                      grouped by repository (--status, --tool, --repo, --json)
+    thread <ID>       Show one thread; or `thread link|unlink|reject|rename|
+                      status …` to edit how sessions are grouped
     resume <ID>       How to pick a session back up in its native tool
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
@@ -107,6 +112,8 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("index") => index::run(&args[1..]),
         Some("search") => search::run(&args[1..]),
         Some("context") => context::run(&args[1..]),
+        Some("threads") => threads::run_list(&args[1..]),
+        Some("thread") => threads::run_thread(&args[1..]),
         Some("resume") => resume::run(&args[1..]),
         Some("glance") => glance::run(&args[1..]),
         Some("status") => status::run(&args[1..]),

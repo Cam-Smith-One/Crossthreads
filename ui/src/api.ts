@@ -578,3 +578,106 @@ export function buildContext(
     ...(devices && devices.length ? { devices } : {}),
   });
 }
+
+// --- Threads (pieces of work: sessions linked across tools) ---------------
+
+export type ThreadStatus = "active" | "parked" | "done";
+
+/** One session: a conversation in one tool, as its latest indexed version. */
+export interface SessionRef {
+  conversation_id: string;
+  session_key: string;
+  tool: string;
+  project?: string | null;
+  repo_key?: string | null;
+  title?: string | null;
+  started_at?: string | null;
+  last_activity?: string | null;
+  branch?: string | null;
+  message_count: number;
+}
+
+export interface ThreadSummary {
+  id: string;
+  title: string;
+  status: ThreadStatus;
+  repo_key?: string | null;
+  repo_label?: string | null;
+  tools: string[];
+  branches: string[];
+  session_count: number;
+  message_count: number;
+  first_activity?: string | null;
+  last_activity?: string | null;
+  pending_suggestions: number;
+}
+
+export interface ThreadLink {
+  from: string;
+  to: string;
+  kind: string;
+  /** explicit | detected | manual */
+  origin: string;
+  confidence: number;
+}
+
+/** A link the detector proposed but did not apply. */
+export interface ThreadSuggestion {
+  /** The session in this thread. */
+  with: string;
+  /** The session elsewhere that may belong here. */
+  session: SessionRef;
+  thread_id: string;
+  kind: string;
+  confidence: number;
+}
+
+export interface ThreadDetail extends ThreadSummary {
+  sessions: SessionRef[];
+  links: ThreadLink[];
+  suggestions: ThreadSuggestion[];
+}
+
+export async function getThreads(limit?: number): Promise<ThreadSummary[]> {
+  const data = await rpc<{ threads: ThreadSummary[] }>({
+    op: "threads",
+    filters: limit ? { limit } : {},
+  });
+  return data.threads ?? [];
+}
+
+/** `id` is a thread id or the conversation id of any session in it. */
+export async function getThread(id: string): Promise<ThreadDetail | null> {
+  const data = await rpc<{ thread: ThreadDetail | null }>({ op: "thread", id });
+  return data.thread;
+}
+
+/** Put two sessions in one thread (also accepts a suggestion). */
+export async function linkSessions(a: string, b: string, kind?: string): Promise<string | null> {
+  const data = await rpc<{ id: string | null }>({
+    op: "link_sessions",
+    a,
+    b,
+    ...(kind ? { kind } : {}),
+  });
+  return data.id;
+}
+
+export async function unlinkSession(id: string): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "unlink_session", id });
+  return data.ok;
+}
+
+/** Dismiss a suggested link for good. */
+export async function rejectLink(a: string, b: string): Promise<boolean> {
+  const data = await rpc<{ ok: boolean }>({ op: "reject_link", a, b });
+  return data.ok;
+}
+
+export async function setThread(
+  id: string,
+  change: { title?: string; status?: ThreadStatus },
+): Promise<string | null> {
+  const data = await rpc<{ id: string | null }>({ op: "set_thread", id, ...change });
+  return data.id;
+}
