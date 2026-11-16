@@ -5,7 +5,8 @@ inside the bundle:
 
 ```
 Crossthreads.app/Contents/
-  MacOS/Crossthreads      the app
+  MacOS/ct-desktop        the app (named after its package: a "Crossthreads" binary would
+                          clash with the `crossthreads` CLI, since Mac disks ignore case)
   MacOS/crossthreadsd     the daemon (started by the app if none is running)
   MacOS/crossthreads      the CLI (used for one-click setup and "Open in browser")
   MacOS/ct-mcp            the MCP server, for Claude Code and Codex

@@ -121,7 +121,9 @@ jobs:
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Crossthreads.app"
           ls -la "$app/Contents/MacOS"
-          for b in Crossthreads crossthreadsd crossthreads ct-mcp; do
+          # The app's own program is `ct-desktop` (its package name). Mac disks
+          # ignore case, so "Crossthreads" here would find the `crossthreads` CLI.
+          for b in ct-desktop crossthreadsd crossthreads ct-mcp; do
             lipo -info "$app/Contents/MacOS/$b"
           done
           test -f "$app/Contents/Resources/ui/index.html"
@@ -133,7 +135,7 @@ jobs:
         shell: bash
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Crossthreads.app"
-          "$app/Contents/MacOS/Crossthreads" &
+          "$app/Contents/MacOS/ct-desktop" &
           pid=$!
           ok=0
           for _ in $(seq 1 60); do
