@@ -46,6 +46,28 @@ that describes the product as it is now.
   is set apart in red.
 
 ### Security
+- **A local key.** Every client on the computer (CLI, MCP server, hooks, the
+  menu-bar app) now presents a random key that only your account can read, so
+  another user account on the same machine gets nothing. The web app signs in
+  with a one-time, 60-second link from the new `crossthreads open` (run for you
+  by `crossthreads-up`) and keeps a cookie derived from the key.
+- **The network listener serves only the peer protocol**, on its own socket;
+  local tools always use loopback (this also fixes local tools being unable to
+  reach a daemon bound to the tailnet). Peers now **always** need the shared
+  token, and the daemon refuses to listen on a network without one, on every
+  interface, or to serve the web app beyond loopback.
+- **Stronger tokens.** Shared tokens must be at least 20 varied characters;
+  **generate** in Settings → Devices makes one.
+- **Owner-only files** for the index, the key, `federation.json` and
+  `phone.json`.
+- **Web hardening:** a strict content security policy (the inline theme script
+  moved to a file), no framing, no MIME sniffing, no referrer, no caching of
+  responses; phone requests must carry a same-origin `Origin`.
+- **Limits:** request lines 8 MB, HTTP bodies 2 MB, room messages 32 KB, peer
+  catch-up batches 500 messages. Phones unused for 30 days are signed out.
+- New [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) sets out what's protected,
+  against whom, and how; `crates/ct-daemon/tests/security.rs` tests each
+  boundary.
 - The phone listener binds only the computer's Tailscale address and refuses
   `0.0.0.0`. Pairing codes work once, for 10 minutes, and five wrong guesses
   cancel them all. Each phone gets a random token in an `HttpOnly`,

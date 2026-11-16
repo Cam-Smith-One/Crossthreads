@@ -56,14 +56,18 @@ crossthreads phone          # status and paired phones
 - **Each phone has its own key**, a long random token in an `HttpOnly`,
   `SameSite=Strict` cookie. The computer stores only a hash of it. Remove a phone
   in Settings → Phone (or `crossthreads phone revoke <ID>`) and its key stops
-  working at once.
-- **Other websites can't use it.** Requests must be JSON from the same origin.
+  working at once. A phone unused for **30 days** is signed out and must pair
+  again.
+- **Other websites can't use it.** Requests must be JSON, sent by a browser page
+  from the same origin (an `Origin` header is required).
 - **A fixed list of reading operations.** Everything else is refused, whatever
   the phone sends.
 
 Settings live in `phone.json` in Crossthreads' config folder (readable only by
 you). `CROSSTHREADS_PHONE_ADDR` overrides the address, for example to pick a
 different port; it must be a specific interface.
+
+The whole picture is in the [security model](SECURITY_MODEL.md).
 
 ## Troubleshooting
 

@@ -237,6 +237,25 @@ machine.
 
 ---
 
+## Signing in and "unauthorized"
+
+### The browser shows "Open Crossthreads from your computer"
+The web app is private to your account. Run `crossthreads open` on this computer
+to sign the browser in (`crossthreads-up` does it for you). A link works once,
+for 60 seconds; run it again for a new one.
+
+### `unauthorized: present the local key first`
+The command ran as a different user account than the daemon, or the daemon
+wrote its key somewhere else (`CROSSTHREADS_LOCAL_KEY_FILE`). Run Crossthreads
+and its commands as the same account. The message names the key file.
+
+### The daemon won't start: "refusing to listen on … without a shared token"
+You asked it to listen on a network address (`--addr` or `CT_ADDR`) without a
+shared token. Set one in **Settings → Devices** (use **generate**), or use a
+loopback address.
+
+---
+
 ## Phone
 
 ### Settings → Phone says Tailscale isn't connected

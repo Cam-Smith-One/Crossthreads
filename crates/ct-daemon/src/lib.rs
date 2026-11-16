@@ -23,6 +23,7 @@ pub mod glance;
 mod http;
 pub mod insights;
 pub mod live;
+pub mod local_auth;
 pub mod optimize;
 pub mod phone;
 pub mod protocol;
@@ -73,6 +74,13 @@ pub struct Daemon {
     phone_error: Arc<Mutex<Option<String>>>,
     /// The built web app, served to phones too.
     ui_dir: Option<PathBuf>,
+    /// The local key every client on this machine must present (see
+    /// [`local_auth`]). `None` only in tests and embedded uses.
+    local_key: Option<Arc<String>>,
+    /// One-time sign-in tickets for the local web app.
+    login_tickets: Arc<local_auth::Tickets>,
+    /// Where the local web app is served, for sign-in links.
+    http_addr: Option<String>,
 }
 
 impl Daemon {
@@ -92,7 +100,22 @@ impl Daemon {
             phone_server: Arc::new(Mutex::new(None)),
             phone_error: Arc::new(Mutex::new(None)),
             ui_dir: None,
+            local_key: None,
+            login_tickets: Arc::new(local_auth::Tickets::default()),
+            http_addr: None,
         }
+    }
+
+    /// Require every local client to present `key` (see [`local_auth`]).
+    pub fn with_local_key(mut self, key: String) -> Self {
+        self.local_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Where the local web app is served, for sign-in links.
+    pub fn with_http_addr(mut self, addr: Option<String>) -> Self {
+        self.http_addr = addr;
+        self
     }
 
     /// Use this phone-access state (normally loaded from `phone.json`).
@@ -280,8 +303,20 @@ impl Daemon {
 
     /// Serve requests on an already-bound listener until it closes. Each
     /// connection is handled on its own thread; the store mutex serializes
-    /// access (single-writer invariant holds).
+    /// access (single-writer invariant holds). Bind this to loopback: it serves
+    /// this machine's own clients (who must present the local key, when one is
+    /// set) and, from other machines, only the token-checked peer protocol.
     pub fn serve(&self, listener: TcpListener) -> Result<()> {
+        self.accept(listener, false)
+    }
+
+    /// Serve only the peer protocol, whoever connects. This is what listens on
+    /// the tailnet address, so nothing else is ever reachable from the network.
+    pub fn serve_peers(&self, listener: TcpListener) -> Result<()> {
+        self.accept(listener, true)
+    }
+
+    fn accept(&self, listener: TcpListener, peers_only: bool) -> Result<()> {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
@@ -290,7 +325,7 @@ impl Daemon {
                     let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
                     let this = self.clone();
                     thread::spawn(move || {
-                        if let Err(e) = this.handle_conn(stream) {
+                        if let Err(e) = this.handle_conn(stream, peers_only) {
                             eprintln!("connection error: {e:#}");
                         }
                     });
@@ -301,23 +336,46 @@ impl Daemon {
         Ok(())
     }
 
-    fn handle_conn(&self, stream: TcpStream) -> Result<()> {
+    fn handle_conn(&self, stream: TcpStream, peers_only: bool) -> Result<()> {
         let peer = stream.peer_addr().ok();
         // Another machine (a federation peer on the tailnet) may only use the
         // peer protocol, which checks the shared token. Everything else, from
         // settings to pairing a phone, is for this machine's own clients.
-        let from_elsewhere = from_another_machine(peer, stream.local_addr().ok());
-        let reader = BufReader::new(stream.try_clone()?);
+        let peers_only = peers_only || from_another_machine(peer, stream.local_addr().ok());
+        // A local client must show the local key before anything but the peer
+        // protocol (which carries its own token) and `ping`.
+        let mut signed_in = self.local_key.is_none();
+        let mut reader = BufReader::new(stream.try_clone()?);
         let mut writer = stream;
-        for line in reader.lines() {
-            let line = line?;
+        loop {
+            let Some(line) = read_bounded_line(&mut reader)? else {
+                break;
+            };
             if line.trim().is_empty() {
                 continue;
             }
             let response = match serde_json::from_str::<Request>(&line) {
-                Ok(req) if from_elsewhere && !req.is_peer_request() => Response::Error {
+                Ok(req) if peers_only && !req.is_peer_request() => Response::Error {
                     message: "only the peer protocol is served to other machines".into(),
                 },
+                Ok(Request::Hello { key }) => match &self.local_key {
+                    Some(k) if local_auth::same(&key, k) => {
+                        signed_in = true;
+                        Response::Ok { ok: true }
+                    }
+                    Some(_) => Response::Error {
+                        message: "wrong local key".into(),
+                    },
+                    None => Response::Ok { ok: true },
+                },
+                Ok(req) if !signed_in && !req.is_peer_request() => Response::Error {
+                    message: format!(
+                        "unauthorized: present the local key first (it is in {}, readable \
+                         only by the account that runs Crossthreads)",
+                        local_auth::key_path().display()
+                    ),
+                },
+                Ok(Request::LoginTicket) => self.login_ticket(),
                 Ok(req) => self.handle(req),
                 Err(e) => Response::Error {
                     message: format!("bad request: {e}"),
@@ -360,6 +418,11 @@ impl Daemon {
             Request::ApprovePeer { name, addr } => self.approve_peer(name, addr),
             Request::RemovePeer { name } => self.remove_peer(&name),
             Request::SetPeerRooms { name, rooms } => self.set_peer_rooms(&name, rooms),
+            // Both belong to a connection to the daemon itself (`handle_conn`),
+            // never to the web bridge or a phone.
+            Request::Hello { .. } | Request::LoginTicket => Response::Error {
+                message: "only available over the local protocol".into(),
+            },
             Request::Session => Response::Session {
                 phone: false,
                 name: None,
@@ -779,19 +842,10 @@ impl Daemon {
         limit: usize,
         f: &Filters,
     ) -> Response {
-        let Some(fed) = &self.federation else {
-            return Response::Error {
-                message: "federation not enabled on this device".into(),
-            };
+        let fed = match self.peer_auth(token) {
+            Ok(fed) => fed,
+            Err(message) => return Response::Error { message },
         };
-        // A configured token must match (compared in constant time).
-        if let Some(expected) = fed.token() {
-            if !token.is_some_and(|t| token_eq(t, &expected)) {
-                return Response::Error {
-                    message: "unauthorized peer (bad or missing token)".into(),
-                };
-            }
-        }
         match self.local_search(query, mode, limit, f) {
             Ok(mut hits) => {
                 // Serve-scope: don't expose excluded tools/projects to peers.
@@ -882,6 +936,21 @@ impl Daemon {
             rooms: false,
         });
         self.devices_list()
+    }
+
+    /// A one-time ticket to sign the local web app in (see [`local_auth`]).
+    /// Only reachable by a client that presented the local key.
+    fn login_ticket(&self) -> Response {
+        let Some(http) = &self.http_addr else {
+            return Response::Error {
+                message: "the web app isn't being served (start the daemon with --http)".into(),
+            };
+        };
+        let ticket = self.login_tickets.issue();
+        Response::LoginTicket {
+            url: format!("http://{http}/login#{ticket}"),
+            ticket,
+        }
     }
 
     /// What's set up on this machine, for the "Get started" checklist.
@@ -1330,10 +1399,12 @@ impl Daemon {
         let Some(fed) = &self.federation else {
             return Err("federation not enabled on this device".into());
         };
-        if let Some(expected) = fed.token() {
-            if !token.is_some_and(|t| token_eq(t, &expected)) {
-                return Err("unauthorized peer (bad or missing token)".into());
-            }
+        // No token, no peers: the network is never trusted on its own.
+        let Some(expected) = fed.token() else {
+            return Err("this device has no shared token set, so it serves no peers".into());
+        };
+        if !token.is_some_and(|t| token_eq(t, &expected)) {
+            return Err("unauthorized peer (bad or missing token)".into());
         }
         Ok(fed)
     }
@@ -1559,18 +1630,10 @@ impl Daemon {
     /// Answer a peer's request for one conversation: token-gated, local fetch,
     /// honouring the serve-scope (an excluded thread isn't served either).
     fn peer_get_conversation(&self, token: Option<&str>, id: &str) -> Response {
-        let Some(fed) = &self.federation else {
-            return Response::Error {
-                message: "federation not enabled on this device".into(),
-            };
+        let fed = match self.peer_auth(token) {
+            Ok(fed) => fed,
+            Err(message) => return Response::Error { message },
         };
-        if let Some(expected) = fed.token() {
-            if !token.is_some_and(|t| token_eq(t, &expected)) {
-                return Response::Error {
-                    message: "unauthorized peer (bad or missing token)".into(),
-                };
-            }
-        }
         let convo = {
             let store = self.read_lock();
             store.get_conversation(id).ok().flatten()
@@ -1620,6 +1683,11 @@ impl Daemon {
                 message: "cross-device search isn't enabled on this device".into(),
             };
         };
+        if let Some(t) = token.as_deref().filter(|t| !t.is_empty()) {
+            if let Err(message) = federation::check_token_strength(t) {
+                return Response::Error { message };
+            }
+        }
         fed.set_config(device, token, exclude_tools, exclude_projects);
         self.federation_config()
     }
@@ -1641,6 +1709,24 @@ impl Daemon {
         fed.add_peer(peer);
         self.devices_list()
     }
+}
+
+/// Longest request line accepted (a request is a few KB; this is generous).
+const MAX_LINE: u64 = 8 * 1024 * 1024;
+
+/// Read one `\n`-terminated line of at most [`MAX_LINE`] bytes. `None` at end
+/// of stream; an error for a longer line, which closes the connection.
+fn read_bounded_line(reader: &mut BufReader<TcpStream>) -> Result<Option<String>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    let n = reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut buf)?;
+    if n == 0 {
+        return Ok(None);
+    }
+    if buf.last() != Some(&b'\n') && n as u64 >= MAX_LINE {
+        anyhow::bail!("request line too long");
+    }
+    Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
 }
 
 /// True unless the caller is on this machine: loopback, or the address the
@@ -1740,11 +1826,19 @@ fn open_in_file_manager(path: &str) -> bool {
 /// A thin client for talking to a running daemon.
 pub struct Client {
     addr: String,
+    /// The daemon is on this machine, so the local key is presented to it
+    /// (read at each call, so a daemon that just started is picked up). The
+    /// key is never sent anywhere else.
+    local: bool,
 }
 
 impl Client {
+    /// A client for `addr`. When `addr` is on this machine, it presents the
+    /// local key (see [`local_auth`]); the key is never sent anywhere else.
     pub fn new(addr: impl Into<String>) -> Self {
-        Self { addr: addr.into() }
+        let addr = addr.into();
+        let local = local_auth::is_loopback(&addr);
+        Self { addr, local }
     }
 
     /// The daemon address this client talks to.
@@ -1782,18 +1876,29 @@ impl Client {
         self.exchange(stream, req)
     }
 
-    /// Write one request line and read one response line on `stream`.
+    /// Write one request line and read one response line on `stream`,
+    /// presenting the local key first when there is one and it's needed.
     fn exchange(&self, stream: TcpStream, req: &Request) -> Result<Response> {
         let mut writer = stream.try_clone()?;
-        let mut bytes = serde_json::to_vec(req)?;
-        bytes.push(b'\n');
-        writer.write_all(&bytes)?;
-        writer.flush()?;
-
         let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        Ok(serde_json::from_str(&line)?)
+        let mut send = |req: &Request| -> Result<Response> {
+            let mut bytes = serde_json::to_vec(req)?;
+            bytes.push(b'\n');
+            writer.write_all(&bytes)?;
+            writer.flush()?;
+            let mut line = String::new();
+            reader.read_line(&mut line)?;
+            Ok(serde_json::from_str(&line)?)
+        };
+        let key = (self.local && !req.is_peer_request())
+            .then(local_auth::read)
+            .flatten();
+        if let Some(key) = key {
+            if let Response::Error { message } = send(&Request::Hello { key })? {
+                anyhow::bail!("the daemon refused this account's local key: {message}");
+            }
+        }
+        send(req)
     }
 
     pub fn search(

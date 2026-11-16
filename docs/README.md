@@ -8,6 +8,8 @@ End-to-end docs for the project, from product intent down to how the code runs.
 - [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md) — connect several of your
   machines: one search, one board, and rooms that span them.
 - [PHONE.md](PHONE.md) — open your board on your phone over Tailscale.
+- [SECURITY_MODEL.md](SECURITY_MODEL.md) — what's protected, against whom, and
+  how each boundary is enforced.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — fixes for common problems.
 
 ## Product

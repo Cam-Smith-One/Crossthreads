@@ -292,6 +292,13 @@ pub enum Request {
         #[serde(default)]
         after: i64,
     },
+    // ---- local key (see `local_auth`) --------------------------------------
+    /// Present this account's local key. A local client sends this first;
+    /// without it only `ping` and the peer protocol answer. Answers `Ok`.
+    Hello { key: String },
+    /// A one-time, 60-second ticket and link to sign the web app in. Answers
+    /// `LoginTicket`.
+    LoginTicket,
     // ---- phone access (SPEC FR-BRD-04) -------------------------------------
     /// Who is asking: a paired phone (with its name and grants) or this
     /// device. Answers `Session`.
@@ -652,6 +659,11 @@ pub enum Response {
         /// The phone may post to rooms.
         #[serde(default)]
         can_post: bool,
+    },
+    /// A sign-in ticket for the local web app, and the link that uses it.
+    LoginTicket {
+        ticket: String,
+        url: String,
     },
     /// What's installed and turned on (see `Request::SetupStatus`).
     Setup {

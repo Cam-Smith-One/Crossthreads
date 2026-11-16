@@ -84,6 +84,26 @@ export class UnpairedError extends Error {
   }
 }
 
+/** This browser hasn't been signed in on this computer yet. */
+export class SignInRequiredError extends Error {
+  constructor() {
+    super("sign in first: run `crossthreads open`");
+  }
+}
+
+/** On this computer: trade a one-time sign-in ticket for a session cookie. */
+export async function redeemSignInTicket(ticket: string): Promise<void> {
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? `sign-in failed (HTTP ${res.status})`);
+  }
+}
+
 /** Who is using the app: this computer, or a paired phone. */
 export interface Session {
   phone: boolean;
@@ -181,6 +201,7 @@ async function rpc<T>(body: unknown): Promise<T> {
       // The phone listener explains a refusal in JSON; keep its words.
       const err = await res.json().catch(() => null);
       if (res.status === 401 && err?.unpaired) throw new UnpairedError();
+      if (res.status === 401 && err?.login) throw new SignInRequiredError();
       if (err?.message) throw new Error(err.message);
       throw new Error(`daemon unreachable (HTTP ${res.status} ${res.statusText})`);
     }

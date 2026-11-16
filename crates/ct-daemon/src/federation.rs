@@ -338,7 +338,7 @@ impl Federation {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if let Err(e) = std::fs::write(path, json) {
+            if let Err(e) = crate::local_auth::write_private(path, &json) {
                 eprintln!(
                     "warn: could not save federation config {}: {e}",
                     path.display()
@@ -346,6 +346,25 @@ impl Federation {
             }
         }
     }
+}
+
+/// Shortest shared token accepted. Anyone on the tailnet who guesses it can
+/// search this device, so it must not be guessable.
+pub const MIN_TOKEN_LEN: usize = 20;
+
+/// Refuse a token that is short or obviously repetitive.
+pub fn check_token_strength(token: &str) -> std::result::Result<(), String> {
+    let distinct = token
+        .chars()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    if token.chars().count() < MIN_TOKEN_LEN || distinct < 8 {
+        return Err(format!(
+            "use a shared token of at least {MIN_TOKEN_LEN} varied characters (Settings → Devices \
+             → Generate makes one)"
+        ));
+    }
+    Ok(())
 }
 
 /// Pairing-code payload: the shared token + the issuing device as a peer.

@@ -18,6 +18,13 @@ Crossthreads, it opens a paired computer's board.
 > Devices**, choose which to search with the device picker, and see each result
 > tagged with its origin. This guide is the full walkthrough.
 
+A **shared token is required**: without one, a device won't listen on the
+network at all. Use **Settings → Devices → generate** for a strong one (at least
+20 varied characters), then join your other devices with this device's pairing
+code. On the network, each daemon serves only the token-checked peer protocol;
+your own tools always talk to it over loopback. Details:
+[SECURITY_MODEL.md](SECURITY_MODEL.md).
+
 Nothing here uploads your history anywhere. Each device keeps its own index;
 searches travel only between *your* devices over *your* encrypted tunnel — no
 server, no account, no telemetry. Another machine can only use the

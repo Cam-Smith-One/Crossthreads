@@ -2071,9 +2071,11 @@ fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
         other => panic!("{other:?}"),
     }
     let json = ("Content-Type", "application/json");
+    let origin_value = format!("http://{addr}");
+    let origin = ("Origin", origin_value.as_str());
     let rpc = |cookie: Option<&str>, body: &str| {
         let c;
-        let mut h = vec![json];
+        let mut h = vec![json, origin];
         if let Some(t) = cookie {
             c = format!("ct_phone={t}");
             h.push(("Cookie", c.as_str()));
@@ -2098,7 +2100,7 @@ fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
             &addr,
             "POST",
             "/api/pair",
-            &[json],
+            &[json, origin],
             &format!(r#"{{"code":"{code}","name":"Pixel"}}"#),
         )
     };
@@ -2157,6 +2159,16 @@ fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
         }
         other => panic!("{other:?}"),
     }
+
+    // A request that doesn't come from a browser page (no Origin) is refused.
+    let (status, _, _) = http_raw(
+        &addr,
+        "POST",
+        "/api/rpc",
+        &[json, ("Cookie", &format!("ct_phone={token}"))],
+        r#"{"op":"threads"}"#,
+    );
+    assert_eq!(status, 403);
 
     // Another website can't use the phone's session.
     let (status, _, _) = http_raw(

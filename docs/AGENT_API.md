@@ -518,12 +518,28 @@ same origin. Tokens are stored only as SHA-256 hashes in `phone.json`.
 
 ### 7.8 Who may call what
 
+The full threat model is in [SECURITY_MODEL.md](SECURITY_MODEL.md).
+
 | Caller | Gets |
 |---|---|
-| This machine, over the TCP protocol (loopback, or its own tailnet address) | Every op |
-| This machine's browser, over the local HTTP bridge | Every op, if JSON, same-origin and to a host it answers to; blocking room calls return at once |
-| Another machine, over the TCP protocol | Only the peer protocol: `ping`, `peer_search`, `peer_get_conversation`, `peer_threads`, `peer_thread`, `peer_room_post`, `peer_room_sync`. Each checks the shared token; room ops also need the receiver's *Can message* grant for the sender. Anything else answers `only the peer protocol is served to other machines`. |
+| This machine, over the TCP protocol on loopback, after `hello {key}` with the local key | Every op. Before `hello`, only `ping` and the peer protocol answer; everything else is `unauthorized`. `ct_daemon::Client` sends `hello` itself, and only to loopback addresses. |
+| This machine's browser, over the local HTTP bridge (loopback only) | Every op except `hello` and `login_ticket`, with the `ct_local` cookie, as JSON, same-origin and to a host it answers to; blocking room calls return at once. Without the cookie: `401 {"login":true}`. |
+| Anyone, over the tailnet listener | Only the peer protocol: `ping`, `peer_search`, `peer_get_conversation`, `peer_threads`, `peer_thread`, `peer_room_post`, `peer_room_sync`. Each checks the shared token; room ops also need the receiver's *Can message* grant for the sender. Anything else answers `only the peer protocol is served to other machines`. |
 | A paired phone, over the phone listener | The reading allowlist in §7.7 |
+
+**Signing the web app in.** `login_ticket` (local protocol, after `hello`) →
+`login_ticket {ticket, url}`: a ticket that works once, for 60 seconds, and
+`http://<http>/login#<ticket>`. `POST /api/login {"ticket"}` → `200` with
+`Set-Cookie: ct_local=…; HttpOnly; SameSite=Strict; Max-Age=2592000` (a value
+derived from the key, not the key), or `403`. `crossthreads open` does all of
+this.
+
+**Peer requests need a token.** A device with no shared token answers every
+peer request with an error, and the daemon refuses to listen on a non-loopback
+address without one.
+
+**Limits.** Request lines up to 8 MB, HTTP bodies up to 2 MB, room messages up
+to 32 KB, a peer catch-up batch up to 500 messages.
 
 ## 8. Conventions
 

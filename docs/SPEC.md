@@ -513,6 +513,13 @@ bound to the tailnet for federation, served every operation to any machine on
 it; now another machine may use only the token-checked peer protocol. Still open
 from M1: the tray count and notifications.
 
+0.21.0 also completes the §8 posture beyond what the table lists: a local key
+that every client on the machine must present (so other accounts on a shared
+computer get nothing, and the web app signs in with a one-time ticket), a
+separate tailnet listener that serves only the peer protocol, a token required
+for any peer, owner-only files, a strict content security policy, and size
+limits. [SECURITY_MODEL.md](SECURITY_MODEL.md) is the full account.
+
 M2 (rooms) has shipped in 0.18.0 for one machine: the five room tools, the
 Stop and PreToolUse hooks, human messages from the board, the turn cap, the
 shell fallback, indexing of closed exchanges, and the Meat Proxy importer.

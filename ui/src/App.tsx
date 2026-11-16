@@ -4,6 +4,7 @@ import {
   buildContext,
   getSession,
   getSetupStatus,
+  SignInRequiredError,
   UnpairedError,
   type Session,
   type SetupStatus,
@@ -60,6 +61,7 @@ import { Board } from "./Board";
 import { Rooms } from "./Rooms";
 import { PairPhone, PhoneSettings } from "./Phone";
 import { SetupChecklist, SetupNudge } from "./Setup";
+import { SignIn } from "./SignIn";
 import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
@@ -178,12 +180,15 @@ export function App() {
   // sees the pairing screen.
   const [session, setSession] = useState<Session | null>(null);
   const [unpaired, setUnpaired] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const phone = !!session?.phone;
   useEffect(() => {
+    if (window.location.pathname === "/login") return;
     getSession()
       .then(setSession)
       .catch((e) => {
         if (e instanceof UnpairedError) setUnpaired(true);
+        if (e instanceof SignInRequiredError) setSignedOut(true);
       });
   }, []);
   const [themes, setThemes] = useState<Theme[] | null>(null);
@@ -871,6 +876,7 @@ export function App() {
       .map(({ m, i }) => ({ key: i, role: m.role, html: highlightFind(m.content, term) }));
   }, [open, find]);
 
+  if (signedOut || window.location.pathname === "/login") return <SignIn />;
   if (unpaired || window.location.pathname === "/pair") return <PairPhone />;
 
   return (
@@ -2106,6 +2112,20 @@ export function App() {
                           }}
                         >
                           Set
+                        </button>
+                        <button
+                          className="linklike"
+                          title="Make a strong random token. Other devices then join with this device's pairing code."
+                          onClick={() => {
+                            const bytes = crypto.getRandomValues(new Uint8Array(24));
+                            const token = btoa(String.fromCharCode(...bytes))
+                              .replace(/\+/g, "-")
+                              .replace(/\//g, "_")
+                              .replace(/=+$/, "");
+                            saveFedConfig({ token });
+                          }}
+                        >
+                          generate
                         </button>
                         {fedConfig.has_token && (
                           <button className="linklike" onClick={() => saveFedConfig({ token: "" })}>

@@ -52,27 +52,12 @@ host="${PROTO_ADDR%%:*}"; port="${PROTO_ADDR##*:}"
 if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then
   exec 3>&- 2>/dev/null || true
   echo "▸ A Crossthreads daemon is already running on ${PROTO_ADDR} — reusing it."
-  case "$(uname -s)" in
-    Darwin) open "$URL" ;;
-    Linux)  command -v xdg-open >/dev/null && xdg-open "$URL" >/dev/null 2>&1 || true ;;
-  esac
-  echo "  Opened ${URL}"
+  "$ROOT/target/release/crossthreads" open || true
   exit 0
 fi
 
-# Open the browser once the server is reachable (best effort, in the background).
-(
-  for _ in $(seq 1 60); do
-    if curl -fsS "${URL}/" >/dev/null 2>&1; then
-      case "$(uname -s)" in
-        Darwin) open "$URL" ;;
-        Linux)  command -v xdg-open >/dev/null && xdg-open "$URL" >/dev/null 2>&1 || true ;;
-      esac
-      break
-    fi
-    sleep 0.5
-  done
-) &
+# Open the app, signed in, once the daemon answers (best effort, background).
+( "$ROOT/target/release/crossthreads" open --wait >/dev/null 2>&1 || true ) &
 
 echo "▸ Starting Crossthreads — the app will open at ${URL}"
 echo "  (first index of a large history can take a minute; search works as it fills in)"

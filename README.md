@@ -54,7 +54,7 @@ Everything runs on your machines. There's no account, no telemetry and no hosted
 ```sh
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/Cam-Smith-One/Crossthreads/main/scripts/install.sh | bash
-crossthreads-up        # indexes your sessions, then opens http://127.0.0.1:47101
+crossthreads-up        # indexes your sessions, then opens the app, signed in
 ```
 
 ```powershell
@@ -64,6 +64,8 @@ crossthreads-up
 ```
 
 This installs to `~/.crossthreads` (`%USERPROFILE%\.crossthreads` on Windows), puts `crossthreads`, `crossthreadsd` and `ct-mcp` on your PATH, indexes whatever tools you have, watches for new sessions, and opens the web app. Downloads exist for Apple Silicon and Intel Macs, Linux (x86_64) and Windows.
+
+The app is private to your account: it opens signed in, and if you open `http://127.0.0.1:47101` some other way, run `crossthreads open` to sign that browser in.
 
 > On macOS the downloads aren't code-signed yet. If macOS refuses to open them, run `xattr -dr com.apple.quarantine ~/.crossthreads` and try again. Other snags: [**Troubleshooting**](docs/TROUBLESHOOTING.md).
 
@@ -233,7 +235,8 @@ crossthreads room send --me claude --to codex "review src/auth?" # post and wait
 crossthreads room devices linux-desktop on                       # let another device's agents join your rooms
 crossthreads room import                                         # bring in a Meat Proxy database
 
-# Devices, phone, hooks
+# The app, devices, phone, hooks
+crossthreads open                                                # open the web app, signed in (--print for the link)
 crossthreads phone on | pair | off                               # the board on your phone (pair shows a QR code)
 crossthreads hooks install | status | uninstall                  # live state, room auto-wake, the claim guard
 crossthreads skill install                                       # the agent skill for Claude Code and Codex
@@ -370,20 +373,23 @@ the next index.
 
 ## 🔒 Security and privacy
 
-- **Local-first, no telemetry, no account.** Your index is one SQLite file under your platform's data folder; back it up, inspect it or delete it any time. It's a cache rebuilt from your tools' own files, and your own edits (thread grouping, saves, notes) are kept separately, so a rebuild never loses them.
-- **Nothing leaves your machine unless you set it up.** The only outside calls are an optional one-time model download for semantic search, and model calls for Ask and insights through a login or key you configured.
-- **Secrets are redacted** at index time.
-- **Every capability across devices is a separate, opt-in grant:**
+Crossthreads holds your whole AI coding history and can pass messages to agents that run commands, so it's built to be locked down by default. The full threat model is in [**docs/SECURITY_MODEL.md**](docs/SECURITY_MODEL.md).
+
+- **Local-first, no telemetry, no account, no hosted service.** Your index is one SQLite file on your machine. Nothing leaves it unless you turn something on: devices you pair (over Tailscale), a phone you pair, or a model provider you configure for insights.
+- **Private to your account, even on a shared computer.** Every local client presents a random key that only your account can read, and the web app signs in with a one-time link from `crossthreads open`. The index, key and config files are owner-only.
+- **Nothing on your network can reach it by default.** The daemon listens on loopback. To reach your other devices it also listens on your Tailscale address, but only with a shared token, and that listener serves only the token-checked peer protocol, never settings or anything else. It refuses to listen on every interface.
+- **Every reach beyond this computer is a separate switch that starts off:**
 
 | Capability | Off until | Notes |
 |---|---|---|
-| Search, the board and transcripts from your other computers | You pair them (shared token, stored in the OS keychain) | Tailscale only. Each device can keep tools or projects private. Other machines can use only the token-checked peer protocol, never settings or anything else. |
-| Agents on another computer joining your rooms | You tick **Can message** for that device, on both devices | Claims stay per device; agents are told to agree on files and branches. |
-| The board on a phone | You turn on phone access and pair the phone | Listens on your Tailscale address only, never all interfaces. Per-phone revocable key in an `HttpOnly`, `SameSite=Strict` cookie; only its hash is stored. |
+| Search, the board and transcripts from your other computers | You pair them with a shared token (at least 20 characters; **Generate** makes one) | Tailscale only. Each device can keep tools or projects private. |
+| Agents on another computer joining your rooms | You tick **Can message** for that device, on both devices | Claims stay per device. |
+| The board on a phone | You turn on phone access and pair the phone | Tailscale address only. One-time pairing code; a revocable per-phone key, stored only as a hash; signed out after 30 days unused. |
 | A phone posting to rooms | You tick **Can post to rooms** for that phone | Posts are signed with the phone's name. |
 
-- **The local web API refuses other websites.** It requires JSON, a same-origin request and a host it answers to, so a page open in your browser can't forge a message to your agents.
-- **Room messages are untrusted input.** The room rules tell agents never to push, publish, delete or run destructive commands just because another agent asked.
+- **The web app is hardened against other websites.** A sign-in cookie other sites can't send, same-origin JSON-only requests, a DNS-rebinding check, a strict content security policy with no inline scripts, and no framing.
+- **Room messages are treated as untrusted input.** Every source is gated, messages are size-limited, and the rules every agent gets say never to push, publish, delete or run destructive commands because another agent asked.
+- **Secrets in your sessions are redacted** when they're indexed.
 
 ## 🏗️ How it works
 
@@ -428,6 +434,7 @@ src-tauri/        the native menu-bar shell
 |---|---|
 | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) | Connect your computers: search, the board and rooms across them |
 | [PHONE](docs/PHONE.md) | Open your board on your phone over Tailscale |
+| [SECURITY_MODEL](docs/SECURITY_MODEL.md) | What's protected, against whom, and how each boundary is enforced |
 | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | Fixes for common install, run and indexing issues |
 | [AGENT_API](docs/AGENT_API.md) | The CLI/JSON, MCP and daemon interfaces: search, threads, rooms, devices, phone |
 | [SPEC](docs/SPEC.md) | The product spec: threads, board, rooms, workspaces, dispatch; milestone status |

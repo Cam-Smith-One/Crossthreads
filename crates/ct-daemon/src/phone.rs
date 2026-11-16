@@ -29,6 +29,8 @@ pub const PHONE_PORT: u16 = 47102;
 pub const CODE_TTL: Duration = Duration::from_secs(10 * 60);
 /// Wrong codes allowed before every open code is thrown away.
 const MAX_BAD_CODES: u32 = 5;
+/// A phone unused for this long is signed out and must pair again.
+pub const IDLE_EXPIRY_SECS: i64 = 30 * 24 * 60 * 60;
 /// Cookie that carries a paired phone's token.
 pub const COOKIE: &str = "ct_phone";
 /// Letters for pairing codes: no 0/O, 1/I/L, so they are easy to type.
@@ -162,10 +164,9 @@ impl PhoneAccess {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if let Err(e) = std::fs::write(path, json) {
-                eprintln!("warn: could not save {}: {e}", path.display());
+            if let Err(e) = crate::local_auth::write_private(path, &json) {
+                eprintln!("warn: could not save {}: {e:#}", path.display());
             }
-            restrict(path);
         }
     }
 
@@ -254,6 +255,12 @@ impl PhoneAccess {
             .phones
             .iter_mut()
             .find(|p| same(&p.token_sha256, &hash))?;
+        if t - phone.last_seen > IDLE_EXPIRY_SECS {
+            let id = phone.id.clone();
+            s.config.phones.retain(|p| p.id != id);
+            self.save(&s);
+            return None;
+        }
         let persist = t - phone.last_seen > 300;
         phone.last_seen = t;
         let info = PhoneInfo::from(&*phone);
@@ -285,17 +292,6 @@ impl PhoneAccess {
         self.save(&s);
         true
     }
-}
-
-/// Make the file readable by its owner only, where that means something.
-fn restrict(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(not(unix))]
-    let _ = path;
 }
 
 /// Where `phone.json` lives. `CROSSTHREADS_PHONE_CONFIG` overrides it.
@@ -393,6 +389,15 @@ mod tests {
         assert!(p.check(&token).unwrap().can_post);
         assert!(p.revoke(&phone.id));
         assert!(p.check(&token).is_none(), "revoked");
+    }
+
+    #[test]
+    fn an_idle_phone_is_signed_out() {
+        let p = PhoneAccess::load(None);
+        let token = p.redeem(&p.start_pairing(), "old").unwrap();
+        p.lock().config.phones[0].last_seen = now() - IDLE_EXPIRY_SECS - 1;
+        assert!(p.check(&token).is_none());
+        assert!(p.phones().is_empty());
     }
 
     #[test]

@@ -22,7 +22,9 @@ if not "%CT_NO_KILL%"=="1" (
   taskkill /F /IM crossthreadsd.exe >nul 2>&1
 )
 
-echo Crossthreads is starting - it will open at http://%CT_HTTP%
-start "" "http://%CT_HTTP%"
+echo Crossthreads is starting - it will open in your browser, signed in.
+rem The web app needs a one-time sign-in link; crossthreads open gets it from
+rem the daemon with this account's local key once the daemon is up.
+start "" /b "%ROOT%\bin\crossthreads.exe" open --wait
 "%DAEMON%" --addr "%CT_ADDR%" --http "%CT_HTTP%" --ui "%UI%"
 endlocal

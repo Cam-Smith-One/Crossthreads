@@ -1517,3 +1517,5 @@ a.side-status[href]:hover { color: var(--text); }
 .modal-head-actions button { white-space: nowrap; }
 .source-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .source-actions .danger { margin-left: auto; color: var(--err-text); border-color: var(--err-border); }
+
+.signin-cmd { display: block; font-size: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
