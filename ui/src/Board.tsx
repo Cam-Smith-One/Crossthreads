@@ -104,6 +104,8 @@ interface Props {
   /** A session whose thread should be opened (e.g. from the transcript view). */
   openThreadFor?: string | null;
   onThreadOpened?: () => void;
+  /** No editing at all (a phone). */
+  readOnly?: boolean;
 }
 
 export function Board({
@@ -113,6 +115,7 @@ export function Board({
   onError,
   openThreadFor,
   onThreadOpened,
+  readOnly: everythingReadOnly = false,
 }: Props) {
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
   const [unreachable, setUnreachable] = useState<string[]>([]);
@@ -276,14 +279,14 @@ export function Board({
 
   // Other threads in the same repository, offered for a manual merge.
   const mergeable = useMemo(() => {
-    if (!open || isRemote(open)) return [];
+    if (!open || everythingReadOnly || isRemote(open)) return [];
     return (threads ?? [])
       .filter(
         (t) =>
           !isRemote(t) && t.id !== open.id && (t.repo_key ?? null) === (open.repo_key ?? null),
       )
       .slice(0, 50);
-  }, [threads, open, isRemote]);
+  }, [threads, open, isRemote, everythingReadOnly]);
 
   async function mergeWith(otherId: string) {
     if (!open || !otherId) return;
@@ -296,7 +299,7 @@ export function Board({
 
   if (!threads || threads.length === 0) return null;
 
-  const readOnly = !!open && isRemote(open);
+  const readOnly = everythingReadOnly || (!!open && isRemote(open));
   const row = (t: ThreadSummary) => (
     <button key={`${t.device ?? ""}:${t.id}`} className="board-row" onClick={() => openThread(t)}>
       <span className="board-row-main">
@@ -334,7 +337,6 @@ export function Board({
   return (
     <section className="board" aria-label="Threads">
       <div className="board-head">
-        <h2>Threads</h2>
         <div className="board-tabs" role="tablist" aria-label="Thread status">
           {(["active", "parked", "done", "all"] as StatusFilter[]).map((s) => (
             <button
@@ -354,7 +356,7 @@ export function Board({
       </div>
       <div className="board-filters">
         <input
-          placeholder="filter by title, repository or branch…"
+          placeholder="Filter threads by title, repository or branch"
           value={text}
           onChange={(e) => setText(e.target.value)}
           aria-label="Filter threads"
@@ -444,7 +446,9 @@ export function Board({
                 </div>
                 {readOnly && (
                   <div className="project">
-                    💻 On {open.device}. Open Crossthreads there to rename or regroup it.
+                    {everythingReadOnly
+                      ? "📱 Read-only on your phone. Rename or regroup it on your computer."
+                      : `💻 On ${open.device}. Open Crossthreads there to rename or regroup it.`}
                   </div>
                 )}
               </div>

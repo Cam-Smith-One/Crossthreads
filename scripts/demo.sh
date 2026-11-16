@@ -76,7 +76,7 @@ else
 fi
 
 echo "▸ Starting crossthreadsd"
-echo "  Web UI:   http://$HTTP_ADDR"
+echo "  Web UI:   run \`CROSSTHREADS_ADDR=$PROTO_ADDR target/release/crossthreads open\` to sign in"
 echo "  Protocol: $PROTO_ADDR   (point ct-mcp / 'crossthreads --remote' here)"
 echo
 

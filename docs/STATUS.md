@@ -1,5 +1,10 @@
 # Crossthreads — Status & Audit Overview
 
+> **This is a June 2026 snapshot, kept for history.** For what Crossthreads does
+> now, see the [README](../README.md); for what changed, the
+> [CHANGELOG](../CHANGELOG.md); for milestone status, [SPEC.md §10](SPEC.md).
+> As of 0.21.0 the gate is fmt + clippy + 212 tests + the UI build, all green.
+
 _Last updated: 2026-06-21 · branch `claude/cross-agent-session-indexer-rw9e4x` · cross-device search (ADR-010) shipped in [PR #3](https://github.com/Cam-Smith-One/Crossthreads/pull/3)/[#4](https://github.com/Cam-Smith-One/Crossthreads/pull/4)_
 
 A snapshot of where the project stands after the end-to-end review: what's

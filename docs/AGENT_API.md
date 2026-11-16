@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 (design sketch, pre-implementation) |
-| **Last updated** | 2026-06-24 |
+| **Status** | Implemented; sections 7.5–7.8 describe the current daemon (0.21.0) |
+| **Last updated** | 2026-11-16 |
 | **Companion to** | [PRD.md](PRD.md) · [REQUIREMENTS.md](REQUIREMENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Covers** | FR-UI-02 (CLI/JSON), FR-UI-03 (Agent API), FR-UI-04 (MCP), FR-ACT-01..04 |
 
@@ -488,9 +488,62 @@ unless the receiver has granted `from`. Claims are per device.
 kind `exchange`, and the sessions of the agents that spoke are linked
 `conversed` (origin `explicit`) when a hook has reported their transcripts.
 
+### 7.7 Phone access
+
+A phone opens the web app from a second HTTP listener on the computer's
+Tailscale address (default port `47102`), off until turned on
+([PHONE.md](PHONE.md), SPEC FR-BRD-04). Ops for the computer itself:
+
+| Op | Answers | What it does |
+|---|---|---|
+| `setup_status` | `setup {hooks_claude, hooks_codex, mcp_claude, mcp_codex, skill_claude, skill_codex, model, devices, devices_can_message, phone_enabled, phones, claude_present, codex_present}` | What's installed and turned on here, for Settings → Get started. Reads the files each installer writes; changes nothing. |
+| `session` | `{"type":"session","phone":false,"can_post":true}` | Who is asking. On the phone listener: `phone: true`, the phone's `name`, and its `can_post` grant. |
+| `phone_status` | `phone {enabled, listening, url?, error?, phones:[{id,name,created,last_seen,can_post}]}` | Settings → Phone. |
+| `phone_set_enabled {enabled}` | `phone` | Start or stop the listener. Binds `CROSSTHREADS_PHONE_ADDR`, else the saved address, else this device's tailnet IP; never `0.0.0.0`. |
+| `phone_pair` | `phone_pairing {code, url, qr_svg?, expires_secs}` | A one-time 8-character code (10 minutes), the `…/pair#CODE` link and an SVG QR code of it. |
+| `phone_revoke {id}` · `phone_set_post {id, can_post}` | `phone` | Remove a phone; grant or withdraw posting to rooms. |
+
+The phone listener serves the web app and two endpoints:
+
+- `POST /api/pair` `{"code","name"}` → `200` and `Set-Cookie: ct_phone=<token>;
+  HttpOnly; SameSite=Strict`, or `403`. Five wrong codes cancel every open code.
+- `POST /api/rpc` with that cookie. Without it: `401 {"unpaired":true}`. Allowed
+  ops: `ping`, `status`, `facets`, `session`, `search`, `get_conversation`,
+  `devices`, `glance`, `threads`, `thread`, `thread_handoff`, `rooms`,
+  `room_messages`, `room_history`, `saved`, `resume`; `room_post` only with the
+  phone's `can_post` grant, signed with the phone's name. Anything else is `403`.
+
+Both require `Content-Type: application/json` and, when an `Origin` is sent, the
+same origin. Tokens are stored only as SHA-256 hashes in `phone.json`.
+
+### 7.8 Who may call what
+
+The full threat model is in [SECURITY_MODEL.md](SECURITY_MODEL.md).
+
+| Caller | Gets |
+|---|---|
+| This machine, over the TCP protocol on loopback, after `hello {key}` with the local key | Every op. Before `hello`, only `ping` and the peer protocol answer; everything else is `unauthorized`. `ct_daemon::Client` sends `hello` itself, and only to loopback addresses. |
+| This machine's browser, over the local HTTP bridge (loopback only) | Every op except `hello` and `login_ticket`, with the `ct_local` cookie, as JSON, same-origin and to a host it answers to; blocking room calls return at once. Without the cookie: `401 {"login":true}`. |
+| Anyone, over the tailnet listener | Only the peer protocol: `ping`, `peer_search`, `peer_get_conversation`, `peer_threads`, `peer_thread`, `peer_room_post`, `peer_room_sync`. Each checks the shared token; room ops also need the receiver's *Can message* grant for the sender. Anything else answers `only the peer protocol is served to other machines`. |
+| A paired phone, over the phone listener | The reading allowlist in §7.7 |
+
+**Signing the web app in.** `login_ticket` (local protocol, after `hello`) →
+`login_ticket {ticket, url}`: a ticket that works once, for 60 seconds, and
+`http://<http>/login#<ticket>`. `POST /api/login {"ticket"}` → `200` with
+`Set-Cookie: ct_local=…; HttpOnly; SameSite=Strict; Max-Age=2592000` (a value
+derived from the key, not the key), or `403`. `crossthreads open` does all of
+this.
+
+**Peer requests need a token.** A device with no shared token answers every
+peer request with an error, and the daemon refuses to listen on a non-loopback
+address without one.
+
+**Limits.** Request lines up to 8 MB, HTTP bodies up to 2 MB, room messages up
+to 32 KB, a peer catch-up batch up to 500 messages.
+
 ## 8. Conventions
 
-- **Auth/scope:** local surfaces (CLI, MCP stdio, loopback HTTP) assume the local user; no auth at MVP. Network/team auth is a P2 concern.
+- **Auth/scope:** see §7.8. Local surfaces (CLI, MCP stdio, loopback HTTP) act as the local user.
 - **Errors:** `{ "error": { "code": "not_found" | "bad_request" | "index_unavailable" | "llm_unavailable", "message": "..." } }`.
 - **Stability:** request/response shapes are **versioned** (`x-crossthreads-api: 1`); additive changes are non-breaking, removals bump the version.
 - **Determinism:** `mode: "lexical"` is fully deterministic for scripting; `hybrid`/`semantic`/`recall` may vary with model/index state.

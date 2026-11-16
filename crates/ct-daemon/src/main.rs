@@ -111,6 +111,15 @@ fn run() -> Result<()> {
 
     let db_path = resolve_db(db)?;
     let store = ct_store::Store::open(&db_path)?;
+    // The index holds your conversations: readable by this account only.
+    if let Some(dir) = db_path.parent() {
+        ct_daemon::local_auth::restrict_dir(dir);
+    }
+    for suffix in ["", "-wal", "-shm"] {
+        let mut p = db_path.clone().into_os_string();
+        p.push(suffix);
+        ct_daemon::local_auth::restrict(std::path::Path::new(&p));
+    }
     let embedder = ct_embed::default_embedder();
     // A small pool of read-only connections (WAL) so concurrent searches/reads
     // don't serialize on the single writer lock.
@@ -124,7 +133,11 @@ fn run() -> Result<()> {
         .unwrap_or(0);
     let mut daemon = Daemon::new(store, embedder)
         .with_read_pool(&db_path, read_pool)
-        .with_room_turn_cap(turn_cap);
+        .with_room_turn_cap(turn_cap)
+        .with_phone(ct_daemon::phone::PhoneAccess::load(Some(
+            ct_daemon::phone::config_path(),
+        )))
+        .with_ui_dir(ui.clone());
 
     // Federation is always available so the Settings → Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is
@@ -141,6 +154,7 @@ fn run() -> Result<()> {
     let keyring_token = ct_daemon::federation::token_store::get();
     let from_keyring = token.is_none() && keyring_token.is_some();
     let token = token.or(keyring_token).or(file_token.clone());
+    let has_token = token.is_some();
     // Store the token in the keychain to encrypt at rest — but only when it isn't
     // already there, so we don't re-write (and re-prompt) on every startup.
     let token_in_keyring = if from_keyring {
@@ -209,6 +223,13 @@ fn run() -> Result<()> {
     }
     daemon = daemon.with_federation(fed);
 
+    // Every client on this machine must present the local key, so other
+    // accounts on the same computer can't read your history.
+    let local_key = ct_daemon::local_auth::load_or_create().context("creating the local key")?;
+    daemon = daemon
+        .with_local_key(local_key)
+        .with_http_addr(http.clone());
+
     // Index in the BACKGROUND so the UI/API are reachable immediately. A large
     // first index (hundreds of sessions + embeddings) can take a while; the
     // server should come up right away and fill in as indexing progresses.
@@ -250,6 +271,17 @@ fn run() -> Result<()> {
     // Rooms across devices: catch up with peers that may message.
     daemon.spawn_room_sync();
 
+    // The board from a phone, over the tailnet, if the user turned it on.
+    daemon.start_phone_if_enabled();
+
+    if let Some(h) = &http {
+        if !ct_daemon::local_auth::is_loopback(h) {
+            anyhow::bail!(
+                "--http must be a loopback address such as 127.0.0.1:47101 (got {h}); to reach \
+                 the board from a phone, turn on phone access instead"
+            );
+        }
+    }
     if let Some(http_addr) = http {
         if let Some(dir) = &ui {
             if !dir.join("index.html").is_file() {
@@ -273,9 +305,41 @@ fn run() -> Result<()> {
             .context("starting http server")?;
     }
 
-    let listener = TcpListener::bind(&addr).with_context(|| format!("binding {addr}"))?;
-    eprintln!("crossthreadsd: listening on {addr}");
-    daemon.serve(listener)
+    // Local clients always use loopback. When the daemon also listens on the
+    // network (the tailnet, for your other devices), that listener serves only
+    // the token-checked peer protocol, and only once a token is set.
+    if ct_daemon::local_auth::is_loopback(&addr) {
+        let listener = TcpListener::bind(&addr).with_context(|| format!("binding {addr}"))?;
+        eprintln!("crossthreadsd: listening on {addr}");
+        return daemon.serve(listener);
+    }
+    if !has_token {
+        anyhow::bail!(
+            "refusing to listen on {addr} without a shared token: anyone on that network could \
+             reach this device. Set one in Settings → Devices, or use a loopback --addr."
+        );
+    }
+    if addr.starts_with("0.0.0.0") || addr.starts_with("[::]") {
+        anyhow::bail!("refusing to listen on every interface ({addr}); use the Tailscale address");
+    }
+    let port = addr
+        .rsplit_once(':')
+        .map_or("47100", |(_, p)| p)
+        .to_string();
+    let local_addr = format!("127.0.0.1:{port}");
+    let peers = TcpListener::bind(&addr).with_context(|| format!("binding {addr}"))?;
+    let local = TcpListener::bind(&local_addr).with_context(|| format!("binding {local_addr}"))?;
+    eprintln!("crossthreadsd: peers on {addr} (peer protocol only); local clients on {local_addr}");
+    let d = daemon.clone();
+    std::thread::Builder::new()
+        .name("ct-peers".into())
+        .spawn(move || {
+            if let Err(e) = d.serve_peers(peers) {
+                eprintln!("crossthreadsd: peer listener stopped: {e:#}");
+            }
+        })
+        .context("starting peer listener")?;
+    daemon.serve(local)
 }
 
 /// Where the approved-peer list is persisted. Override with

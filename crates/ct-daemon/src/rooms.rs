@@ -49,6 +49,9 @@ const SYNC_WINDOW_SECS: i64 = 24 * 60 * 60;
 const SYNC_BATCH: usize = 500;
 /// How often to catch up with peers that may message.
 pub const SYNC_EVERY: Duration = Duration::from_secs(10);
+/// Longest room message accepted. Messages are meant to be short; this bounds
+/// what one agent, phone or peer can push into another agent's context.
+pub const MAX_TEXT: usize = 32 * 1024;
 /// Tool slug under which closed exchanges are indexed.
 pub const ROOM_TOOL: &str = "room";
 
@@ -303,6 +306,13 @@ impl Daemon {
         if text.is_empty() {
             return Ok("Error: `me` and `text` are required.".into());
         }
+        if text.len() > MAX_TEXT {
+            return Ok(format!(
+                "Error: message too long ({} bytes; the limit is {MAX_TEXT}). Refer to files by \
+                 path instead of pasting them.",
+                text.len()
+            ));
+        }
         let room = room_id(room);
         let done = is_done(text);
         let cap = self.room_turn_cap;
@@ -505,6 +515,9 @@ impl Daemon {
         let text = text.trim();
         if text.is_empty() {
             anyhow::bail!("empty message");
+        }
+        if text.len() > MAX_TEXT {
+            anyhow::bail!("message too long (limit {MAX_TEXT} bytes)");
         }
         let id = {
             let store = self.write_lock();
@@ -753,7 +766,11 @@ impl Daemon {
         let mut new = 0;
         {
             let store = self.write_lock();
-            for m in messages {
+            for m in messages.iter().take(SYNC_BATCH) {
+                // A peer gets no more room than a local agent.
+                if m.text.len() > MAX_TEXT || m.author.len() > 64 || m.room.len() > 512 {
+                    continue;
+                }
                 if let Some(id) = store.room_receive(from, m)? {
                     new += 1;
                     if !m.human && is_done(&m.text) {

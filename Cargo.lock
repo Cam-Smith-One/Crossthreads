@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "ct-cli"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -470,6 +470,7 @@ dependencies = [
  "ct-llm",
  "ct-store",
  "dirs 5.0.1",
+ "qrcode",
  "regex",
  "serde",
  "serde_json",
@@ -478,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "ct-connectors"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -492,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "ct-core"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -506,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "ct-daemon"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -517,17 +518,20 @@ dependencies = [
  "ct-llm",
  "ct-store",
  "dirs 5.0.1",
+ "getrandom 0.3.4",
  "keyring",
  "notify",
+ "qrcode",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tiny_http",
 ]
 
 [[package]]
 name = "ct-embed"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -535,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "ct-index"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -547,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "ct-llm"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -560,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "ct-mcp"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -575,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "ct-store"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2184,6 +2188,12 @@ checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"

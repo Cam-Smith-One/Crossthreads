@@ -5,6 +5,89 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.21.0] - 2026-11-16
+
+Your board on your phone, a tighter boundary between machines, and documentation
+that describes the product as it is now.
+
+### Added
+- **Phone access.** Turn on **Settings → Phone** (or `crossthreads phone on`)
+  and your computer serves the board to your phone's browser over Tailscale.
+  **Pair a phone** shows a QR code and a one-time code; scan it and the phone is
+  in. A phone can read threads (including other devices'), transcripts, the
+  handoff brief, rooms and search. Posting to rooms is a separate switch per
+  phone, off by default; a phone's messages are signed with its name. Remove a
+  phone at any time. Guide: [docs/PHONE.md](docs/PHONE.md).
+- `crossthreads phone [on|off|pair|post <ID> on|off|revoke <ID>]`; `pair`
+  prints the QR code in the terminal.
+- Daemon ops `session`, `phone_status`, `phone_set_enabled`, `phone_pair`,
+  `phone_revoke`, `phone_set_post`.
+
+- **Settings → Get started**: a checklist of what's set up on this computer
+  (indexing, hooks, the MCP server, the agent skill, other devices, a phone, a
+  model), each with why it matters and the command or button that turns it on.
+  The daemon checks the files each installer writes (`setup_status` op).
+
+### Changed
+- **The app has a structure now.** A sidebar with five places — **Threads**
+  (home), **Rooms**, **Search**, **Insights**, **Settings** — replaces a single
+  page with everything else in pop-ups. Each place has its own address
+  (`#/rooms`, `#/settings/devices`), so Back and bookmarks work. On a phone the
+  sidebar is a tab bar at the bottom.
+- **Search and Ask are one place**, with a switch between *Find sessions* and
+  *Ask a question*; saved sessions and search tips show before you search. The
+  board no longer has a search box above it competing with its own filter.
+- Every page opens with one sentence saying what it's for. While essential setup
+  is missing, the Threads page shows one line with the next step; the weekly
+  review notice moved there too. The header's session count, tool chips and
+  re-index link moved to **Settings → Index**, and Documentation became
+  **Settings → Help**.
+- In a session's transcript, *Thread* became *Open its thread*, and *Forget*
+  is set apart in red.
+
+### Security
+- **A local key.** Every client on the computer (CLI, MCP server, hooks, the
+  menu-bar app) now presents a random key that only your account can read, so
+  another user account on the same machine gets nothing. The web app signs in
+  with a one-time, 60-second link from the new `crossthreads open` (run for you
+  by `crossthreads-up`) and keeps a cookie derived from the key.
+- **The network listener serves only the peer protocol**, on its own socket;
+  local tools always use loopback (this also fixes local tools being unable to
+  reach a daemon bound to the tailnet). Peers now **always** need the shared
+  token, and the daemon refuses to listen on a network without one, on every
+  interface, or to serve the web app beyond loopback.
+- **Stronger tokens.** Shared tokens must be at least 20 varied characters;
+  **generate** in Settings → Devices makes one.
+- **Owner-only files** for the index, the key, `federation.json` and
+  `phone.json`.
+- **Web hardening:** a strict content security policy (the inline theme script
+  moved to a file), no framing, no MIME sniffing, no referrer, no caching of
+  responses; phone requests must carry a same-origin `Origin`.
+- **Limits:** request lines 8 MB, HTTP bodies 2 MB, room messages 32 KB, peer
+  catch-up batches 500 messages. Phones unused for 30 days are signed out.
+- New [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) sets out what's protected,
+  against whom, and how; `crates/ct-daemon/tests/security.rs` tests each
+  boundary.
+- The phone listener binds only the computer's Tailscale address and refuses
+  `0.0.0.0`. Pairing codes work once, for 10 minutes, and five wrong guesses
+  cancel them all. Each phone gets a random token in an `HttpOnly`,
+  `SameSite=Strict` cookie; only its hash is stored, in a file readable by you
+  alone. Requests must be same-origin JSON, and a phone gets a fixed list of
+  reading operations.
+- **Fixed:** when the daemon listened on Tailscale for cross-device search, any
+  machine on the tailnet could call every operation on it, including changing
+  settings. Other machines may now use only the token-checked peer protocol.
+
+### Documentation
+- The README is rewritten around what Crossthreads does now — threads and the
+  board, picking work up anywhere, rooms, your other devices, your phone, search
+  and insights — with fresh screenshots, a setup table, the whole command line,
+  and a security and privacy section listing every grant.
+- New [docs/PHONE.md](docs/PHONE.md). AGENT_API gains phone access (§7.7) and
+  who may call what (§7.8). ARCHITECTURE, SPEC, MULTI_DEVICE_SETUP,
+  TROUBLESHOOTING and the docs index are brought up to date; the June STATUS and
+  ROADMAP pages are marked as history.
+
 ## [0.20.0] - 2026-11-16
 
 Rooms across devices: an agent on one machine can talk to an agent on another.

@@ -4,6 +4,8 @@
 //   npm install puppeteer
 //   node scripts/screenshot.mjs            # -> ct-search.png, ct-conversation.png
 //   CT_HTTP=127.0.0.1:47101 node scripts/screenshot.mjs
+//   CT_LOGIN_URL="$(crossthreads open --print | tail -1)" node scripts/screenshot.mjs
+//   (the web app needs signing in; pass a one-time link from `crossthreads open`)
 //
 // Uses Puppeteer's bundled Chromium (independent of any system webview), so it
 // works headlessly where a native Tauri window can't.
@@ -19,6 +21,9 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1000, height: 820, deviceScaleFactor: 2 });
+  if (process.env.CT_LOGIN_URL) {
+    await page.goto(process.env.CT_LOGIN_URL, { waitUntil: "networkidle0" });
+  }
   await page.goto(base, { waitUntil: "networkidle0", timeout: 30000 });
 
   await page.waitForSelector(".searchbar input");

@@ -31,6 +31,7 @@ anyhow = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

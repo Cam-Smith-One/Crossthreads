@@ -20,7 +20,9 @@ mod index;
 mod insight;
 mod llm_auth;
 mod metrics;
+mod open;
 mod optimize;
+mod phone;
 mod resume;
 mod room;
 mod schedule;
@@ -54,6 +56,10 @@ COMMANDS:
     room <CMD>        Talk to other agents in this project's room: history |
                       send | wait | claim | release (the MCP room tools, from
                       a shell), or `room import` a Meat Proxy database
+    open              Open the web app in your browser, signed in (--print to
+                      just print the one-time link)
+    phone [CMD]       Open your board on your phone over Tailscale: on | off |
+                      pair (QR code) | post <ID> on|off | revoke <ID>
     hooks <CMD>       install | uninstall | status the hooks that report live
                       session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
@@ -123,6 +129,8 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("resume") => resume::run(&args[1..]),
         Some("glance") => glance::run(&args[1..]),
         Some("room") => room::run(&args[1..]),
+        Some("phone") => phone::run(&args[1..]),
+        Some("open") => open::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.
         Some("hook") => Ok(hooks::run_hook(&args[1..])),

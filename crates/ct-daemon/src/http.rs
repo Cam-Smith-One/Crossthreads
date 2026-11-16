@@ -6,6 +6,7 @@
 //! separate port from the raw TCP protocol so the two surfaces don't interfere.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Result;
 use tiny_http::{Header, Method, Response, Server};
@@ -16,10 +17,18 @@ impl Daemon {
     /// Serve the HTTP API (+ optional static UI dir) on `addr` until stopped.
     /// Blocking; run on its own thread.
     pub fn serve_http(&self, addr: &str, ui_dir: Option<PathBuf>) -> Result<()> {
+        // The local web app is for this computer only; phones have their own
+        // listener (see `phone`).
+        if !crate::local_auth::is_loopback(addr) {
+            anyhow::bail!(
+                "--http must be a loopback address such as 127.0.0.1:47101; to reach the board \
+                 from a phone, use phone access"
+            );
+        }
         let server = Server::http(addr).map_err(|e| anyhow::anyhow!("binding http {addr}: {e}"))?;
         let bind_host = host_of(addr).to_string();
         for mut request in server.incoming_requests() {
-            let response = self.route(&mut request, ui_dir.as_deref(), &bind_host);
+            let response = secure(self.route(&mut request, ui_dir.as_deref(), &bind_host));
             if let Err(e) = request.respond(response) {
                 eprintln!("http respond error: {e}");
             }
@@ -37,12 +46,54 @@ impl Daemon {
         let path = url.split('?').next().unwrap_or("/");
 
         match (request.method(), path) {
+            (Method::Post, "/api/login") => {
+                if !from_our_own_page(request, bind_host) {
+                    return error_json(403, "forbidden");
+                }
+                let Some(key) = self.local_key.clone() else {
+                    return json_response(200, &serde_json::json!({ "ok": true }));
+                };
+                let ticket = read_body(request)
+                    .and_then(|b| serde_json::from_str::<serde_json::Value>(&b).ok())
+                    .and_then(|v| v.get("ticket").and_then(|t| t.as_str()).map(String::from));
+                match ticket {
+                    Some(t) if self.login_tickets.redeem(&t) => {
+                        let cookie = format!(
+                            "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000",
+                            crate::local_auth::COOKIE,
+                            crate::local_auth::http_session(&key)
+                        );
+                        let mut resp = json_response(200, &serde_json::json!({ "ok": true }));
+                        if let Ok(h) = Header::from_bytes(b"Set-Cookie".as_ref(), cookie.as_bytes()) {
+                            resp = resp.with_header(h);
+                        }
+                        resp
+                    }
+                    _ => error_json(
+                        403,
+                        "that sign-in link has expired or was already used; run `crossthreads open`",
+                    ),
+                }
+            }
             (Method::Post, "/api/rpc") => {
                 if !from_our_own_page(request, bind_host) {
-                    return json_response(
-                        403,
-                        &serde_json::json!({ "type": "error", "message": "forbidden" }),
-                    );
+                    return error_json(403, "forbidden");
+                }
+                if let Some(key) = &self.local_key {
+                    let expected = crate::local_auth::http_session(key);
+                    let ok = header(request, "Cookie")
+                        .and_then(|c| crate::phone::cookie(c, crate::local_auth::COOKIE))
+                        .is_some_and(|v| crate::local_auth::same(v, &expected));
+                    if !ok {
+                        return json_response(
+                            401,
+                            &serde_json::json!({
+                                "type": "error",
+                                "message": "sign in first: run `crossthreads open` on this computer",
+                                "login": true,
+                            }),
+                        );
+                    }
                 }
                 self.handle_rpc(request)
             }
@@ -56,13 +107,9 @@ impl Daemon {
     }
 
     fn handle_rpc(&self, request: &mut tiny_http::Request) -> Response<std::io::Cursor<Vec<u8>>> {
-        let mut body = String::new();
-        if request.as_reader().read_to_string(&mut body).is_err() {
-            return json_response(
-                400,
-                &serde_json::json!({ "type": "error", "message": "unreadable body" }),
-            );
-        }
+        let Some(body) = read_body(request) else {
+            return error_json(400, "unreadable or oversized body");
+        };
         let req: Request = match serde_json::from_str(&body) {
             Ok(r) => r,
             Err(e) => {
@@ -74,6 +121,294 @@ impl Daemon {
         };
         json_response(200, &self.handle(no_blocking(req)))
     }
+}
+
+// ---- the phone listener (SPEC FR-BRD-04) -------------------------------------
+
+#[derive(serde::Deserialize)]
+struct PairBody {
+    code: String,
+    #[serde(default)]
+    name: String,
+}
+
+impl Daemon {
+    /// Where the phone listener should bind: `CROSSTHREADS_PHONE_ADDR`, the
+    /// address saved in `phone.json`, or this device's Tailscale address.
+    fn phone_addr(&self) -> std::result::Result<String, String> {
+        let addr = std::env::var("CROSSTHREADS_PHONE_ADDR")
+            .ok()
+            .filter(|a| !a.trim().is_empty())
+            .or_else(|| self.phone.saved_addr())
+            .or_else(|| {
+                crate::federation::detect_self_tailnet_ip()
+                    .map(|ip| format!("{ip}:{}", crate::phone::PHONE_PORT))
+            })
+            .ok_or_else(|| {
+                "Tailscale isn't connected on this device. Phone access only listens on your \
+                 tailnet; install Tailscale on this computer and your phone, sign both in, \
+                 then try again."
+                    .to_string()
+            })?;
+        crate::phone::safe_bind(&addr)?;
+        Ok(addr)
+    }
+
+    /// Start the phone listener if phone access is on and it isn't running.
+    /// A failure is kept for Settings to show, not returned.
+    pub fn start_phone_if_enabled(&self) {
+        if !self.phone.enabled() || self.phone_server.lock().expect("poisoned").is_some() {
+            return;
+        }
+        let result = self.phone_addr().and_then(|addr| {
+            tiny_http::Server::http(&addr)
+                .map(|server| (Arc::new(server), addr.clone()))
+                .map_err(|e| format!("couldn't listen on {addr}: {e}"))
+        });
+        match result {
+            Ok((server, addr)) => {
+                eprintln!("crossthreadsd: phone access on http://{addr}/");
+                *self.phone_error.lock().expect("poisoned") = None;
+                *self.phone_server.lock().expect("poisoned") = Some((server.clone(), addr.clone()));
+                let this = self.clone();
+                let _ = std::thread::Builder::new()
+                    .name("ct-phone".into())
+                    .spawn(move || {
+                        for mut request in server.incoming_requests() {
+                            let response = secure(this.phone_route(&mut request, &addr));
+                            if let Err(e) = request.respond(response) {
+                                eprintln!("phone respond error: {e}");
+                            }
+                        }
+                    });
+            }
+            Err(e) => {
+                eprintln!("crossthreadsd: phone access not started: {e}");
+                *self.phone_error.lock().expect("poisoned") = Some(e);
+            }
+        }
+    }
+
+    fn stop_phone(&self) {
+        if let Some((server, _)) = self.phone_server.lock().expect("poisoned").take() {
+            server.unblock();
+        }
+    }
+
+    pub(crate) fn phone_status(&self) -> crate::Response {
+        let running = self.phone_server.lock().expect("poisoned").clone();
+        crate::Response::Phone {
+            enabled: self.phone.enabled(),
+            listening: running.is_some(),
+            url: running.map(|(_, addr)| format!("http://{addr}/")),
+            error: self.phone_error.lock().expect("poisoned").clone(),
+            phones: self.phone.phones(),
+        }
+    }
+
+    pub(crate) fn phone_set_enabled(&self, on: bool) -> crate::Response {
+        self.phone.set_enabled(on);
+        if on {
+            self.start_phone_if_enabled();
+        } else {
+            self.stop_phone();
+            *self.phone_error.lock().expect("poisoned") = None;
+        }
+        self.phone_status()
+    }
+
+    pub(crate) fn phone_pair(&self) -> crate::Response {
+        let addr = self
+            .phone_server
+            .lock()
+            .expect("poisoned")
+            .clone()
+            .map(|(_, a)| a);
+        let Some(addr) = addr else {
+            return crate::Response::Error {
+                message: "turn phone access on first".into(),
+            };
+        };
+        let code = self.phone.start_pairing();
+        let url = format!("http://{addr}/pair#{code}");
+        crate::Response::PhonePairing {
+            qr_svg: crate::phone::qr_svg(&url),
+            code,
+            url,
+            expires_secs: crate::phone::CODE_TTL.as_secs(),
+        }
+    }
+
+    fn phone_route(
+        &self,
+        request: &mut tiny_http::Request,
+        bind: &str,
+    ) -> Response<std::io::Cursor<Vec<u8>>> {
+        let url = request.url().to_string();
+        let path = url.split('?').next().unwrap_or("/").to_string();
+        let post = matches!(request.method(), Method::Post);
+        match (post, path.as_str()) {
+            (true, "/api/pair") => {
+                if !from_phone_page(request) {
+                    return error_json(403, "forbidden");
+                }
+                let Some(body) = read_body(request) else {
+                    return error_json(400, "unreadable body");
+                };
+                let Ok(body) = serde_json::from_str::<PairBody>(&body) else {
+                    return error_json(400, "send {\"code\": …, \"name\": …}");
+                };
+                match self.phone.redeem(&body.code, &body.name) {
+                    Some(token) => {
+                        let cookie = format!(
+                            "{}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000",
+                            crate::phone::COOKIE
+                        );
+                        let mut resp = json_response(200, &serde_json::json!({ "ok": true }));
+                        if let Ok(h) = Header::from_bytes(b"Set-Cookie".as_ref(), cookie.as_bytes())
+                        {
+                            resp = resp.with_header(h);
+                        }
+                        resp
+                    }
+                    None => error_json(
+                        403,
+                        "that code didn't work: it may have expired or been used. Make a new one \
+                         on the desktop (Settings → Phone).",
+                    ),
+                }
+            }
+            (true, "/api/rpc") => {
+                if !from_phone_page(request) {
+                    return error_json(403, "forbidden");
+                }
+                let phone = header(request, "Cookie")
+                    .and_then(|c| crate::phone::cookie(c, crate::phone::COOKIE))
+                    .and_then(|t| self.phone.check(t));
+                let Some(phone) = phone else {
+                    return json_response(
+                        401,
+                        &serde_json::json!({
+                            "type": "error",
+                            "message": "pair this phone first",
+                            "unpaired": true,
+                        }),
+                    );
+                };
+                let Some(body) = read_body(request) else {
+                    return error_json(400, "unreadable body");
+                };
+                let req: Request = match serde_json::from_str(&body) {
+                    Ok(r) => r,
+                    Err(e) => return error_json(400, &format!("bad request: {e}")),
+                };
+                if let Err(why) = crate::phone::allowed(&req, &phone) {
+                    return error_json(403, why);
+                }
+                let req = match req {
+                    Request::Session => {
+                        return json_response(
+                            200,
+                            &crate::Response::Session {
+                                phone: true,
+                                name: Some(phone.name),
+                                can_post: phone.can_post,
+                            },
+                        )
+                    }
+                    // A phone's message is signed with the phone's name.
+                    Request::RoomPost { room, text, to, .. } => Request::RoomPost {
+                        room,
+                        text,
+                        to,
+                        author: Some(phone.name.clone()),
+                    },
+                    other => other,
+                };
+                json_response(200, &self.handle(no_blocking(req)))
+            }
+            (false, _) if matches!(request.method(), Method::Get) => {
+                let _ = bind;
+                serve_static(&path, self.ui_dir.as_deref())
+            }
+            _ => text_response(405, "method not allowed"),
+        }
+    }
+}
+
+/// Largest request body accepted (requests are small; this is generous).
+const MAX_BODY: u64 = 2 * 1024 * 1024;
+
+fn read_body(request: &mut tiny_http::Request) -> Option<String> {
+    use std::io::Read;
+    if request.body_length().is_some_and(|n| n as u64 > MAX_BODY) {
+        return None;
+    }
+    let mut body = String::new();
+    request
+        .as_reader()
+        .take(MAX_BODY + 1)
+        .read_to_string(&mut body)
+        .ok()?;
+    (body.len() as u64 <= MAX_BODY).then_some(body)
+}
+
+/// Headers every response carries: no framing (clickjacking), no MIME
+/// sniffing, no referrer, nothing cached, and a content policy that allows
+/// only this app's own scripts, styles, images and requests.
+fn secure(mut resp: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
+    for (k, v) in [
+        ("X-Content-Type-Options", "nosniff"),
+        ("X-Frame-Options", "DENY"),
+        ("Referrer-Policy", "no-referrer"),
+        ("Cross-Origin-Opener-Policy", "same-origin"),
+        ("Cross-Origin-Resource-Policy", "same-origin"),
+        (
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=()",
+        ),
+        ("Cache-Control", "no-store"),
+        (
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; \
+             form-action 'self'; frame-ancestors 'none'",
+        ),
+    ] {
+        if let Ok(h) = Header::from_bytes(k.as_bytes(), v.as_bytes()) {
+            resp = resp.with_header(h);
+        }
+    }
+    resp
+}
+
+fn error_json(status: u16, message: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+    json_response(
+        status,
+        &serde_json::json!({ "type": "error", "message": message }),
+    )
+}
+
+/// The phone listener's version of [`from_our_own_page`]. A phone reaches us
+/// by tailnet IP or MagicDNS name, so the `Host` isn't pinned; what stops
+/// another site is that it can't send JSON without a preflight, its `Origin`
+/// won't match, and the phone's cookie is `SameSite=Strict` and bound to this
+/// host, so a re-pointed name never carries it.
+fn from_phone_page(request: &tiny_http::Request) -> bool {
+    let json = header(request, "Content-Type")
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"));
+    let Some(host) = header(request, "Host") else {
+        return false;
+    };
+    // Browsers send Origin on every POST from a page, so one is required here:
+    // a request without it isn't coming from the phone's browser.
+    let same_origin = header(request, "Origin").is_some_and(|origin| {
+        origin
+            .split_once("://")
+            .is_some_and(|(_, rest)| rest.eq_ignore_ascii_case(host))
+    });
+    json && same_origin
 }
 
 /// This server answers one request at a time, so a call that parks (an agent

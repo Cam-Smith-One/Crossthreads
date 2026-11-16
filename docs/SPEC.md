@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1, for review |
+| **Status** | v0.2 — M0, M1, M2 and the rooms half of M4 have shipped (see §10) |
 | **Last updated** | 2026-11-15 |
 | **Builds on** | [PRD.md](PRD.md) · [REQUIREMENTS.md](REQUIREMENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) · [CROSS_DEVICE_SEARCH.md](CROSS_DEVICE_SEARCH.md) |
 | **Supersedes** | The standalone Meat Proxy tool, which is folded into Crossthreads as **Rooms** (§6.4) |
@@ -502,8 +502,23 @@ purpose: the hook is a subcommand of the existing CLI rather than a separate
 `ct-hook` binary (one less thing to package; it still runs in a few
 milliseconds); Codex gets only the two hook events known to work; and a thread
 that spans machines is not yet one thread, because that needs the metadata
-exchange in ADR-011. Open from M1: phone access (FR-BRD-04), which waits on
-authenticated HTTP (§8), the tray count, and notifications.
+exchange in ADR-011. Phone access (FR-BRD-04) followed in 0.21.0, as ADR-013
+describes: a separate HTTP listener on the tailnet address only (never
+`0.0.0.0`), off by default, with per-phone sessions issued by pairing (a
+one-time code and a QR code of the link carrying it) and kept as an `HttpOnly`,
+`SameSite=Strict` cookie whose hash alone is stored. A phone gets a fixed
+allowlist of reading operations; posting to rooms is a separate grant per phone,
+as §8 requires. The same release closed a gap §8 implies: the TCP protocol, once
+bound to the tailnet for federation, served every operation to any machine on
+it; now another machine may use only the token-checked peer protocol. Still open
+from M1: the tray count and notifications.
+
+0.21.0 also completes the §8 posture beyond what the table lists: a local key
+that every client on the machine must present (so other accounts on a shared
+computer get nothing, and the web app signs in with a one-time ticket), a
+separate tailnet listener that serves only the peer protocol, a token required
+for any peer, owner-only files, a strict content security policy, and size
+limits. [SECURITY_MODEL.md](SECURITY_MODEL.md) is the full account.
 
 M2 (rooms) has shipped in 0.18.0 for one machine: the five room tools, the
 Stop and PreToolUse hooks, human messages from the board, the turn cap, the
