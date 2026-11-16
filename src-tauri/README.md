@@ -1,64 +1,74 @@
-# Crossthreads desktop shell (Tauri)
+# Crossthreads for the desktop (Tauri)
 
-Native **menu-bar / tray app** (ADR-002) that wraps the `ui/` frontend. The same
-UI runs as a web app (served by `crossthreadsd --http --ui`) or here as a native
-app; in the native shell the frontend's `rpc()` calls the `rpc` Tauri command,
-which forwards to a running `crossthreadsd` over the local protocol.
+`Crossthreads.app` is the web app in a native window, with everything it needs
+inside the bundle:
 
-## Tray behavior
+```
+Crossthreads.app/Contents/
+  MacOS/Crossthreads      the app
+  MacOS/crossthreadsd     the daemon (started by the app if none is running)
+  MacOS/crossthreads      the CLI (used for one-click setup and "Open in browser")
+  MacOS/ct-mcp            the MCP server, for Claude Code and Codex
+  Resources/ui/           the web app, served by the daemon to browsers and phones
+```
 
-The tray icon is the primary surface (macOS uses `Accessory` activation, so
-there's no dock icon — like CodexBar):
+## What it does
 
-- **Left-click the tray icon** → toggles the compact **glance** popover
-  (`index.html?view=glance`): per-tool usage (today vs. your baseline, this
-  week) fused with the insight read (fluency score, unresolved threads, the
-  optimize focus). It dismisses on blur.
-- **Tray menu** → *Open Crossthreads* (full window) · *Quit*.
-- **Closing the main window** hides it back to the tray (quit is on the menu).
+- **On launch** it starts the bundled daemon unless one is already answering on
+  `127.0.0.1:47100`, and opens the main window. A daemon it started is stopped
+  when you quit; one it found running is left alone. The daemon's log is in
+  `~/Library/Logs/Crossthreads/crossthreadsd.log`.
+- **The window** loads the same frontend as the web app. Its `rpc` command
+  forwards each request to the daemon over the local protocol (off the main
+  thread), presenting this account's local key like every other local client.
+- **The menu-bar icon**: left-click toggles a compact glance (per-tool usage
+  against your baseline, with the current insight). The menu has *Open
+  Crossthreads*, *Open in browser* (signed in, via `crossthreads open`) and *Quit*.
+  Closing the window keeps the app in the menu bar; clicking the Dock icon
+  brings it back.
+- **Settings → Get started** gains buttons that run the bundled CLI: install the
+  hooks, install the agent skill, and link the commands into `~/.local/bin`. The
+  MCP command it shows uses the app's own path to `ct-mcp`.
 
-The glance data comes from the daemon's `glance` op (`ct-daemon::glance`), which
-is deterministic and computed under a read lock. Live provider quota/reset
-windows are a reserved slot (`QuotaWindow`) that an on-device reader fills; the
-headless build ships usage-vs-baseline meters and no fabricated quota numbers.
+## Building
 
-> ⚠️ **Excluded from the Rust workspace on purpose.** Building Tauri needs
-> platform webview libraries (e.g. `webkit2gtk-4.1` + `libsoup` on Linux,
-> WebView2 on Windows, WKWebView on macOS) and, on Linux, a display. It cannot
-> build or run in a headless CI container, so it is **not** part of
-> `cargo build --workspace`. This directory is therefore scaffolding that has
-> **not** been compiled in CI — build it on a real dev machine.
+CI builds it: `.github/workflows/desktop.yml` runs on macOS for pull requests
+that touch this folder and for releases. It builds `crossthreadsd`,
+`crossthreads` and `ct-mcp` for both architectures, joins each with `lipo` into
+`binaries/<name>-universal-apple-darwin`, builds a universal app and `.dmg`, and
+then checks the bundle: both architectures in every program, the code
+signature, and a launch that brings up the daemon.
 
-## Prerequisites
-
-- Node toolchain (for the `ui/` frontend).
-- Rust + the Tauri CLI: `cargo install tauri-cli --version '^2'`.
-- Platform webview deps — see https://v2.tauri.app/start/prerequisites/.
-- App icons: `cargo tauri icon path/to/logo.png` (generates `icons/`).
-
-## Run / build
+To build it yourself on a Mac:
 
 ```sh
-# from src-tauri/
-cargo tauri dev      # launches the window against the dev frontend
-cargo tauri build    # produces a native installer
-
-# the desktop app needs a daemon to talk to:
-crossthreadsd        # (started separately; CROSSTHREADS_ADDR if non-default)
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+(cd ui && npm ci && npm run build)
+for t in aarch64-apple-darwin x86_64-apple-darwin; do
+  cargo build --release --target $t --bin crossthreadsd --bin crossthreads --bin ct-mcp
+done
+mkdir -p src-tauri/binaries
+for b in crossthreadsd crossthreads ct-mcp; do
+  lipo -create target/{aarch64,x86_64}-apple-darwin/release/$b \
+    -output src-tauri/binaries/$b-universal-apple-darwin
+done
+cd src-tauri && npx @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg
 ```
 
-## How it connects
+For a quick build for just your Mac, build the three programs without
+`--target`, copy them to `src-tauri/binaries/<name>-<your target triple>` (see
+`rustc -vV`), and run `npx @tauri-apps/cli@2 build`. `npx @tauri-apps/cli@2
+dev` runs it against the Vite dev server.
 
-`src/lib.rs` exposes two commands:
+## Signing
 
-```rust
-#[tauri::command]
-fn rpc(request: String) -> Result<String, String> // Request JSON -> Response JSON
-#[tauri::command]
-fn open_main(app: tauri::AppHandle)               // show + focus the full window
-```
+Without Apple credentials the bundle is ad-hoc signed (`signingIdentity: "-"`),
+so macOS asks you to confirm the first time you open it (right-click → Open).
+To produce a signed, notarized app, add the repository secrets
+`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID`; the
+workflow passes them to the Tauri bundler. That needs an Apple Developer
+account.
 
-`ui/src/api.ts` detects the Tauri runtime (`window.__TAURI__`) and routes
-through `invoke("rpc", …)`; in a browser it POSTs to `/api/rpc` instead. The
-glance popover's "open" button calls `open_main` (and falls back to navigating
-to `/` in the browser).
+This crate is excluded from the Rust workspace because it needs the platform
+webview libraries to build.

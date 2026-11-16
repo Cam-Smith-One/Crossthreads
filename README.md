@@ -49,7 +49,11 @@ Everything runs on your machines. There's no account, no telemetry and no hosted
 
 ## 🚀 Quick start
 
-**Install, no toolchain required.** Grab a prebuilt build and open the app:
+**On a Mac, the easiest way is the app.** Download `Crossthreads-<version>-macos-universal.dmg` from the [latest release](https://github.com/Cam-Smith-One/Crossthreads/releases/latest) (one download for Apple Silicon and Intel), open it, and drag **Crossthreads** to Applications. Open it, and it indexes your sessions and shows the app; it lives in your menu bar too. Then **Settings → Get started** sets up the rest with one click per step.
+
+> The app isn't notarized by Apple yet, so the first time, **right-click it → Open → Open** (or run `xattr -dr com.apple.quarantine /Applications/Crossthreads.app`).
+
+**Or install from the terminal (macOS, Linux, Windows), no toolchain required:**
 
 ```sh
 # macOS / Linux
@@ -173,9 +177,9 @@ Turn on **Settings → Phone** (or `crossthreads phone on`). Your computer then 
 
 On top of the same index: **Ask** a question and get a cited answer from your own history; **insights** such as open loops, decisions, knowledge cards and recurring problems; **themes**; activity over time; a **weekly review**; and deterministic measures of how you work, with what to change next. [More below →](#-beyond-search--understand-how-you-work)
 
-### 🛰️ A menu-bar glance
+### 🖥️ A Mac app
 
-A native shell (Tauri) adds a tray icon whose popover shows per-tool usage against your baseline, next to the current insight. See [`src-tauri/`](src-tauri/README.md).
+`Crossthreads.app` (built with Tauri) is the web app in a native window, with the daemon, CLI and MCP server inside. It starts the daemon itself, stays in your menu bar with a glance popover (usage against your baseline, next to the current insight), and in **Settings → Get started** installs the hooks, the agent skill and the terminal commands at a click. See [`src-tauri/`](src-tauri/README.md).
 
 ## 📸 Screenshots
 

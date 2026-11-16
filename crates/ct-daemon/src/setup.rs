@@ -43,6 +43,14 @@ fn contains(path: &Path, needle: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|s| s.contains(needle))
 }
 
+/// Does a tool's hook file run `crossthreads … hook <tool>`?
+fn has_hook(path: &Path, tool: &str) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|s| {
+        s.lines()
+            .any(|l| l.contains("crossthreads") && l.contains(&format!(" hook {tool}")))
+    })
+}
+
 /// Check the files the installers write.
 pub fn local_checks() -> SetupStatus {
     let claude = home("CLAUDE_CONFIG_DIR", ".claude");
@@ -54,8 +62,9 @@ pub fn local_checks() -> SetupStatus {
         None => dirs::home_dir().unwrap_or_default().join(".claude.json"),
     };
     SetupStatus {
-        hooks_claude: contains(&claude.join("settings.json"), "crossthreads hook"),
-        hooks_codex: contains(&codex.join("hooks.json"), "crossthreads hook"),
+        // The installer writes `"<path to crossthreads>" hook <tool> <event>`.
+        hooks_claude: has_hook(&claude.join("settings.json"), "claude"),
+        hooks_codex: has_hook(&codex.join("hooks.json"), "codex"),
         mcp_claude: contains(&claude_json, "ct-mcp")
             || contains(&claude.join("settings.json"), "ct-mcp"),
         mcp_codex: contains(&codex.join("config.toml"), "ct-mcp")
@@ -82,7 +91,7 @@ mod tests {
         std::fs::create_dir_all(&codex).unwrap();
         std::fs::write(
             claude.join("settings.json"),
-            r#"{"hooks":{"Stop":[{"hooks":[{"command":"crossthreads hook claude stop"}]}]}}"#,
+            r#"{"hooks":{"Stop":[{"hooks":[{"command":"\"/Applications/Crossthreads.app/Contents/MacOS/crossthreads\" hook claude Stop"}]}]}}"#,
         )
         .unwrap();
         std::fs::write(

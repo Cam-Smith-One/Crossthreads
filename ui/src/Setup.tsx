@@ -1,8 +1,36 @@
 // "Get started": what Crossthreads can do on this machine, what's already set
 // up, and the one command or click that turns on each remaining piece.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SetupStatus } from "./api";
+
+type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+/** The desktop app's bridge, when running inside it. */
+function desktopInvoke(): Invoke | null {
+  const t = (window as unknown as { __TAURI__?: { core?: { invoke?: Invoke } } }).__TAURI__;
+  return t?.core?.invoke ?? null;
+}
+
+/** Inside the desktop app: where its bundled ct-mcp lives, and a way to run
+ * a setup step with its bundled CLI. */
+export interface Desktop {
+  ctMcp: string | null;
+  run: (step: string) => Promise<string>;
+}
+
+export function useDesktop(): Desktop | null {
+  const invoke = desktopInvoke();
+  const [ctMcp, setCtMcp] = useState<string | null>(null);
+  useEffect(() => {
+    if (!invoke) return;
+    invoke("app_paths")
+      .then((p) => setCtMcp((p as { ct_mcp?: string | null }).ct_mcp ?? null))
+      .catch(() => {});
+  }, [invoke]);
+  if (!invoke) return null;
+  return { ctMcp, run: (step) => invoke("setup_step", { step }) as Promise<string> };
+}
 
 type Go = (page: "settings", tab: string) => void;
 
@@ -16,7 +44,7 @@ interface Step {
   /** Commands to run in a terminal. */
   commands?: string[];
   /** Or a place in the app. */
-  action?: { label: string; run: () => void };
+  action?: { label: string; run: () => void | Promise<void> };
   note?: string;
 }
 
@@ -45,7 +73,13 @@ export function setupSteps(
   sessions: number,
   reindex: () => void,
   go: Go,
+  desktop: Desktop | null = null,
+  done: () => void = () => {},
 ): { essentials: Step[]; optional: Step[] } {
+  // In the desktop app, the bundled CLI does the work at the click of a button.
+  const runner = (step: string) =>
+    desktop ? { label: "Set it up for me", run: () => desktop.run(step).then(done) } : undefined;
+  const ctMcp = desktop?.ctMcp ? `"${desktop.ctMcp}"` : '"$(command -v ct-mcp)"';
   const tools = (claude: boolean, codex: boolean): [string, boolean][] => {
     const out: [string, boolean][] = [];
     if (s.claude_present || !s.codex_present) out.push(["Claude Code", claude]);
@@ -58,11 +92,13 @@ export function setupSteps(
   const skill = tools(s.skill_claude, s.skill_codex);
   const mcpCommands = [
     ...(s.claude_present || !s.codex_present
-      ? ['claude mcp add crossthreads -s user -- "$(command -v ct-mcp)"']
+      ? [`claude mcp add crossthreads -s user -- ${ctMcp}`]
       : []),
     ...(s.codex_present
       ? [
-          `# Codex: add to ~/.codex/config.toml\n[mcp_servers.crossthreads]\ncommand = "<output of: command -v ct-mcp>"`,
+          `# Codex: add to ~/.codex/config.toml\n[mcp_servers.crossthreads]\ncommand = ${
+            desktop?.ctMcp ? ctMcp : '"<output of: command -v ct-mcp>"'
+          }`,
         ]
       : []),
   ];
@@ -85,7 +121,8 @@ export function setupSteps(
         why: "Your tools report each session's state, so the board shows what's running and pins what's waiting for you. It also wakes an agent mid-conversation in a room and stops agents editing a file another has claimed.",
         done: anyOf(hooks),
         perTool: hooks,
-        commands: ["crossthreads hooks install"],
+        commands: desktop ? undefined : ["crossthreads hooks install"],
+        action: runner("hooks"),
         note: "Restart Claude Code and Codex afterwards. Codex asks you to trust the new hooks once.",
       },
       {
@@ -102,10 +139,22 @@ export function setupSteps(
         why: "A short skill for Claude Code and a /crossthreads prompt for Codex: look for prior work before building, and how to lead or listen in a room.",
         done: anyOf(skill),
         perTool: skill,
-        commands: ["crossthreads skill install"],
+        commands: desktop ? undefined : ["crossthreads skill install"],
+        action: runner("skill"),
       },
     ],
     optional: [
+      ...(desktop
+        ? [
+            {
+              id: "cli",
+              title: "Use Crossthreads from your terminal",
+              why: "Adds the crossthreads, crossthreadsd and ct-mcp commands to ~/.local/bin, so the commands in the docs work as written.",
+              done: false,
+              action: { label: "Add the commands", run: () => desktop.run("cli").then(done) },
+            },
+          ]
+        : []),
       {
         id: "devices",
         title: "Add your other computers",
@@ -144,6 +193,21 @@ export function setupSteps(
 }
 
 function StepCard({ step, n }: { step: Step; n: number }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  async function act() {
+    if (!step.action) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const out = await step.action.run();
+      if (typeof out === "string") setResult(out);
+    } catch (e) {
+      setResult(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <li className={`setup-step ${step.done ? "done" : ""}`}>
       <span className="setup-check" aria-label={step.done ? "done" : "not done"}>
@@ -164,11 +228,12 @@ function StepCard({ step, n }: { step: Step; n: number }) {
         </div>
         <p className="setup-why">{step.why}</p>
         {!step.done && step.commands?.map((c) => <CopyCommand key={c} cmd={c} />)}
-        {step.action && (!step.done || step.id === "index") && (
-          <button className="secondary" onClick={step.action.run}>
-            {step.action.label}
+        {step.action && (!step.done || step.id === "index" || step.id === "cli") && (
+          <button className="secondary" onClick={act} disabled={busy}>
+            {busy ? "Working…" : step.action.label}
           </button>
         )}
+        {result && <pre className="setup-result">{result.trim()}</pre>}
         {step.note && <p className="setup-note">{step.note}</p>}
       </div>
     </li>
@@ -182,15 +247,21 @@ export function SetupChecklist({
   reindexing,
   onReindex,
   go,
+  onChanged,
 }: {
   setup: SetupStatus | null;
   sessions: number;
   reindexing: boolean;
   onReindex: () => void;
   go: Go;
+  /** Re-check after a step ran. */
+  onChanged?: () => void;
 }) {
+  const desktop = useDesktop();
   if (!setup) return <p className="settings-hint">Checking what's set up…</p>;
-  const { essentials, optional } = setupSteps(setup, sessions, onReindex, go);
+  const { essentials, optional } = setupSteps(setup, sessions, onReindex, go, desktop, () =>
+    onChanged?.(),
+  );
   const done = essentials.filter((s) => s.done).length;
   return (
     <div className="setup">
@@ -199,8 +270,9 @@ export function SetupChecklist({
           Essentials <span className="setup-progress">{done} of {essentials.length} done</span>
         </h3>
         <p className="settings-hint">
-          Run these once in a terminal on this computer. This list checks again each time you open
-          it.
+          {desktop
+            ? "Each takes one click. This list checks again each time you open it."
+            : "Run these once in a terminal on this computer. This list checks again each time you open it."}
         </p>
         <ol className="setup-steps">
           {essentials.map((s, i) => (

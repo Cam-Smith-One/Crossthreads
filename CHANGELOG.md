@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.22.0] - 2026-11-16
+
+The Mac app.
+
+### Added
+- **`Crossthreads.app`, as a `.dmg`.** One universal download for Apple Silicon
+  and Intel Macs, on every release. Drag it to Applications and open it: it
+  starts its bundled daemon (`crossthreadsd`, `crossthreads` and `ct-mcp` ship
+  inside the app), opens the window, and stays in the menu bar with the glance
+  popover. The menu also opens the app in your browser, signed in.
+- In the app, **Settings → Get started** sets up the hooks and the agent skill
+  with a click, can add the commands to `~/.local/bin`, and shows the MCP
+  command with the app's own path to `ct-mcp`.
+- A `Desktop app` workflow builds and checks the bundle on macOS (both
+  architectures in every bundled program, the code signature, and a launch
+  that brings up the daemon), on pull requests that touch it and for releases.
+  It signs and notarizes when Apple credentials are added as secrets;
+  otherwise the app is ad-hoc signed.
+
+### Fixed
+- Get started reported the hooks as missing even when installed (the hook
+  command names the CLI by its full path).
+- The desktop shell called the daemon on its main thread, so a slow call froze
+  the window, and it couldn't reach the daemon from the web app at all (the
+  bridge wasn't exposed to the page). It now also opens a window on launch,
+  appears in the Dock, and uses the same strict content security policy as the
+  web app.
+
 ## [0.21.0] - 2026-11-16
 
 Your board on your phone, a tighter boundary between machines, and documentation
