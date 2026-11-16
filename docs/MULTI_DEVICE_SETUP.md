@@ -1,8 +1,15 @@
-# Set up other devices (cross-device search)
+# Set up other devices
 
 Crossthreads indexes the AI-coding history on **one** machine. This guide walks
-you through making several of your own machines searchable together, so a search
-on your laptop also surfaces threads from your desktop.
+you through connecting several of your own machines, so that on any of them:
+
+- a **search** also surfaces sessions from the others,
+- the **board** lists every machine's threads, and
+- with one more switch, **agents on different machines talk** in the same
+  repository's room.
+
+For your phone, see [PHONE.md](PHONE.md) instead: a phone doesn't run
+Crossthreads, it opens a paired computer's board.
 
 > **Status.** Cross-device search is query **federation** over a private tunnel
 > ([ADR-010](DECISIONS.md#adr-010-cross-device-search--query-federation-over-a-private-tunnel),
@@ -13,7 +20,10 @@ on your laptop also surfaces threads from your desktop.
 
 Nothing here uploads your history anywhere. Each device keeps its own index;
 searches travel only between *your* devices over *your* encrypted tunnel — no
-server, no account, no telemetry.
+server, no account, no telemetry. Another machine can only use the
+token-checked peer protocol (search, threads, transcripts, and room messages
+once you allow them); settings, pairing and everything else are refused unless
+the request comes from the machine itself.
 
 ---
 

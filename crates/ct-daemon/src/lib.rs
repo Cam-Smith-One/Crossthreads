@@ -24,6 +24,7 @@ mod http;
 pub mod insights;
 pub mod live;
 pub mod optimize;
+pub mod phone;
 pub mod protocol;
 pub mod resume;
 pub mod rooms;
@@ -40,6 +41,9 @@ const WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 
 /// Default port a peer daemon listens on, used when discovering tailnet devices.
 const FED_PORT: u16 = 47100;
+
+/// The running phone listener and the address it is bound to.
+type PhoneServer = (Arc<tiny_http::Server>, String);
 
 /// The running daemon: shared handles to the store and embedder.
 #[derive(Clone)]
@@ -60,6 +64,14 @@ pub struct Daemon {
     rooms: Arc<rooms::RoomHub>,
     /// Agent messages allowed per room exchange; 0 = no cap.
     room_turn_cap: i64,
+    /// Paired phones and the phone listener's switch (SPEC FR-BRD-04).
+    phone: Arc<phone::PhoneAccess>,
+    /// The running phone listener and the address it is bound to.
+    phone_server: Arc<Mutex<Option<PhoneServer>>>,
+    /// Why the phone listener isn't running when it should be.
+    phone_error: Arc<Mutex<Option<String>>>,
+    /// The built web app, served to phones too.
+    ui_dir: Option<PathBuf>,
 }
 
 impl Daemon {
@@ -75,7 +87,23 @@ impl Daemon {
             live: Arc::new(live::LiveRegistry::default()),
             rooms: Arc::new(rooms::RoomHub::default()),
             room_turn_cap: 0,
+            phone: Arc::new(phone::PhoneAccess::load(None)),
+            phone_server: Arc::new(Mutex::new(None)),
+            phone_error: Arc::new(Mutex::new(None)),
+            ui_dir: None,
         }
+    }
+
+    /// Use this phone-access state (normally loaded from `phone.json`).
+    pub fn with_phone(mut self, access: phone::PhoneAccess) -> Self {
+        self.phone = Arc::new(access);
+        self
+    }
+
+    /// The built web app to serve, on the desktop and to phones.
+    pub fn with_ui_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.ui_dir = dir;
+        self
     }
 
     /// Cap agent messages per room exchange (0 = no cap). Off by default; a
@@ -274,6 +302,10 @@ impl Daemon {
 
     fn handle_conn(&self, stream: TcpStream) -> Result<()> {
         let peer = stream.peer_addr().ok();
+        // Another machine (a federation peer on the tailnet) may only use the
+        // peer protocol, which checks the shared token. Everything else, from
+        // settings to pairing a phone, is for this machine's own clients.
+        let from_elsewhere = from_another_machine(peer, stream.local_addr().ok());
         let reader = BufReader::new(stream.try_clone()?);
         let mut writer = stream;
         for line in reader.lines() {
@@ -282,6 +314,9 @@ impl Daemon {
                 continue;
             }
             let response = match serde_json::from_str::<Request>(&line) {
+                Ok(req) if from_elsewhere && !req.is_peer_request() => Response::Error {
+                    message: "only the peer protocol is served to other machines".into(),
+                },
                 Ok(req) => self.handle(req),
                 Err(e) => Response::Error {
                     message: format!("bad request: {e}"),
@@ -324,6 +359,22 @@ impl Daemon {
             Request::ApprovePeer { name, addr } => self.approve_peer(name, addr),
             Request::RemovePeer { name } => self.remove_peer(&name),
             Request::SetPeerRooms { name, rooms } => self.set_peer_rooms(&name, rooms),
+            Request::Session => Response::Session {
+                phone: false,
+                name: None,
+                can_post: true,
+            },
+            Request::PhoneStatus => self.phone_status(),
+            Request::PhoneSetEnabled { enabled } => self.phone_set_enabled(enabled),
+            Request::PhonePair => self.phone_pair(),
+            Request::PhoneRevoke { id } => {
+                self.phone.revoke(&id);
+                self.phone_status()
+            }
+            Request::PhoneSetPost { id, can_post } => {
+                self.phone.set_can_post(&id, can_post);
+                self.phone_status()
+            }
             Request::PeerRoomPost {
                 token,
                 from,
@@ -1575,6 +1626,18 @@ impl Daemon {
     }
 }
 
+/// True unless the caller is on this machine: loopback, or the address the
+/// connection arrived on (a local client using the tailnet address).
+fn from_another_machine(
+    peer: Option<std::net::SocketAddr>,
+    local: Option<std::net::SocketAddr>,
+) -> bool {
+    match (peer, local) {
+        (Some(p), Some(l)) => !p.ip().is_loopback() && p.ip() != l.ip(),
+        _ => true,
+    }
+}
+
 fn text_or_err(result: Result<String>) -> Response {
     match result {
         Ok(text) => Response::Text { text },
@@ -1787,5 +1850,34 @@ impl Client {
             Response::Error { message } => Err(anyhow::anyhow!(message)),
             other => Err(anyhow::anyhow!("unexpected response: {other:?}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod peer_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn only_this_machine_gets_the_full_protocol() {
+        let at = |s: &str| Some(s.parse::<std::net::SocketAddr>().unwrap());
+        // A local client, by loopback or by our own tailnet address.
+        assert!(!from_another_machine(
+            at("127.0.0.1:5000"),
+            at("127.0.0.1:47100")
+        ));
+        assert!(!from_another_machine(
+            at("100.64.0.2:5000"),
+            at("100.64.0.2:47100")
+        ));
+        // A peer on the tailnet.
+        assert!(from_another_machine(
+            at("100.64.0.9:5000"),
+            at("100.64.0.2:47100")
+        ));
+        assert!(from_another_machine(None, at("100.64.0.2:47100")));
+
+        assert!(Request::Ping.is_peer_request());
+        assert!(!Request::PhonePair.is_peer_request());
+        assert!(!Request::Reindex.is_peer_request());
     }
 }

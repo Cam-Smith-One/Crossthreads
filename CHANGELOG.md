@@ -5,6 +5,45 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.21.0] - 2026-11-16
+
+Your board on your phone, a tighter boundary between machines, and documentation
+that describes the product as it is now.
+
+### Added
+- **Phone access.** Turn on **Settings → Phone** (or `crossthreads phone on`)
+  and your computer serves the board to your phone's browser over Tailscale.
+  **Pair a phone** shows a QR code and a one-time code; scan it and the phone is
+  in. A phone can read threads (including other devices'), transcripts, the
+  handoff brief, rooms and search. Posting to rooms is a separate switch per
+  phone, off by default; a phone's messages are signed with its name. Remove a
+  phone at any time. Guide: [docs/PHONE.md](docs/PHONE.md).
+- `crossthreads phone [on|off|pair|post <ID> on|off|revoke <ID>]`; `pair`
+  prints the QR code in the terminal.
+- Daemon ops `session`, `phone_status`, `phone_set_enabled`, `phone_pair`,
+  `phone_revoke`, `phone_set_post`.
+
+### Security
+- The phone listener binds only the computer's Tailscale address and refuses
+  `0.0.0.0`. Pairing codes work once, for 10 minutes, and five wrong guesses
+  cancel them all. Each phone gets a random token in an `HttpOnly`,
+  `SameSite=Strict` cookie; only its hash is stored, in a file readable by you
+  alone. Requests must be same-origin JSON, and a phone gets a fixed list of
+  reading operations.
+- **Fixed:** when the daemon listened on Tailscale for cross-device search, any
+  machine on the tailnet could call every operation on it, including changing
+  settings. Other machines may now use only the token-checked peer protocol.
+
+### Documentation
+- The README is rewritten around what Crossthreads does now — threads and the
+  board, picking work up anywhere, rooms, your other devices, your phone, search
+  and insights — with fresh screenshots, a setup table, the whole command line,
+  and a security and privacy section listing every grant.
+- New [docs/PHONE.md](docs/PHONE.md). AGENT_API gains phone access (§7.7) and
+  who may call what (§7.8). ARCHITECTURE, SPEC, MULTI_DEVICE_SETUP,
+  TROUBLESHOOTING and the docs index are brought up to date; the June STATUS and
+  ROADMAP pages are marked as history.
+
 ## [0.20.0] - 2026-11-16
 
 Rooms across devices: an agent on one machine can talk to an agent on another.

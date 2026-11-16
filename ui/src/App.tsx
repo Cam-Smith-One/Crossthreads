@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   approvePeer,
   buildContext,
+  getSession,
+  UnpairedError,
+  type Session,
   discoverDevices,
   forget,
   getConversation,
@@ -53,6 +56,7 @@ import {
 } from "./api";
 import { Board } from "./Board";
 import { Rooms } from "./Rooms";
+import { PairPhone, PhoneSettings } from "./Phone";
 import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
@@ -140,7 +144,21 @@ export function App() {
   const [reindexing, setReindexing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "models">("docs");
+  const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "phone" | "models">(
+    "docs",
+  );
+  // A paired phone sees a read-only board (SPEC FR-BRD-04); an unpaired one
+  // sees the pairing screen.
+  const [session, setSession] = useState<Session | null>(null);
+  const [unpaired, setUnpaired] = useState(false);
+  const phone = !!session?.phone;
+  useEffect(() => {
+    getSession()
+      .then(setSession)
+      .catch((e) => {
+        if (e instanceof UnpairedError) setUnpaired(true);
+      });
+  }, []);
   const [themes, setThemes] = useState<Theme[] | null>(null);
   // One Insights view with tabs replaces what used to be six separate panels.
   const [insightsTab, setInsightsTab] = useState<InsightsTab | null>(null);
@@ -767,6 +785,7 @@ export function App() {
   // One "save" star, shared by result rows, the saved list and the viewer.
   // (Older indexes may hold pins; a pinned session counts as saved too.)
   const flagButtons = (h: Pick<Hit, "conversation_id" | "pinned" | "bookmarked">) => {
+    if (phone) return null;
     const saved = !!(h.bookmarked || h.pinned);
     return (
       <span className="hit-actions" onClick={(e) => e.stopPropagation()}>
@@ -799,8 +818,10 @@ export function App() {
       .map(({ m, i }) => ({ key: i, role: m.role, html: highlightFind(m.content, term) }));
   }, [open, find]);
 
+  if (unpaired || window.location.pathname === "/pair") return <PairPhone />;
+
   return (
-    <div className="app">
+    <div className={`app${phone ? " on-phone" : ""}`}>
       <header>
         <div className="brand-row">
           <img className="brand-mark" src="/mark.png" alt="Crossthreads" />
@@ -809,22 +830,26 @@ export function App() {
             <span className="brand-threads">threads</span>
           </h1>
           <nav className="top-nav" aria-label="Main">
-            <button
-              className="nav-btn"
-              onClick={() => openInsights("overview")}
-              title="How you work, your weekly review, themes, and analyses of your history"
-            >
-              <span aria-hidden="true">💡</span> Insights
-              {weeklyUnseen && <span className="nav-dot" aria-label="new weekly review" />}
-            </button>
-            <Rooms onError={reportError} />
-            <button
-              className="nav-btn"
-              onClick={() => setShowAsk(true)}
-              title="Ask a question and get an answer from your own past sessions, with citations"
-            >
-              <span aria-hidden="true">💬</span> Ask
-            </button>
+            {!phone && (
+              <button
+                className="nav-btn"
+                onClick={() => openInsights("overview")}
+                title="How you work, your weekly review, themes, and analyses of your history"
+              >
+                <span aria-hidden="true">💡</span> Insights
+                {weeklyUnseen && <span className="nav-dot" aria-label="new weekly review" />}
+              </button>
+            )}
+            <Rooms onError={reportError} canPost={session?.can_post ?? true} />
+            {!phone && (
+              <button
+                className="nav-btn"
+                onClick={() => setShowAsk(true)}
+                title="Ask a question and get an answer from your own past sessions, with citations"
+              >
+                <span aria-hidden="true">💬</span> Ask
+              </button>
+            )}
           </nav>
           <button
             className="theme-toggle"
@@ -834,14 +859,16 @@ export function App() {
           >
             {theme === "dark" ? "☀️" : "🌙"}
           </button>
-          <button
-            className="settings-toggle"
-            onClick={() => setShowSettings(true)}
-            title="Settings and documentation"
-            aria-label="Open settings"
-          >
-            ⚙️
-          </button>
+          {!phone && (
+            <button
+              className="settings-toggle"
+              onClick={() => setShowSettings(true)}
+              title="Settings and documentation"
+              aria-label="Open settings"
+            >
+              ⚙️
+            </button>
+          )}
         </div>
         <p className="tagline">Every AI coding thread, across your tools and machines.</p>
         {status && (
@@ -851,9 +878,12 @@ export function App() {
           >
             {sessionCount.toLocaleString()} session{sessionCount === 1 ? "" : "s"} indexed
             {toolChips.length > 0 && <> across {toolChips.length} tool{toolChips.length === 1 ? "" : "s"}</>}
-            <button className="linklike" onClick={runReindex} disabled={reindexing}>
-              {reindexing ? "re-indexing…" : "re-index"}
-            </button>
+            {!phone && (
+              <button className="linklike" onClick={runReindex} disabled={reindexing}>
+                {reindexing ? "re-indexing…" : "re-index"}
+              </button>
+            )}
+            {phone && <span className="phone-badge"> · read-only on {session?.name ?? "phone"}</span>}
           </p>
         )}
         {toolChips.length > 0 && (
@@ -1052,6 +1082,7 @@ export function App() {
           openThreadFor={threadRequest}
           onThreadOpened={() => setThreadRequest(null)}
           localDevice={localDevice}
+          readOnly={phone}
           refreshKey={boardKey}
           onError={reportError}
         />
@@ -1704,6 +1735,12 @@ export function App() {
                   Devices
                 </button>
                 <button
+                  className={settingsTab === "phone" ? "on" : ""}
+                  onClick={() => setSettingsTab("phone")}
+                >
+                  Phone
+                </button>
+                <button
                   className={settingsTab === "models" ? "on" : ""}
                   onClick={() => setSettingsTab("models")}
                 >
@@ -1751,6 +1788,12 @@ export function App() {
                     </li>
                   </ul>
                 </section>
+              </div>
+            )}
+
+            {settingsTab === "phone" && (
+              <div className="settings-body">
+                <PhoneSettings onError={reportError} />
               </div>
             )}
 

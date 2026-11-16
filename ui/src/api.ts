@@ -77,6 +77,69 @@ export interface StoredConversation {
   messages: StoredMessage[];
 }
 
+/** A phone that hasn't been paired yet asked for something. */
+export class UnpairedError extends Error {
+  constructor() {
+    super("pair this phone first");
+  }
+}
+
+/** Who is using the app: this computer, or a paired phone. */
+export interface Session {
+  phone: boolean;
+  name?: string | null;
+  /** May post to rooms. Always true on the computer itself. */
+  can_post: boolean;
+}
+
+export async function getSession(): Promise<Session> {
+  return rpc<Session>({ op: "session" });
+}
+
+export interface PhoneInfo {
+  id: string;
+  name: string;
+  created: number;
+  last_seen: number;
+  can_post: boolean;
+}
+
+export interface PhoneStatus {
+  enabled: boolean;
+  listening: boolean;
+  url?: string | null;
+  error?: string | null;
+  phones: PhoneInfo[];
+}
+
+export interface PhonePairing {
+  code: string;
+  url: string;
+  qr_svg?: string | null;
+  expires_secs: number;
+}
+
+export const phoneStatus = () => rpc<PhoneStatus>({ op: "phone_status" });
+export const setPhoneEnabled = (enabled: boolean) =>
+  rpc<PhoneStatus>({ op: "phone_set_enabled", enabled });
+export const pairPhoneStart = () => rpc<PhonePairing>({ op: "phone_pair" });
+export const revokePhone = (id: string) => rpc<PhoneStatus>({ op: "phone_revoke", id });
+export const setPhonePost = (id: string, can_post: boolean) =>
+  rpc<PhoneStatus>({ op: "phone_set_post", id, can_post });
+
+/** On the phone: trade a pairing code for this browser's session cookie. */
+export async function redeemPairingCode(code: string, name: string): Promise<void> {
+  const res = await fetch("/api/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, name }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? `pairing failed (HTTP ${res.status})`);
+  }
+}
+
 async function rpc<T>(body: unknown): Promise<T> {
   let data: any;
   // In the native Tauri shell, forward through the `rpc` command (which talks
@@ -93,6 +156,10 @@ async function rpc<T>(body: unknown): Promise<T> {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
+      // The phone listener explains a refusal in JSON; keep its words.
+      const err = await res.json().catch(() => null);
+      if (res.status === 401 && err?.unpaired) throw new UnpairedError();
+      if (err?.message) throw new Error(err.message);
       throw new Error(`daemon unreachable (HTTP ${res.status} ${res.statusText})`);
     }
     try {

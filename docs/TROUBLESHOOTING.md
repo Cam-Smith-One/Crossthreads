@@ -221,6 +221,29 @@ list) is in [MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md). If a device is found
 but searches skip it, its daemon is likely down or the shared `--fed-token`
 doesn't match — offline peers are skipped by design, never fatal.
 
+### An agent on another machine never gets my room message
+Both machines must allow each other: **Settings → Devices → Can message**, ticked
+on **each** side (`crossthreads room devices` shows it). Both must run 0.20.0 or
+later, and the agents must be in the same repository (same `origin` remote). A
+machine that was offline catches up within about 10 seconds of coming back, for
+messages from the last day. If the sending daemon logs
+`<device> refused a room message`, the receiving machine hasn't ticked it.
+
+### "only the peer protocol is served to other machines"
+A command from one machine was pointed at another machine's daemon. Each
+machine's CLI, MCP server and web app should talk to its **own** daemon; the
+daemons talk to each other. Unset `CROSSTHREADS_ADDR` or point it at this
+machine.
+
+---
+
+## Phone
+
+### Settings → Phone says Tailscale isn't connected
+Phone access listens only on this computer's Tailscale address. Install
+Tailscale, sign in, then turn Phone access off and on. More fixes, and what a
+phone can and can't do, are in [PHONE.md](PHONE.md#troubleshooting).
+
 ---
 
 ## Data, privacy & reset

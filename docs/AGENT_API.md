@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 (design sketch, pre-implementation) |
-| **Last updated** | 2026-06-24 |
+| **Status** | Implemented; sections 7.5–7.8 describe the current daemon (0.21.0) |
+| **Last updated** | 2026-11-16 |
 | **Companion to** | [PRD.md](PRD.md) · [REQUIREMENTS.md](REQUIREMENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Covers** | FR-UI-02 (CLI/JSON), FR-UI-03 (Agent API), FR-UI-04 (MCP), FR-ACT-01..04 |
 
@@ -488,9 +488,45 @@ unless the receiver has granted `from`. Claims are per device.
 kind `exchange`, and the sessions of the agents that spoke are linked
 `conversed` (origin `explicit`) when a hook has reported their transcripts.
 
+### 7.7 Phone access
+
+A phone opens the web app from a second HTTP listener on the computer's
+Tailscale address (default port `47102`), off until turned on
+([PHONE.md](PHONE.md), SPEC FR-BRD-04). Ops for the computer itself:
+
+| Op | Answers | What it does |
+|---|---|---|
+| `session` | `{"type":"session","phone":false,"can_post":true}` | Who is asking. On the phone listener: `phone: true`, the phone's `name`, and its `can_post` grant. |
+| `phone_status` | `phone {enabled, listening, url?, error?, phones:[{id,name,created,last_seen,can_post}]}` | Settings → Phone. |
+| `phone_set_enabled {enabled}` | `phone` | Start or stop the listener. Binds `CROSSTHREADS_PHONE_ADDR`, else the saved address, else this device's tailnet IP; never `0.0.0.0`. |
+| `phone_pair` | `phone_pairing {code, url, qr_svg?, expires_secs}` | A one-time 8-character code (10 minutes), the `…/pair#CODE` link and an SVG QR code of it. |
+| `phone_revoke {id}` · `phone_set_post {id, can_post}` | `phone` | Remove a phone; grant or withdraw posting to rooms. |
+
+The phone listener serves the web app and two endpoints:
+
+- `POST /api/pair` `{"code","name"}` → `200` and `Set-Cookie: ct_phone=<token>;
+  HttpOnly; SameSite=Strict`, or `403`. Five wrong codes cancel every open code.
+- `POST /api/rpc` with that cookie. Without it: `401 {"unpaired":true}`. Allowed
+  ops: `ping`, `status`, `facets`, `session`, `search`, `get_conversation`,
+  `devices`, `glance`, `threads`, `thread`, `thread_handoff`, `rooms`,
+  `room_messages`, `room_history`, `saved`, `resume`; `room_post` only with the
+  phone's `can_post` grant, signed with the phone's name. Anything else is `403`.
+
+Both require `Content-Type: application/json` and, when an `Origin` is sent, the
+same origin. Tokens are stored only as SHA-256 hashes in `phone.json`.
+
+### 7.8 Who may call what
+
+| Caller | Gets |
+|---|---|
+| This machine, over the TCP protocol (loopback, or its own tailnet address) | Every op |
+| This machine's browser, over the local HTTP bridge | Every op, if JSON, same-origin and to a host it answers to; blocking room calls return at once |
+| Another machine, over the TCP protocol | Only the peer protocol: `ping`, `peer_search`, `peer_get_conversation`, `peer_threads`, `peer_thread`, `peer_room_post`, `peer_room_sync`. Each checks the shared token; room ops also need the receiver's *Can message* grant for the sender. Anything else answers `only the peer protocol is served to other machines`. |
+| A paired phone, over the phone listener | The reading allowlist in §7.7 |
+
 ## 8. Conventions
 
-- **Auth/scope:** local surfaces (CLI, MCP stdio, loopback HTTP) assume the local user; no auth at MVP. Network/team auth is a P2 concern.
+- **Auth/scope:** see §7.8. Local surfaces (CLI, MCP stdio, loopback HTTP) act as the local user.
 - **Errors:** `{ "error": { "code": "not_found" | "bad_request" | "index_unavailable" | "llm_unavailable", "message": "..." } }`.
 - **Stability:** request/response shapes are **versioned** (`x-crossthreads-api: 1`); additive changes are non-breaking, removals bump the version.
 - **Determinism:** `mode: "lexical"` is fully deterministic for scripting; `hybrid`/`semantic`/`recall` may vary with model/index state.

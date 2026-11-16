@@ -124,7 +124,11 @@ fn run() -> Result<()> {
         .unwrap_or(0);
     let mut daemon = Daemon::new(store, embedder)
         .with_read_pool(&db_path, read_pool)
-        .with_room_turn_cap(turn_cap);
+        .with_room_turn_cap(turn_cap)
+        .with_phone(ct_daemon::phone::PhoneAccess::load(Some(
+            ct_daemon::phone::config_path(),
+        )))
+        .with_ui_dir(ui.clone());
 
     // Federation is always available so the Settings → Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is
@@ -249,6 +253,9 @@ fn run() -> Result<()> {
 
     // Rooms across devices: catch up with peers that may message.
     daemon.spawn_room_sync();
+
+    // The board from a phone, over the tailnet, if the user turned it on.
+    daemon.start_phone_if_enabled();
 
     if let Some(http_addr) = http {
         if let Some(dir) = &ui {

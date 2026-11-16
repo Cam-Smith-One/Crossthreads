@@ -292,6 +292,20 @@ pub enum Request {
         #[serde(default)]
         after: i64,
     },
+    // ---- phone access (SPEC FR-BRD-04) -------------------------------------
+    /// Who is asking: a paired phone (with its name and grants) or this
+    /// device. Answers `Session`.
+    Session,
+    /// Phone access settings and paired phones. Answers `Phone`.
+    PhoneStatus,
+    /// Turn the phone listener on or off. Answers `Phone`.
+    PhoneSetEnabled { enabled: bool },
+    /// Open a one-time pairing code. Answers `PhonePairing`.
+    PhonePair,
+    /// Forget a paired phone. Answers `Phone`.
+    PhoneRevoke { id: String },
+    /// Let a paired phone post to rooms, or not. Answers `Phone`.
+    PhoneSetPost { id: String, can_post: bool },
     // ---- rooms (SPEC §6.4) ------------------------------------------------
     /// Post a message to a room and, unless `wait` is false, block until a
     /// reply arrives (up to `timeout` seconds). Answers `Text`.
@@ -398,6 +412,23 @@ pub enum Request {
         #[serde(default)]
         status: Option<String>,
     },
+}
+
+impl Request {
+    /// Requests one daemon sends another. These check the federation token
+    /// themselves, so they are the only ones served to other machines.
+    pub fn is_peer_request(&self) -> bool {
+        matches!(
+            self,
+            Request::Ping
+                | Request::PeerSearch { .. }
+                | Request::PeerGetConversation { .. }
+                | Request::PeerThreads { .. }
+                | Request::PeerThread { .. }
+                | Request::PeerRoomPost { .. }
+                | Request::PeerRoomSync { .. }
+        )
+    }
 }
 
 /// A device known to this daemon: this host, or an approved peer (ADR-010).
@@ -608,6 +639,38 @@ pub enum Response {
     },
     RoomMessages {
         messages: Vec<ct_store::RoomMessage>,
+    },
+    /// Who is asking (see `Request::Session`).
+    Session {
+        /// True when the request came from a paired phone.
+        phone: bool,
+        #[serde(default)]
+        name: Option<String>,
+        /// The phone may post to rooms.
+        #[serde(default)]
+        can_post: bool,
+    },
+    /// Phone access state.
+    Phone {
+        enabled: bool,
+        /// The listener is running.
+        listening: bool,
+        /// Where a phone opens the board, when listening.
+        #[serde(default)]
+        url: Option<String>,
+        /// Why it isn't listening, when it should be.
+        #[serde(default)]
+        error: Option<String>,
+        phones: Vec<crate::phone::PhoneInfo>,
+    },
+    /// A fresh pairing code and the link (and QR code) that carries it.
+    PhonePairing {
+        code: String,
+        url: String,
+        /// The link as a QR code, SVG.
+        #[serde(default)]
+        qr_svg: Option<String>,
+        expires_secs: u64,
     },
     /// Room messages for a peer catching up.
     RoomWire {

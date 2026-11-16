@@ -20,7 +20,14 @@ function since(ts: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export function Rooms({ onError }: { onError: (message: string) => void }) {
+export function Rooms({
+  onError,
+  canPost = true,
+}: {
+  onError: (message: string) => void;
+  /** False on a phone that hasn't been allowed to post. */
+  canPost?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [rooms, setRooms] = useState<RoomView[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -226,25 +233,33 @@ export function Rooms({ onError }: { onError: (message: string) => void }) {
                   ))}
                 </div>
 
-                <form className="rooms-compose" onSubmit={send}>
-                  <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Recipient">
-                    <option value="">everyone</option>
-                    {current?.agents.map((a) => (
-                      <option key={a.name} value={a.name}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder="Step in: e.g. keep going, or use the config value instead"
-                    aria-label="Message"
-                  />
-                  <button type="submit" disabled={sending || !text.trim()}>
-                    Send
-                  </button>
-                </form>
+                {!canPost && (
+                  <p className="rooms-readonly">
+                    Read-only on this phone. To step in from here, allow it in Settings → Phone on
+                    your computer.
+                  </p>
+                )}
+                {canPost && (
+                  <form className="rooms-compose" onSubmit={send}>
+                    <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Recipient">
+                      <option value="">everyone</option>
+                      {current?.agents.map((a) => (
+                        <option key={a.name} value={a.name}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder="Step in: e.g. keep going, or use the config value instead"
+                      aria-label="Message"
+                    />
+                    <button type="submit" disabled={sending || !text.trim()}>
+                      Send
+                    </button>
+                  </form>
+                )}
               </div>
             )}
           </div>

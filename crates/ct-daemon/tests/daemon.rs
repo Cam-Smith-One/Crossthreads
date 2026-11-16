@@ -2014,3 +2014,176 @@ fn rooms_need_the_grant_on_the_receiving_device_and_catch_up_later() {
         peek(&linux)
     );
 }
+
+// ---- the board from a phone (SPEC FR-BRD-04) --------------------------------
+
+/// One HTTP request over a fresh connection; returns (status, headers, body).
+fn http_raw(
+    addr: &str,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (u16, String, String) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    s.write_all(req.as_bytes()).unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).unwrap();
+    let (head, body) = out.split_once("\r\n\r\n").unwrap_or((&out, ""));
+    let status = head.split(' ').nth(1).unwrap_or("0").parse().unwrap_or(0);
+    (status, head.to_string(), body.to_string())
+}
+
+#[test]
+fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let addr = format!("127.0.0.1:{port}");
+    std::env::set_var("CROSSTHREADS_PHONE_ADDR", &addr);
+    let daemon = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    );
+
+    // Off until turned on; then it listens and offers a pairing code.
+    assert!(matches!(
+        daemon.handle(Request::PhonePair),
+        Response::Error { .. }
+    ));
+    match daemon.handle(Request::PhoneSetEnabled { enabled: true }) {
+        Response::Phone { listening, url, .. } => {
+            assert!(listening);
+            assert_eq!(url.as_deref(), Some(format!("http://{addr}/").as_str()));
+        }
+        other => panic!("{other:?}"),
+    }
+    let json = ("Content-Type", "application/json");
+    let rpc = |cookie: Option<&str>, body: &str| {
+        let c;
+        let mut h = vec![json];
+        if let Some(t) = cookie {
+            c = format!("ct_phone={t}");
+            h.push(("Cookie", c.as_str()));
+        }
+        http_raw(&addr, "POST", "/api/rpc", &h, body)
+    };
+
+    // Not paired: nothing but a request to pair.
+    let (status, _, body) = rpc(None, r#"{"op":"threads"}"#);
+    assert_eq!(status, 401, "{body}");
+    assert!(body.contains("unpaired"));
+
+    let Response::PhonePairing {
+        code, url, qr_svg, ..
+    } = daemon.handle(Request::PhonePair)
+    else {
+        panic!()
+    };
+    assert!(url.ends_with(&format!("/pair#{code}")) && qr_svg.is_some());
+    let pair = |code: &str| {
+        http_raw(
+            &addr,
+            "POST",
+            "/api/pair",
+            &[json],
+            &format!(r#"{{"code":"{code}","name":"Pixel"}}"#),
+        )
+    };
+    assert_eq!(pair("WRONGXYZ").0, 403);
+    let (status, head, _) = pair(&code);
+    assert_eq!(status, 200);
+    let cookie_line = head
+        .lines()
+        .find(|l| l.to_ascii_lowercase().starts_with("set-cookie"))
+        .expect("sets a cookie")
+        .to_string();
+    assert!(cookie_line.contains("HttpOnly") && cookie_line.contains("SameSite=Strict"));
+    let token = cookie_line
+        .split("ct_phone=")
+        .nth(1)
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    assert_eq!(pair(&code).0, 403, "a code works once");
+
+    // Paired: reading works, and it knows it's a phone.
+    let (status, _, body) = rpc(Some(&token), r#"{"op":"threads"}"#);
+    assert_eq!(status, 200, "{body}");
+    let (_, _, body) = rpc(Some(&token), r#"{"op":"session"}"#);
+    assert!(
+        body.contains(r#""phone":true"#) && body.contains("Pixel"),
+        "{body}"
+    );
+
+    // Settings and pairing are off limits, and so is posting without the grant.
+    assert_eq!(rpc(Some(&token), r#"{"op":"phone_pair"}"#).0, 403);
+    assert_eq!(rpc(Some(&token), r#"{"op":"reindex"}"#).0, 403);
+    let post = r#"{"op":"room_post","room":"github.com/acme/api","text":"ship it"}"#;
+    assert_eq!(rpc(Some(&token), post).0, 403);
+
+    let Response::Phone { phones, .. } = daemon.handle(Request::PhoneStatus) else {
+        panic!()
+    };
+    assert_eq!(phones.len(), 1);
+    daemon.handle(Request::PhoneSetPost {
+        id: phones[0].id.clone(),
+        can_post: true,
+    });
+    let (status, _, body) = rpc(Some(&token), post);
+    assert_eq!(status, 200, "{body}");
+    match daemon.handle(Request::RoomMessages {
+        room: "github.com/acme/api".into(),
+        after: 0,
+        limit: 10,
+    }) {
+        Response::RoomMessages { messages } => {
+            assert!(messages[0].human);
+            assert_eq!(messages[0].author, "pixel", "signed with the phone's name");
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // Another website can't use the phone's session.
+    let (status, _, _) = http_raw(
+        &addr,
+        "POST",
+        "/api/rpc",
+        &[
+            json,
+            ("Origin", "https://evil.example"),
+            ("Cookie", &format!("ct_phone={token}")),
+        ],
+        r#"{"op":"threads"}"#,
+    );
+    assert_eq!(status, 403);
+
+    // Revoked: locked out again. Turned off: no longer listening.
+    daemon.handle(Request::PhoneRevoke {
+        id: phones[0].id.clone(),
+    });
+    assert_eq!(rpc(Some(&token), r#"{"op":"threads"}"#).0, 401);
+    daemon.handle(Request::PhoneSetEnabled { enabled: false });
+    thread::sleep(Duration::from_millis(200));
+    assert!(
+        std::net::TcpStream::connect(&addr).is_err() || {
+            // tiny_http may accept one last connection while shutting down.
+            thread::sleep(Duration::from_millis(500));
+            std::net::TcpStream::connect(&addr).is_err()
+        }
+    );
+}

@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 |
-| **Last updated** | 2026-06-18 |
+| **Status** | v0.2 — §2.8 covers what was added since 0.16 (threads, live state, rooms, devices, phone) |
+| **Last updated** | 2026-11-16 |
 | **Companion to** | [PRD.md](PRD.md) · [REQUIREMENTS.md](REQUIREMENTS.md) |
 
 This is a *reference* architecture to anchor estimation and the MVP build. Core stack choices are now **decided** (see §3); a few items remain flagged as open.
@@ -78,6 +78,23 @@ Crossthreads runs as a **persistent local daemon** (`crossthreadsd`) that owns i
 
 ### 2.6 Actions
 - Open original (deep-link/reveal), export markdown/HTML, copy-as-prompt / inject, resume/handoff.
+
+### 2.8 Since 0.16: threads, live state, rooms, devices, phone
+
+The product grew from a session indexer into a thread layer ([SPEC.md](SPEC.md)).
+Everything below lives in the same daemon and the same SQLite file.
+
+| Piece | Where | How it works |
+|---|---|---|
+| **Repository key** | `ct-core::repo` | The normalised `origin` remote, else `root:<first commit>`, else `path:`. Read from `.git/config` (worktrees through `commondir`), credentials stripped. The same on every machine and worktree. |
+| **Threads** | `ct-store::threads`, `ct-index::link_threads` | Durable tables (`threads`, `thread_sessions`, `links`, `link_rejections`) keyed by the stable session key, so a rebuild keeps them. Detection is deterministic: copied content links sessions; a cross-tool session within 30 minutes is only suggested. |
+| **Live state** | `ct-daemon::live` | In memory. Hooks (`crossthreads hook <tool> <event>`) report running / needs you / idle / ended; without hooks, a transcript written in the last 45 s is "running (inferred)". |
+| **Rooms** | `ct-store::rooms`, `ct-daemon::rooms` | Messages, read cursors and claims in SQLite; waiting uses a condition variable, never the store lock. Keyed by repository. A closed exchange is indexed as kind `exchange` and links the sessions `conversed`. Stop and PreToolUse hooks wake agents and guard claims. |
+| **Federation** | `ct-daemon::federation` | Approved peers over Tailscale with a shared token (OS keychain). Search and the board fan out on demand and merge; transcripts are fetched on open. Other machines may call only the token-checked peer ops. |
+| **Rooms across devices** | `ct-daemon::rooms` | Each device keeps its own copy. New messages are pushed to peers with the *Can message* grant; every 10 s each device pulls what it missed. Messages carry `(device, origin_seq)` and are stored once. |
+| **Phone** | `ct-daemon::phone`, `http.rs` | A second HTTP listener on the tailnet address only. Pairing trades a one-time code for a random token in an `HttpOnly`, `SameSite=Strict` cookie (hash stored in `phone.json`); a fixed allowlist of reading ops, posting per-phone. |
+
+Who may call what is listed in [AGENT_API.md §7.8](AGENT_API.md#78-who-may-call-what).
 
 ## 3. Tech stack
 

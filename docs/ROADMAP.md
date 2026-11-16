@@ -1,5 +1,10 @@
 # Crossthreads — Roadmap
 
+> **This is the original plan from June 2026.** Its phases have shipped, and the
+> product has since grown into threads, rooms, devices and phone access. Current
+> status and what's next: [SPEC.md §10](SPEC.md) and the README's
+> [Roadmap](../README.md#-roadmap).
+
 | | |
 |---|---|
 | **Status** | Draft v0.1 |
