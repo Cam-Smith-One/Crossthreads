@@ -27,9 +27,14 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-14
+          # Both Mac builds run on one Apple Silicon runner; the Intel build is
+          # cross-compiled there. GitHub retired macos-13 (Intel) and then
+          # macos-14 (2 Nov 2026): a job asking for a retired image never runs.
+          # Pin a supported version and bump it when GitHub announces the next
+          # retirement.
+          - os: macos-15
             target: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-15
             target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -42,6 +47,8 @@ jobs:
         run: echo "v=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -60,7 +67,7 @@ jobs:
 
       - name: Build binaries (release)
         run: >
-          cargo build --release
+          cargo build --release --target ${{ matrix.target }}
           --bin crossthreadsd --bin crossthreads --bin ct-mcp
 
       - name: Assemble package
@@ -74,7 +81,7 @@ jobs:
           ext=""
           [[ "$RUNNER_OS" == "Windows" ]] && ext=".exe"
           for b in crossthreadsd crossthreads ct-mcp; do
-            cp "target/release/${b}${ext}" "$stage/bin/"
+            cp "target/${{ matrix.target }}/release/${b}${ext}" "$stage/bin/"
           done
           cp -R ui/dist/. "$stage/ui/"
           cp LICENSE "$stage/" 2>/dev/null || true
