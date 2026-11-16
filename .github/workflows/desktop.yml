@@ -81,7 +81,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
+          # A universal build compiles each architecture separately, and each
+          # pass wants its own copy, so provide both thin binaries as well as
+          # the universal one the bundle ships.
           for b in crossthreadsd crossthreads ct-mcp; do
+            for t in aarch64-apple-darwin x86_64-apple-darwin; do
+              cp "target/$t/release/$b" "src-tauri/binaries/$b-$t"
+            done
             lipo -create \
               "target/aarch64-apple-darwin/release/$b" \
               "target/x86_64-apple-darwin/release/$b" \

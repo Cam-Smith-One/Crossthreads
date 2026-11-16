@@ -49,6 +49,9 @@ for t in aarch64-apple-darwin x86_64-apple-darwin; do
 done
 mkdir -p src-tauri/binaries
 for b in crossthreadsd crossthreads ct-mcp; do
+  for t in aarch64-apple-darwin x86_64-apple-darwin; do
+    cp target/$t/release/$b src-tauri/binaries/$b-$t   # each architecture's pass needs its own
+  done
   lipo -create target/{aarch64,x86_64}-apple-darwin/release/$b \
     -output src-tauri/binaries/$b-universal-apple-darwin
 done
