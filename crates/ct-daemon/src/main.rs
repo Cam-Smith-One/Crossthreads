@@ -247,6 +247,9 @@ fn run() -> Result<()> {
     // regenerate it in the background so it's ready when the user opens the app.
     daemon.spawn_weekly_refresh();
 
+    // Rooms across devices: catch up with peers that may message.
+    daemon.spawn_room_sync();
+
     if let Some(http_addr) = http {
         if let Some(dir) = &ui {
             if !dir.join("index.html").is_file() {
@@ -299,6 +302,7 @@ fn parse_peer(spec: &str) -> Result<Peer> {
     Ok(Peer {
         name: name.to_string(),
         addr: addr.to_string(),
+        rooms: false,
     })
 }
 

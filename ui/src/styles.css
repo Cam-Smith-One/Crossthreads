@@ -640,6 +640,8 @@ body {
 .device-addr { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); margin-left: auto; }
 .device-row .linklike, .device-row .secondary { flex-shrink: 0; }
 .device-row .device-addr + button { margin-left: 8px; }
+.device-grant { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.device-row .device-addr + .device-grant { margin-left: 8px; }
 .device-discover { margin-top: 16px; }
 .discovered { margin-top: 12px; }
 
@@ -1206,6 +1208,7 @@ body {
   color: var(--accent-ink);
 }
 .rooms-to { color: var(--muted); }
+.rooms-device { color: var(--muted); font-weight: 400; }
 .rooms-time { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 .rooms-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; margin-top: 2px; }
 .rooms-compose { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }

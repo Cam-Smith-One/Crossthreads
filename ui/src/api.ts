@@ -32,6 +32,8 @@ export interface Device {
   addr?: string | null;
   online: boolean;
   local: boolean;
+  /** Room messages are exchanged with this device ("can message"). */
+  rooms?: boolean;
 }
 
 export interface DiscoveredDevice {
@@ -476,6 +478,11 @@ export async function approvePeer(name: string, addr: string): Promise<Device[]>
   return data.devices ?? [];
 }
 
+export async function setPeerRooms(name: string, rooms: boolean): Promise<Device[]> {
+  const data = await rpc<{ devices: Device[] }>({ op: "set_peer_rooms", name, rooms });
+  return data.devices ?? [];
+}
+
 export async function removePeer(name: string): Promise<Device[]> {
   const data = await rpc<{ devices: Device[] }>({ op: "remove_peer", name });
   return data.devices ?? [];
@@ -721,6 +728,8 @@ export interface RoomMessage {
   to?: string | null;
   text: string;
   human: boolean;
+  /** The device it was posted on; absent for this device. */
+  device?: string | null;
 }
 
 export async function getRooms(): Promise<RoomView[]> {

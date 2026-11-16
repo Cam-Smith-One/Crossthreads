@@ -26,6 +26,9 @@ USAGE:
     crossthreads room release --me NAME [PATH…]
     crossthreads room import [PATH]     bring in a Meat Proxy database
                                         (default ~/.meat-proxy/meat-proxy.db)
+    crossthreads room devices [NAME on|off]
+                                        which other devices may message this
+                                        one's rooms; turn it on on both sides
 
 --room <PATH|NAME> picks a room; it defaults to the current directory, which
 means this repository's room. `send` posts and then waits for the reply (up to
@@ -50,6 +53,10 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
     if matches!(cmd.as_str(), "help" | "--help" | "-h") {
         print!("{USAGE}");
         return Ok(ExitCode::SUCCESS);
+    }
+
+    if cmd == "devices" {
+        return devices(rest);
     }
 
     let mut me: Option<String> = None;
@@ -175,4 +182,54 @@ fn import(path: Option<PathBuf>, db: Option<PathBuf>) -> Result<ExitCode> {
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `room devices [NAME on|off]`: list approved devices with their "can
+/// message" grant, or change one.
+fn devices(args: &[String]) -> Result<ExitCode> {
+    let req = match args {
+        [] => Request::Devices,
+        [name, state] => Request::SetPeerRooms {
+            name: name.clone(),
+            rooms: match state.as_str() {
+                "on" | "yes" | "true" => true,
+                "off" | "no" | "false" => false,
+                other => bail!("expected on or off, got `{other}`"),
+            },
+        },
+        _ => bail!("usage: crossthreads room devices [NAME on|off]"),
+    };
+    match Client::from_env().call(&req)? {
+        Response::Devices {
+            devices,
+            federation,
+        } => {
+            if !federation {
+                println!(
+                    "Cross-device search is off on this device. Set a device name and \
+                     shared token in Settings → Devices first."
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            for d in devices {
+                let state = if d.local {
+                    "this device".to_string()
+                } else {
+                    format!(
+                        "{}, {}",
+                        if d.online { "online" } else { "offline" },
+                        if d.rooms {
+                            "can message"
+                        } else {
+                            "can't message"
+                        }
+                    )
+                };
+                println!("  {:<20} {state}", d.name);
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected response: {other:?}"),
+    }
 }

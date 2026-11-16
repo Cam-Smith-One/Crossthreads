@@ -34,20 +34,20 @@ fn unread_is_everything_new_addressed_to_you_and_not_yours() {
 
     // A newcomer catches up on what it missed, minus other people's DMs.
     let got: Vec<String> = s
-        .room_unread(R, "codex")
+        .room_unread(R, "codex", None)
         .unwrap()
         .into_iter()
         .map(|m| m.text)
         .collect();
     assert_eq!(got, ["plan: add backoff", "codex, take src/auth"]);
     // You never read your own messages back.
-    assert!(s.room_unread(R, "claude").unwrap().is_empty());
+    assert!(s.room_unread(R, "claude", None).unwrap().is_empty());
 
     s.room_mark_read(R, "codex", 20).unwrap();
-    assert!(s.room_unread(R, "codex").unwrap().is_empty());
+    assert!(s.room_unread(R, "codex", None).unwrap().is_empty());
     s.room_post(R, "cam", "use the config value", None, true, 21)
         .unwrap();
-    let got = s.room_unread(R, "codex").unwrap();
+    let got = s.room_unread(R, "codex", None).unwrap();
     assert_eq!(got.len(), 1);
     assert!(got[0].human);
     assert_eq!(s.room_seen(R, "codex").unwrap(), Some(20));
@@ -221,10 +221,56 @@ fn imports_a_meat_proxy_database_once() {
     assert!(api[2].human);
     // Imported history is already read: nobody gets a backlog.
     assert!(s
-        .room_unread("github.com/acme/api", "codex")
+        .room_unread("github.com/acme/api", "codex", None)
         .unwrap()
         .is_empty());
     // Running it again adds nothing.
     assert_eq!(s.import_meat_proxy(&path, &map).unwrap(), 0);
     assert_eq!(s.rooms().unwrap().len(), 2);
+}
+
+#[test]
+fn relayed_messages_are_stored_once_and_reach_the_right_agent() {
+    use ct_store::rooms::RoomWire;
+    let s = Store::open_in_memory().unwrap();
+    // claude here, on "mac", posts first.
+    let local = s
+        .room_post(R, "claude", "review src/auth?", None, false, 10)
+        .unwrap();
+    let wire = |seq, author: &str, to: Option<&str>, text: &str| RoomWire {
+        seq,
+        ts: 20 + seq,
+        room: R.into(),
+        author: author.into(),
+        to: to.map(String::from),
+        text: text.into(),
+        human: false,
+    };
+    // A different "claude" on linux, and codex on linux replying to us.
+    let a = wire(7, "claude", None, "I'm the linux claude");
+    let b = wire(8, "codex", Some("claude@mac"), "looks fine");
+    let c = wire(9, "codex", Some("claude@other"), "not for you");
+    assert!(s.room_receive("linux", &a).unwrap().is_some());
+    assert!(s.room_receive("linux", &b).unwrap().is_some());
+    assert!(s.room_receive("linux", &c).unwrap().is_some());
+    // Delivered twice (push, then catch-up): stored once.
+    assert!(s.room_receive("linux", &b).unwrap().is_none());
+    assert_eq!(s.room_received_upto("linux").unwrap(), 9);
+    assert_eq!(s.room_received_upto("nowhere").unwrap(), 0);
+
+    // The local claude sees the remote claude and the message addressed to it.
+    let got = s.room_unread(R, "claude", Some("mac")).unwrap();
+    let senders: Vec<String> = got.iter().map(|m| m.sender()).collect();
+    assert_eq!(senders, vec!["claude@linux", "codex@linux"]);
+
+    // Only this device's own messages are offered to peers.
+    let mine = s.room_local_after(0, 0, 10).unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].id, local);
+    assert!(s.room_local_after(local, 0, 10).unwrap().is_empty());
+
+    // Remote agents show up in the room list.
+    let rooms = s.rooms().unwrap();
+    let names: Vec<&str> = rooms[0].agents.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(names.contains(&"codex@linux") && names.contains(&"claude@linux"));
 }

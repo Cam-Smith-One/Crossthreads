@@ -323,6 +323,15 @@ impl Daemon {
             Request::DiscoverDevices => self.discover_devices(),
             Request::ApprovePeer { name, addr } => self.approve_peer(name, addr),
             Request::RemovePeer { name } => self.remove_peer(&name),
+            Request::SetPeerRooms { name, rooms } => self.set_peer_rooms(&name, rooms),
+            Request::PeerRoomPost {
+                token,
+                from,
+                messages,
+            } => self.peer_room_post(token.as_deref(), &from, &messages),
+            Request::PeerRoomSync { token, from, after } => {
+                self.peer_room_sync(token.as_deref(), &from, after)
+            }
             Request::PeerSearch {
                 token,
                 query,
@@ -755,6 +764,7 @@ impl Daemon {
                     addr: None,
                     online: true,
                     local: true,
+                    rooms: false,
                 }],
                 federation: false,
             };
@@ -764,6 +774,7 @@ impl Daemon {
             addr: None,
             online: true,
             local: true,
+            rooms: false,
         }];
         // Probe peers in parallel so one slow peer doesn't stall the list.
         let timeout = fed.timeout;
@@ -776,6 +787,7 @@ impl Daemon {
                     name: p.name,
                     addr: Some(p.addr),
                     local: false,
+                    rooms: p.rooms,
                 })
             })
             .collect();
@@ -809,8 +821,26 @@ impl Daemon {
                     .into(),
             };
         };
-        fed.add_peer(Peer { name, addr });
+        fed.add_peer(Peer {
+            name,
+            addr,
+            rooms: false,
+        });
         self.devices_list()
+    }
+
+    /// Turn "can message" on or off for a peer, then return the device list.
+    fn set_peer_rooms(&self, name: &str, rooms: bool) -> Response {
+        match &self.federation {
+            Some(fed) if fed.set_peer_rooms(name, rooms) => self.devices_list(),
+            Some(_) => Response::Error {
+                message: format!("no approved device named `{name}`"),
+            },
+            None => Response::Error {
+                message: "enable cross-device search first (set a device name and shared token)"
+                    .into(),
+            },
+        }
     }
 
     /// Remove (persist) a peer, then return the refreshed device list.
@@ -1238,6 +1268,46 @@ impl Daemon {
             }
         }
         Ok(fed)
+    }
+
+    /// Check a peer's room request: the token, and that this device lets the
+    /// sender message.
+    fn room_peer_auth(&self, token: Option<&str>, from: &str) -> std::result::Result<(), String> {
+        let fed = self.peer_auth(token)?;
+        if fed.room_peer(from).is_none() {
+            return Err(format!(
+                "`{}` hasn't allowed `{from}` to message (Settings → Devices → Can message)",
+                fed.device()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Room messages pushed by a peer.
+    fn peer_room_post(
+        &self,
+        token: Option<&str>,
+        from: &str,
+        messages: &[ct_store::rooms::RoomWire],
+    ) -> Response {
+        if let Err(message) = self.room_peer_auth(token, from) {
+            return Response::Error { message };
+        }
+        match self.room_receive(from, messages) {
+            Ok(_) => Response::Ok { ok: true },
+            Err(e) => err(e),
+        }
+    }
+
+    /// A peer catching up on this device's room messages.
+    fn peer_room_sync(&self, token: Option<&str>, from: &str, after: i64) -> Response {
+        if let Err(message) = self.room_peer_auth(token, from) {
+            return Response::Error { message };
+        }
+        match self.room_outbox(after) {
+            Ok(messages) => Response::RoomWire { messages },
+            Err(e) => err(e),
+        }
     }
 
     /// Answer a peer's request for this device's threads: token-gated,

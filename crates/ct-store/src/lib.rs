@@ -359,6 +359,12 @@ impl Store {
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
         // v8 -> v9: machine-independent repository identity for threads.
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN repo_key TEXT", []);
+        // v10 -> v11: room messages relayed from other devices.
+        let _ = conn.execute("ALTER TABLE room_messages ADD COLUMN device TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE room_messages ADD COLUMN origin_seq INTEGER",
+            [],
+        );
 
         // Indexes on migration-added columns, created only now that the ALTERs
         // above guarantee the columns exist (on a fresh DB they came from
@@ -366,7 +372,9 @@ impl Store {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_conversations_kind    ON conversations(kind);
              CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_key);
-             CREATE INDEX IF NOT EXISTS idx_conversations_repo    ON conversations(repo_key);",
+             CREATE INDEX IF NOT EXISTS idx_conversations_repo    ON conversations(repo_key);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_room_messages_origin
+                 ON room_messages(device, origin_seq);",
         )
         .context("creating migration-column indexes")?;
 

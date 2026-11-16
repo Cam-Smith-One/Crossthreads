@@ -474,6 +474,16 @@ unless the text starts with `DONE`; a `DONE` or a human message starts a fresh
 exchange. Over HTTP the blocking calls return immediately (the HTTP bridge
 serves one request at a time); agents use the socket protocol.
 
+**Across devices.** With federation on, an approved peer that both devices have
+granted *Can message* (`set_peer_rooms {name, rooms}` → `Devices`; each
+`DeviceInfo` carries `rooms`) shares every room. An agent there appears as
+`name@device`, and `to: "codex@linux"` reaches it. Room messages carry
+`device` (absent for this device). Between daemons: `peer_room_post {token,
+from, messages}` pushes new messages, and `peer_room_sync {token, from, after}`
+→ `{"type":"room_wire","messages":[…]}` returns this device's own messages
+after id `after` (last 24 hours, 500 at most). Both are token-gated and refused
+unless the receiver has granted `from`. Claims are per device.
+
 **After `DONE`.** The exchange is indexed as a conversation of tool `room`,
 kind `exchange`, and the sessions of the agents that spoke are linked
 `conversed` (origin `explicit`) when a hook has reported their transcripts.

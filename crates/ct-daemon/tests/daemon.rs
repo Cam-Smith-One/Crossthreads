@@ -562,6 +562,7 @@ fn federated_search_merges_and_tags_peer_hits() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -606,6 +607,7 @@ fn federated_duplicate_collapses_local_first() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -650,6 +652,7 @@ fn federated_bad_token_skips_peer() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -690,6 +693,7 @@ fn device_selection_routes_to_named_devices() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -743,6 +747,7 @@ fn federated_build_context_includes_remote_transcript() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -784,6 +789,7 @@ fn opens_a_remote_conversation() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -818,6 +824,7 @@ fn search_reports_unreachable_peers() {
         vec![Peer {
             name: "ghost".into(),
             addr: "127.0.0.1:9".into(),
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -862,6 +869,7 @@ fn serve_scope_hides_excluded_tool_from_peers() {
         vec![Peer {
             name: "linux".into(),
             addr: b_addr,
+            rooms: false,
         }],
     ));
     let client = Client::new(serve(a));
@@ -1251,10 +1259,12 @@ fn the_board_spans_devices_and_opens_remote_threads() {
         Peer {
             name: "desk".into(),
             addr: desk_addr.clone(),
+            rooms: false,
         },
         Peer {
             name: "off".into(),
             addr: "127.0.0.1:1".into(),
+            rooms: false,
         },
     ];
     let lap = Daemon::new(lap_store, Box::new(HashEmbedder::default()))
@@ -1869,4 +1879,138 @@ fn the_http_api_refuses_other_websites() {
     assert_eq!(status, 200);
     assert!(body.contains("No new messages"), "{body}");
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+// ---- rooms across devices (SPEC FR-ROOM-08) ---------------------------------
+
+/// Two daemons, `mac` and `linux`, that know each other. `grant` sets whether
+/// each lets the other message.
+fn two_devices(mac_grants: bool, linux_grants: bool) -> (Daemon, Client, Daemon, Client) {
+    let mac_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let linux_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mac_addr = mac_listener.local_addr().unwrap().to_string();
+    let linux_addr = linux_listener.local_addr().unwrap().to_string();
+    let device = |name: &str, peer: &str, addr: &str, rooms: bool| {
+        Daemon::new(
+            Store::open_in_memory().unwrap(),
+            Box::new(HashEmbedder::default()),
+        )
+        .with_federation(fed(
+            name,
+            "s3cret",
+            vec![Peer {
+                name: peer.into(),
+                addr: addr.into(),
+                rooms,
+            }],
+        ))
+    };
+    let mac = device("mac", "linux", &linux_addr, mac_grants);
+    let linux = device("linux", "mac", &mac_addr, linux_grants);
+    for (d, l) in [(mac.clone(), mac_listener), (linux.clone(), linux_listener)] {
+        thread::spawn(move || {
+            let _ = d.serve(l);
+        });
+    }
+    (mac, Client::new(mac_addr), linux, Client::new(linux_addr))
+}
+
+#[test]
+fn rooms_work_across_devices_that_may_message() {
+    use serde_json::json;
+    let (_mac, mac, _linux, linux) = two_devices(true, true);
+    const ROOM: &str = "github.com/acme/api";
+
+    // codex on linux listens; claude on mac asks it directly and blocks.
+    let codex = thread::spawn(move || {
+        let got = room(
+            &linux,
+            json!({"op":"room_wait","me":"codex","room":ROOM,"timeout":10}),
+        );
+        assert!(
+            got.contains("claude@mac→codex@linux: review src/auth?"),
+            "{got}"
+        );
+        room(
+            &linux,
+            json!({"op":"room_send","me":"codex","room":ROOM,"to":"claude@mac","text":"DONE looks fine","wait":false}),
+        );
+        linux
+    });
+    let asked = room(
+        &mac,
+        json!({"op":"room_send","me":"claude","room":ROOM,"to":"codex@linux","text":"review src/auth?","timeout":10}),
+    );
+    let linux = codex.join().unwrap();
+    assert!(
+        asked.contains("codex@linux→claude@mac: DONE looks fine"),
+        "{asked}"
+    );
+
+    // Both devices list the other's agent, and both archived the exchange
+    // under the same id, so cross-device search shows it once.
+    let agents = |c: &Client| match c.call(&Request::Rooms).unwrap() {
+        Response::Rooms { rooms } => rooms[0]
+            .agents
+            .iter()
+            .map(|a| a.name.clone())
+            .collect::<Vec<_>>(),
+        other => panic!("{other:?}"),
+    };
+    assert!(agents(&mac).contains(&"codex@linux".to_string()));
+    assert!(agents(&linux).contains(&"claude@mac".to_string()));
+    let exchange = |c: &Client, device: &str| match c
+        .call(&Request::Search {
+            query: "review".into(),
+            mode: Mode::Lexical,
+            limit: 5,
+            filters: Default::default(),
+            devices: Some(vec![device.into()]),
+        })
+        .unwrap()
+    {
+        Response::Hits { hits, .. } => hits
+            .into_iter()
+            .find(|h| h.kind == "exchange")
+            .map(|h| h.conversation_id),
+        other => panic!("{other:?}"),
+    };
+    let on_mac = exchange(&mac, "mac").expect("mac archived the exchange");
+    assert_eq!(Some(on_mac), exchange(&linux, "linux"));
+}
+
+#[test]
+fn rooms_need_the_grant_on_the_receiving_device_and_catch_up_later() {
+    use serde_json::json;
+    // mac lets linux message, but linux hasn't allowed mac yet.
+    let (_mac, mac, linux_d, linux) = two_devices(true, false);
+    const ROOM: &str = "github.com/acme/api";
+    room(
+        &mac,
+        json!({"op":"room_send","me":"claude","room":ROOM,"text":"anyone there?","wait":false}),
+    );
+    thread::sleep(Duration::from_millis(300));
+    let peek = |c: &Client| room(c, json!({"op":"room_history","room":ROOM,"limit":10}));
+    assert!(!peek(&linux).contains("anyone there?"));
+
+    // linux turns the grant on; its next catch-up brings the message over.
+    match linux
+        .call(
+            &serde_json::from_value(json!({"op":"set_peer_rooms","name":"mac","rooms":true}))
+                .unwrap(),
+        )
+        .unwrap()
+    {
+        Response::Devices { devices, .. } => {
+            assert!(devices.iter().any(|d| d.name == "mac" && d.rooms))
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(linux_d.room_catch_up(), 1);
+    assert_eq!(linux_d.room_catch_up(), 0, "nothing is fetched twice");
+    assert!(
+        peek(&linux).contains("claude@mac: anyone there?"),
+        "{}",
+        peek(&linux)
+    );
 }

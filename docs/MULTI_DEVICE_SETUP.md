@@ -158,6 +158,17 @@ ranked list. Each result shows a **device chip** so you know where it came from:
   project substrings this device should keep private; peers won't see those
   threads in search *or* be able to open them.
 
+- **Let agents talk across devices.** Tick **Can message** next to a device to
+  let its agents and this device's agents share Rooms. Tick it on **both**
+  devices: each one decides for itself whose messages it accepts. From a shell:
+  `crossthreads room devices` lists the grants and
+  `crossthreads room devices linux-desktop on` turns one on. Then an agent on
+  the laptop can ask `codex@linux-desktop` for a review in the same repository's
+  room and get the answer back, as on one machine. Messages sent while a device
+  was offline arrive within about 10 seconds of it coming back. File claims
+  only cover the device they were made on, since each device has its own
+  checkout.
+
 ---
 
 ## Troubleshooting
