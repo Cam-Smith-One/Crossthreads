@@ -27,12 +27,14 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          # Both Mac builds run on an Apple Silicon runner. The Intel build is
-          # cross-compiled there: GitHub's Intel macOS runners (macos-13) are
-          # retired, so a job asking for one waits in the queue until it times out.
-          - os: macos-14
+          # Both Mac builds run on one Apple Silicon runner; the Intel build is
+          # cross-compiled there. GitHub retired macos-13 (Intel) and then
+          # macos-14 (2 Nov 2026): a job asking for a retired image never runs.
+          # Pin a supported version and bump it when GitHub announces the next
+          # retirement.
+          - os: macos-15
             target: aarch64-apple-darwin
-          - os: macos-14
+          - os: macos-15
             target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
