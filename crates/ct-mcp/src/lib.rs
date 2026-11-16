@@ -116,7 +116,10 @@ impl Server {
         json!({
             "protocolVersion": version,
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION }
+            "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
+            // The room protocol travels with the server, so agents follow it
+            // even without the skill installed.
+            "instructions": ct_daemon::rooms::INSTRUCTIONS
         })
     }
 
@@ -278,37 +281,6 @@ impl Server {
                     }
                 },
                 {
-                    "name": "crossthreads_how_i_work",
-                    "description": "Infer the user's working conventions — tools, languages, \
-                        code style, commit habits, recurring gotchas, and preferences — as a \
-                        concise profile to drop into a CLAUDE.md / AGENTS.md so a new agent \
-                        instantly knows how they operate. Needs a model login.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "How many recent sessions to scan (default ~80)."
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "crossthreads_digest",
-                    "description": "Write a short reflective DIGEST of the user's recent \
-                        work: what they've been doing, open questions, and things worth \
-                        revisiting. Good for a weekly catch-up. Needs a model login.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "How many recent sessions to scan (default ~200)."
-                            }
-                        }
-                    }
-                },
-                {
                     "name": "crossthreads_recurring",
                     "description": "Surface RECURRING problems and patterns — things the user \
                         keeps hitting across sessions (the same bug class, repeated setup \
@@ -384,9 +356,93 @@ impl Server {
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "id": { "type": "string", "description": "Thread id or session id." }
+                            "id": { "type": "string", "description": "Thread id or session id." },
+                            "handoff": {
+                                "type": "boolean",
+                                "description": "Return a paste-ready handoff instead: the goal, every \
+                                    session, and where the latest one left off. Use it to continue \
+                                    work another tool or agent started."
+                            }
                         },
                         "required": ["id"]
+                    }
+                },
+                {
+                    "name": "crossthreads_room_send",
+                    "description": "Post a message to another AI agent in this project's room, \
+                        then block until the reply arrives and return it. The main room tool: \
+                        one call per turn. Use to brief, hand off to, or answer another agent \
+                        (Claude, Codex, ...) without the user copy-pasting. Start the text with \
+                        DONE to close the exchange.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name, e.g. claude or codex." },
+                            "text": { "type": "string", "description": "The message. Short: what you did, what you need, what's next." },
+                            "room": { "type": "string", "description": "Your project root path (git rev-parse --show-toplevel), or a room name." },
+                            "to": { "type": "string", "description": "Recipient name; omit to broadcast." },
+                            "wait": { "type": "boolean", "description": "Block for the reply (default true)." },
+                            "timeout": { "type": "integer", "description": "Seconds to wait for a reply (default 50)." }
+                        },
+                        "required": ["me", "text", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_room_wait",
+                    "description": "Return your unread room messages, blocking up to `timeout` \
+                        seconds until one arrives. Use to listen for another agent's instructions. \
+                        Don't call it straight after crossthreads_room_send, which already waits.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "timeout": { "type": "integer", "description": "Seconds to wait (default 50, max 600; 0 = just check)." }
+                        },
+                        "required": ["me", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_room_history",
+                    "description": "Catch up on a room: who is here, turns used, active file \
+                        claims, and the last messages. Call once when you join.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "limit": { "type": "integer", "description": "How many messages (default 30)." }
+                        },
+                        "required": ["room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_claim",
+                    "description": "Reserve files or folders (absolute paths) before editing them, \
+                        so another agent doesn't edit them at the same time. Paths someone else \
+                        holds are reported as conflicts and not claimed. Claim again to extend. \
+                        Claims expire, and are released when you send DONE.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "paths": { "type": "array", "items": { "type": "string" }, "description": "Absolute file or folder paths." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "minutes": { "type": "integer", "description": "How long to hold them (default 20, max 240)." }
+                        },
+                        "required": ["me", "paths", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_release",
+                    "description": "Release your file claims on `paths`, or all of them if omitted.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "paths": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths to release; omit for all." }
+                        },
+                        "required": ["me"]
                     }
                 },
                 {
@@ -406,22 +462,6 @@ impl Server {
                             "project": { "type": "string", "description": "Filter by project substring." },
                             "since": { "type": "string", "description": "Only on/after this date (YYYY-MM-DD)." },
                             "until": { "type": "string", "description": "Only on/before this date (YYYY-MM-DD)." }
-                        }
-                    }
-                },
-                {
-                    "name": "crossthreads_graph",
-                    "description": "Return a knowledge graph of the user's work — projects, tools, \
-                        and tags as nodes (sized by session count) with co-occurrence edges \
-                        (which tools/tags go with which projects). Use to map how the user's \
-                        projects, tools, and topics relate. Offline; no model needed.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "Max nodes kept per category (project/tool/tag). Default 40."
-                            }
                         }
                     }
                 },
@@ -562,14 +602,16 @@ impl Server {
             "crossthreads_open_loops" => Ok(self.call_insight("open_loops", &args)),
             "crossthreads_knowledge_cards" => Ok(self.call_insight("knowledge_cards", &args)),
             "crossthreads_decision_log" => Ok(self.call_insight("decision_log", &args)),
-            "crossthreads_how_i_work" => Ok(self.call_insight("how_i_work", &args)),
-            "crossthreads_digest" => Ok(self.call_insight("digest", &args)),
             "crossthreads_recurring" => Ok(self.call_insight("recurrence", &args)),
             "crossthreads_ask" => Ok(self.call_ask(&args)),
             "crossthreads_threads" => Ok(self.call_threads(&args)),
             "crossthreads_thread" => Ok(self.call_thread(&args)),
+            "crossthreads_room_send"
+            | "crossthreads_room_wait"
+            | "crossthreads_room_history"
+            | "crossthreads_claim"
+            | "crossthreads_release" => Ok(self.call_room(name, &args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
-            "crossthreads_graph" => Ok(self.call_graph(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
             "crossthreads_work_dna" => Ok(self.call_insight("work_dna", &args)),
             "crossthreads_gaps" => Ok(self.call_insight("gaps", &args)),
@@ -878,6 +920,18 @@ impl Server {
         let Some(id) = args.get("id").and_then(|q| q.as_str()) else {
             return tool_error("missing required argument: id".to_string());
         };
+        if args.get("handoff").and_then(|h| h.as_bool()) == Some(true) {
+            return match self.client.call(&Request::ThreadHandoff {
+                id: id.to_string(),
+                device: None,
+                max_chars: 8000,
+            }) {
+                Ok(Response::Context { markdown, .. }) => tool_text(markdown),
+                Ok(Response::Error { message }) => tool_error(message),
+                Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+                Err(e) => tool_error(format!("handoff failed ({e:#}). Is crossthreadsd running?")),
+            };
+        }
         match self.client.call(&Request::Thread {
             id: id.to_string(),
             device: None,
@@ -928,6 +982,37 @@ impl Server {
         }
     }
 
+    /// The room tools: hand the arguments to the daemon and return its text.
+    /// `send` and `wait` block by design, so the daemon gets that long to answer.
+    fn call_room(&self, name: &str, args: &Value) -> Value {
+        let op = match name {
+            "crossthreads_room_send" => "room_send",
+            "crossthreads_room_wait" => "room_wait",
+            "crossthreads_room_history" => "room_history",
+            "crossthreads_claim" => "room_claim",
+            _ => "room_release",
+        };
+        let mut body = match args {
+            Value::Object(map) => map.clone(),
+            _ => serde_json::Map::new(),
+        };
+        body.insert("op".into(), json!(op));
+        let req: Request = match serde_json::from_value(Value::Object(body)) {
+            Ok(req) => req,
+            Err(e) => return tool_error(format!("bad arguments for {name}: {e}")),
+        };
+        let wait = args.get("timeout").and_then(|t| t.as_u64()).unwrap_or(50);
+        match self
+            .client
+            .call_timeout(&req, std::time::Duration::from_secs(wait.min(600) + 15))
+        {
+            Ok(Response::Text { text }) => tool_text(text),
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("{name} failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
     fn call_activity(&self, args: &Value) -> Value {
         let bucket = args
             .get("bucket")
@@ -965,35 +1050,6 @@ impl Server {
             Err(e) => tool_error(format!(
                 "activity failed ({e:#}). Is crossthreadsd running?"
             )),
-        }
-    }
-
-    fn call_graph(&self, args: &Value) -> Value {
-        let limit = args
-            .get("limit")
-            .and_then(|l| l.as_u64())
-            .map(|n| n as usize);
-        match self.client.call(&Request::Graph { limit }) {
-            Ok(Response::Graph { graph }) => {
-                if graph.nodes.is_empty() {
-                    return tool_text("No graph yet — nothing indexed.".to_string());
-                }
-                let mut out = format!(
-                    "Knowledge graph: {} nodes, {} edges.\n\nTop nodes:",
-                    graph.nodes.len(),
-                    graph.edges.len()
-                );
-                for n in graph.nodes.iter().take(15) {
-                    out.push_str(&format!("\n- [{}] {} ({})", n.kind, n.label, n.weight));
-                }
-                out.push_str("\n\nStrongest links:");
-                for e in graph.edges.iter().take(15) {
-                    out.push_str(&format!("\n- {} ↔ {} ({})", e.source, e.target, e.weight));
-                }
-                tool_text(out)
-            }
-            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
-            Err(e) => tool_error(format!("graph failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 

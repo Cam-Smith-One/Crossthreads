@@ -1,5 +1,5 @@
 //! LLM-synthesis insights over the indexed history — open loops, knowledge
-//! cards, a decision log, a "how I work" profile, and a digest. Each gathers
+//! cards, a decision log, and recurring patterns. Each gathers
 //! recent conversation text and asks the configured model ([`ct_llm`]) to
 //! synthesize it into Markdown, returning the source conversation ids it drew
 //! from. Opt-in: needs a model login (Settings → Models). The model call runs
@@ -14,8 +14,6 @@ pub enum Kind {
     OpenLoops,
     KnowledgeCards,
     DecisionLog,
-    HowIWork,
-    Digest,
     Recurrence,
 }
 
@@ -25,8 +23,6 @@ impl Kind {
             "open_loops" | "loops" => Some(Kind::OpenLoops),
             "knowledge_cards" | "cards" => Some(Kind::KnowledgeCards),
             "decision_log" | "decisions" | "adr" => Some(Kind::DecisionLog),
-            "how_i_work" | "profile" => Some(Kind::HowIWork),
-            "digest" | "weekly" => Some(Kind::Digest),
             "recurrence" | "recurring" | "patterns" | "alerts" => Some(Kind::Recurrence),
             _ => None,
         }
@@ -37,10 +33,10 @@ impl Kind {
     /// still byte-bounded in [`synthesize`], and callers can override the limit.
     pub fn default_limit(self) -> usize {
         match self {
-            // Open loops / digest lean recent, but still cast a wide net.
-            Kind::OpenLoops | Kind::Digest => 200,
-            // Cards / decisions / how-I-work / recurrence benefit from breadth.
-            Kind::KnowledgeCards | Kind::DecisionLog | Kind::HowIWork | Kind::Recurrence => 400,
+            // Open loops lean recent, but still cast a wide net.
+            Kind::OpenLoops => 200,
+            // Cards / decisions / recurrence benefit from breadth.
+            Kind::KnowledgeCards | Kind::DecisionLog | Kind::Recurrence => 400,
         }
     }
 
@@ -54,12 +50,6 @@ impl Kind {
             }
             Kind::DecisionLog => {
                 "You extract decisions and their rationale from a developer's coding sessions."
-            }
-            Kind::HowIWork => {
-                "You infer a developer's working conventions from their coding sessions."
-            }
-            Kind::Digest => {
-                "You write a brief, useful reflective digest of a developer's recent work."
             }
             Kind::Recurrence => {
                 "You spot recurring problems and patterns across a developer's coding sessions."
@@ -87,17 +77,6 @@ impl Kind {
                 "Extract notable DECISIONS in the form \"Chose X over Y because Z\". One Markdown \
                  bullet each, with the rationale and (if clear) the session it came from. Skip \
                  trivial choices."
-            }
-            Kind::HowIWork => {
-                "Infer this developer's working conventions — tools, languages, code style, commit \
-                 habits, recurring gotchas, and preferences. Output a concise Markdown list \
-                 suitable to drop into a CLAUDE.md / AGENTS.md so a new agent instantly knows how \
-                 they operate. Only include things actually evidenced in the sessions."
-            }
-            Kind::Digest => {
-                "Write a short DIGEST with three sections: (1) what they've been working on, (2) \
-                 3 open questions or unfinished threads, (3) 2 things worth revisiting. Markdown, \
-                 concise."
             }
             Kind::Recurrence => {
                 "Identify RECURRING problems, questions, and patterns — things this developer \
@@ -456,8 +435,8 @@ mod tests {
         assert!(matches!(Kind::parse("cards"), Some(Kind::KnowledgeCards)));
         assert!(matches!(Kind::parse("adr"), Some(Kind::DecisionLog)));
         assert!(matches!(Kind::parse("decisions"), Some(Kind::DecisionLog)));
-        assert!(matches!(Kind::parse("profile"), Some(Kind::HowIWork)));
-        assert!(matches!(Kind::parse("weekly"), Some(Kind::Digest)));
+        // Folded into Gaps and the weekly review; no longer separate kinds.
+        assert!(Kind::parse("how_i_work").is_none() && Kind::parse("digest").is_none());
         assert!(Kind::parse("nonsense").is_none());
     }
 
@@ -470,6 +449,6 @@ mod tests {
     #[test]
     fn default_limits_are_sane() {
         assert!(Kind::OpenLoops.default_limit() > 0);
-        assert!(Kind::HowIWork.default_limit() >= Kind::Digest.default_limit());
+        assert!(Kind::KnowledgeCards.default_limit() >= Kind::OpenLoops.default_limit());
     }
 }

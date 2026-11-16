@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -165,5 +165,37 @@ CREATE TABLE IF NOT EXISTS link_rejections (
 CREATE TABLE IF NOT EXISTS link_scans (
     session_key TEXT PRIMARY KEY,
     scanned_at  TEXT NOT NULL
+);
+
+-- v10: rooms (SPEC §6.4). Agents and the human exchange messages in a room;
+-- durable, and separate from the rebuildable index. Times are epoch seconds.
+CREATE TABLE IF NOT EXISTS room_messages (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        INTEGER NOT NULL,
+    room      TEXT NOT NULL,
+    author    TEXT NOT NULL,
+    recipient TEXT,
+    text      TEXT NOT NULL,
+    human     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room, id);
+
+-- Who has taken part in a room, how far each has read, and (when a hook has
+-- told us) which session each one is.
+CREATE TABLE IF NOT EXISTS room_agents (
+    room            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    cursor          INTEGER NOT NULL DEFAULT 0,
+    seen            INTEGER NOT NULL DEFAULT 0,
+    transcript_path TEXT,
+    PRIMARY KEY (room, name)
+);
+
+-- Time-limited reservations on files or folders (absolute paths on this device).
+CREATE TABLE IF NOT EXISTS claims (
+    path    TEXT PRIMARY KEY,
+    holder  TEXT NOT NULL,
+    room    TEXT NOT NULL,
+    expires INTEGER NOT NULL
 );
 "#;

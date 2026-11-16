@@ -21,7 +21,6 @@ import {
   getInsight,
   ask,
   getActivity,
-  getGraph,
   getMetrics,
   getWeeklyReview,
   getOptimize,
@@ -42,7 +41,6 @@ import {
   type InsightKind,
   type Answer,
   type ActivityBucket,
-  type Graph,
   type WorkMetrics,
   type WeeklyReview,
   type OptimizeReport,
@@ -53,10 +51,54 @@ import {
   type StoredConversation,
 } from "./api";
 import { Board } from "./Board";
+import { Rooms } from "./Rooms";
 import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
+const MODE_LABELS: Record<Mode, string> = {
+  hybrid: "best match",
+  semantic: "by meaning",
+  lexical: "exact words",
+};
+
+type InsightsTab = "overview" | "weekly" | "themes" | "analyses";
+
+const ANALYSIS_GROUPS: [string, [InsightKind, string, string][]][] = [
+  [
+    "About how you work",
+    [
+      ["work_dna", "Work DNA", "A profile of how you work, backed by your numbers"],
+      ["gaps", "Gaps", "What you start but don't finish, plus a draft CLAUDE.md"],
+      ["prompt_coach", "Prompt coach", "Before-and-after rewrites of your own prompts"],
+      ["process_miner", "Repeated processes", "Things you keep re-deriving, as draft skills"],
+    ],
+  ],
+  [
+    "From your recent work",
+    [
+      ["open_loops", "Open loops", "Unfinished work and fixes never confirmed"],
+      ["decision_log", "Decisions", "What you chose over what, and why"],
+      ["knowledge_cards", "Knowledge cards", "Answers worth keeping"],
+      ["recurrence", "Recurring problems", "What you keep running into, and how to stop"],
+    ],
+  ],
+];
 const PAGE = 25;
+
+/** The last two segments of a path: enough to recognise a project. */
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length <= 2 ? path : `…/${parts.slice(-2).join("/")}`;
+}
+
+function ToolChip({ tool }: { tool: string }) {
+  return (
+    <span className="tool-chip" title={toolLabel(tool)}>
+      <span className="tool-chip-icon">{toolIcon(tool)}</span>
+      {toolLabel(tool)}
+    </span>
+  );
+}
 
 export function App() {
   const [query, setQuery] = useState("");
@@ -75,6 +117,18 @@ export function App() {
   // Bumped whenever the index changes, so the board reloads its threads.
   const [boardKey, setBoardKey] = useState(0);
   const reportError = useCallback((message: string) => setError(message), []);
+  // A session whose thread the board should open (from the transcript viewer).
+  const [threadRequest, setThreadRequest] = useState<string | null>(null);
+
+  /** Leave search, go back to the board, and open the thread a session is in. */
+  function showThreadOf(conversationId: string) {
+    setOpen(null);
+    searchGen.current += 1;
+    setSearched(false);
+    setHits([]);
+    setContext(null);
+    setThreadRequest(conversationId);
+  }
   const [context, setContext] = useState<string | null>(null);
   const [open, setOpen] = useState<StoredConversation | null>(null);
   const [saved, setSaved] = useState<Hit[]>([]);
@@ -83,14 +137,16 @@ export function App() {
   );
 
   const [reindexing, setReindexing] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "models">("docs");
   const [themes, setThemes] = useState<Theme[] | null>(null);
-  const [showThemes, setShowThemes] = useState(false);
+  // One Insights view with tabs replaces what used to be six separate panels.
+  const [insightsTab, setInsightsTab] = useState<InsightsTab | null>(null);
   const [namingThemes, setNamingThemes] = useState(false);
 
   async function openThemes() {
-    setShowThemes(true);
+    setInsightsTab("themes");
     setThemes(null);
     try {
       setThemes(await getThemes(8));
@@ -113,7 +169,6 @@ export function App() {
   }
 
   // Insights (LLM synthesis over recent history).
-  const [showInsights, setShowInsights] = useState(false);
   const [insightKind, setInsightKind] = useState<InsightKind>("open_loops");
   const [insightMd, setInsightMd] = useState<string | null>(null);
   const [insightSources, setInsightSources] = useState<number>(0);
@@ -124,7 +179,6 @@ export function App() {
   // Proactive weekly review: fetch the cached one on load; show a banner when
   // it's one the user hasn't seen yet.
   const [weekly, setWeekly] = useState<WeeklyReview | null>(null);
-  const [showWeekly, setShowWeekly] = useState(false);
   const [weeklyUnseen, setWeeklyUnseen] = useState(false);
   const [weeklyBusy, setWeeklyBusy] = useState(false);
 
@@ -147,7 +201,7 @@ export function App() {
   }, []);
 
   function openWeekly() {
-    setShowWeekly(true);
+    setInsightsTab("weekly");
     setWeeklyUnseen(false);
     if (weekly?.generated_at) {
       try {
@@ -176,13 +230,12 @@ export function App() {
   }
 
   // Optimize loop ("how you work" → biggest lever + measured verdict + trends).
-  const [showOptimize, setShowOptimize] = useState(false);
   const [optimize, setOptimize] = useState<OptimizeReport | null>(null);
   const [optimizeBusy, setOptimizeBusy] = useState(false);
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
 
   async function openOptimize(force = false) {
-    setShowOptimize(true);
+    setInsightsTab("overview");
     setOptimizeBusy(true);
     setOptimizeError(null);
     try {
@@ -195,13 +248,12 @@ export function App() {
   }
 
   // AI-fluency (4D: delegation / description / discernment / diligence + reflection).
-  const [showFluency, setShowFluency] = useState(false);
   const [fluency, setFluency] = useState<FluencyReport | null>(null);
   const [fluencyBusy, setFluencyBusy] = useState(false);
   const [fluencyError, setFluencyError] = useState<string | null>(null);
 
   async function openFluency() {
-    setShowFluency(true);
+    setInsightsTab("overview");
     setFluencyBusy(true);
     setFluencyError(null);
     try {
@@ -214,7 +266,7 @@ export function App() {
   }
 
   async function runInsight(kind: InsightKind) {
-    setShowInsights(true);
+    setInsightsTab("analyses");
     setInsightKind(kind);
     setInsightMd(null);
     setInsightError(null);
@@ -256,32 +308,17 @@ export function App() {
   }
 
   // Temporal view (activity over time).
-  const [showActivity, setShowActivity] = useState(false);
   const [activityBucket, setActivityBucket] = useState<"day" | "week">("week");
   const [activity, setActivity] = useState<ActivityBucket[] | null>(null);
 
   async function openActivity(bucket: "day" | "week" = activityBucket) {
-    setShowActivity(true);
+    setInsightsTab("overview");
     setActivityBucket(bucket);
     setActivity(null);
     try {
       setActivity((await getActivity(bucket)).periods);
     } catch {
       setActivity([]);
-    }
-  }
-
-  // Knowledge graph.
-  const [showGraph, setShowGraph] = useState(false);
-  const [graph, setGraph] = useState<Graph | null>(null);
-
-  async function openGraph() {
-    setShowGraph(true);
-    setGraph(null);
-    try {
-      setGraph(await getGraph(40));
-    } catch {
-      setGraph({ nodes: [], edges: [] });
     }
   }
 
@@ -378,6 +415,23 @@ export function App() {
   // The local device's name, so remote-only chips can be shown on results.
   const localDevice = devices.find((d) => d.local)?.name;
 
+  /** Open the Insights view on a tab, loading what that tab shows. Nothing
+   * here calls a model on its own; the model-backed analyses run on request. */
+  function openInsights(tab: InsightsTab) {
+    setInsightsTab(tab);
+    if (tab === "overview") {
+      openFluency();
+      openOptimize(false);
+      openActivity(activityBucket);
+    } else if (tab === "weekly") {
+      openWeekly();
+    } else if (tab === "themes") {
+      if (!themes || themes.length === 0) openThemes();
+    } else if (!metrics) {
+      getMetrics().then(setMetrics).catch(() => {});
+    }
+  }
+
   // Device routing arg for searches: undefined (= all) unless the user has
   // narrowed the selection to a strict, non-empty subset.
   const deviceArg = useCallback((): string[] | undefined => {
@@ -386,6 +440,22 @@ export function App() {
     if (deviceSel.size === 0 || deviceSel.size === names.length) return undefined;
     return names.filter((n) => deviceSel.has(n));
   }, [federation, devices, deviceSel]);
+
+  // Per-tool counts of sessions (not skills or room exchanges), busiest first.
+  const toolChips = (status?.tools ?? [])
+    .filter(([tool, sessions]) => tool !== "room" && sessions > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const sessionCount = toolChips.reduce((n, [, sessions]) => n + sessions, 0);
+  const activeFilters = [
+    filters.kind,
+    filters.tool,
+    filters.tag,
+    filters.project,
+    filters.since,
+    filters.until,
+    mode !== "hybrid" ? mode : undefined,
+    deviceArg() ? "devices" : undefined,
+  ].filter(Boolean).length;
 
   const toggleDevice = (name: string) =>
     setDeviceSel((sel) => {
@@ -620,39 +690,33 @@ export function App() {
     }
   }
 
+  // "/" or Ctrl/Cmd+K jumps to search from anywhere that isn't a text field.
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(
+        document.activeElement?.tagName ?? "",
+      );
+      const palette = e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey);
+      if (palette || (e.key === "/" && !typing)) {
+        e.preventDefault();
+        searchInput.current?.focus();
+        searchInput.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Keyboard navigation over results (j/k or arrows; Enter opens; Esc closes).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (showThemes) {
-        if (e.key === "Escape") setShowThemes(false);
-        return;
-      }
-      if (showInsights) {
-        if (e.key === "Escape") setShowInsights(false);
-        return;
-      }
-      if (showWeekly) {
-        if (e.key === "Escape") setShowWeekly(false);
-        return;
-      }
-      if (showOptimize) {
-        if (e.key === "Escape") setShowOptimize(false);
-        return;
-      }
-      if (showFluency) {
-        if (e.key === "Escape") setShowFluency(false);
+      if (insightsTab) {
+        if (e.key === "Escape") setInsightsTab(null);
         return;
       }
       if (showAsk) {
         if (e.key === "Escape") setShowAsk(false);
-        return;
-      }
-      if (showActivity) {
-        if (e.key === "Escape") setShowActivity(false);
-        return;
-      }
-      if (showGraph) {
-        if (e.key === "Escape") setShowGraph(false);
         return;
       }
       if (showSettings) {
@@ -685,39 +749,35 @@ export function App() {
     selected,
     open,
     showSettings,
-    showThemes,
-    showInsights,
-    showWeekly,
-    showOptimize,
-    showFluency,
     showAsk,
-    showActivity,
-    showGraph,
+    insightsTab,
   ]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
-  // Pin / bookmark toggles, shared by result rows and the saved panel.
-  const flagButtons = (h: Pick<Hit, "conversation_id" | "pinned" | "bookmarked">) => (
-    <span className="hit-actions" onClick={(e) => e.stopPropagation()}>
-      <button
-        className={`icon ${h.pinned ? "on" : ""}`}
-        title={h.pinned ? "Unpin" : "Pin to top"}
-        aria-label={h.pinned ? "Unpin" : "Pin to top"}
-        onClick={() => toggleFlag(h.conversation_id, { pinned: !h.pinned })}
-      >
-        {h.pinned ? "📌" : "📍"}
-      </button>
-      <button
-        className={`icon ${h.bookmarked ? "on" : ""}`}
-        title={h.bookmarked ? "Remove bookmark" : "Bookmark"}
-        aria-label={h.bookmarked ? "Remove bookmark" : "Bookmark"}
-        onClick={() => toggleFlag(h.conversation_id, { bookmarked: !h.bookmarked })}
-      >
-        {h.bookmarked ? "🔖" : "🏷️"}
-      </button>
-    </span>
-  );
+  // One "save" star, shared by result rows, the saved list and the viewer.
+  // (Older indexes may hold pins; a pinned session counts as saved too.)
+  const flagButtons = (h: Pick<Hit, "conversation_id" | "pinned" | "bookmarked">) => {
+    const saved = !!(h.bookmarked || h.pinned);
+    return (
+      <span className="hit-actions" onClick={(e) => e.stopPropagation()}>
+        <button
+          className={`icon star ${saved ? "on" : ""}`}
+          title={saved ? "Remove from saved" : "Save for later"}
+          aria-label={saved ? "Remove from saved" : "Save for later"}
+          aria-pressed={saved}
+          onClick={() =>
+            toggleFlag(
+              h.conversation_id,
+              saved ? { bookmarked: false, pinned: false } : { bookmarked: true },
+            )
+          }
+        >
+          {saved ? "★" : "☆"}
+        </button>
+      </span>
+    );
+  };
 
   // Filter + highlight the open transcript once per [open, find] — not twice per
   // render (count + list) and not on every unrelated re-render.
@@ -739,6 +799,24 @@ export function App() {
             <span className="brand-cross">Cross</span>
             <span className="brand-threads">threads</span>
           </h1>
+          <nav className="top-nav" aria-label="Main">
+            <button
+              className="nav-btn"
+              onClick={() => openInsights("overview")}
+              title="How you work, your weekly review, themes, and analyses of your history"
+            >
+              <span aria-hidden="true">💡</span> Insights
+              {weeklyUnseen && <span className="nav-dot" aria-label="new weekly review" />}
+            </button>
+            <Rooms onError={reportError} />
+            <button
+              className="nav-btn"
+              onClick={() => setShowAsk(true)}
+              title="Ask a question and get an answer from your own past sessions, with citations"
+            >
+              <span aria-hidden="true">💬</span> Ask
+            </button>
+          </nav>
           <button
             className="theme-toggle"
             onClick={toggleTheme}
@@ -749,100 +827,39 @@ export function App() {
           </button>
           <button
             className="settings-toggle"
-            onClick={openThemes}
-            title="Theme map — what you've been working on"
-            aria-label="Open theme map"
-          >
-            🗺️
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => runInsight("work_dna")}
-            title="Insights — how you work, gaps, prompt coaching, repeatable processes, and more"
-            aria-label="Open insights"
-          >
-            💡
-          </button>
-          <button
-            className={`settings-toggle ${weeklyUnseen ? "has-badge" : ""}`}
-            onClick={openWeekly}
-            title="Your weekly review"
-            aria-label="Open weekly review"
-          >
-            📋
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => openOptimize(false)}
-            title="Optimize — the biggest change to make now, and whether the last one worked"
-            aria-label="Open optimize"
-          >
-            🎯
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => openFluency()}
-            title="AI-fluency — how you work across four dimensions, and a question to reflect on"
-            aria-label="Open AI-fluency"
-          >
-            🧭
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => setShowAsk(true)}
-            title="Ask — answer a question from your history (cited)"
-            aria-label="Ask your history"
-          >
-            💬
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => openActivity()}
-            title="Activity — your sessions over time"
-            aria-label="Open activity timeline"
-          >
-            📅
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={openGraph}
-            title="Knowledge graph — projects, tools, and tags"
-            aria-label="Open knowledge graph"
-          >
-            🕸️
-          </button>
-          <button
-            className="settings-toggle"
             onClick={() => setShowSettings(true)}
-            title="Documentation &amp; settings"
+            title="Settings and documentation"
             aria-label="Open settings"
           >
             ⚙️
           </button>
         </div>
-        <p className="tagline">Every AI coding thread, across your tools. Search them, or pick one up below.</p>
+        <p className="tagline">Every AI coding thread, across your tools and machines.</p>
         {status && (
-          <p className="status">
-            {status.conversations.toLocaleString()} conversations ·{" "}
-            {status.embeddings.toLocaleString()} embeddings · {status.embedder}
+          <p
+            className="status"
+            title={`${status.conversations.toLocaleString()} records indexed (sessions, skills, room exchanges) · ${status.embeddings.toLocaleString()} embeddings · embedder ${status.embedder}`}
+          >
+            {sessionCount.toLocaleString()} session{sessionCount === 1 ? "" : "s"} indexed
+            {toolChips.length > 0 && <> across {toolChips.length} tool{toolChips.length === 1 ? "" : "s"}</>}
             <button className="linklike" onClick={runReindex} disabled={reindexing}>
               {reindexing ? "re-indexing…" : "re-index"}
             </button>
           </p>
         )}
-        {status?.tools && status.tools.length > 0 && (
-          <div className="tool-chips" aria-label="Detected tools">
-            {status.tools.map(([tool, threads, skills]) => (
+        {toolChips.length > 0 && (
+          <div className="tool-chips" aria-label="Indexed tools">
+            {toolChips.map(([tool, sessions, skills]) => (
               <span
                 key={tool}
                 className="tool-chip"
-                title={`${threads} conversation${threads === 1 ? "" : "s"}${
-                  skills > 0 ? ` · ${skills} skill${skills === 1 ? "" : "s"}` : ""
+                title={`${sessions} session${sessions === 1 ? "" : "s"}${
+                  skills > 0 ? ` and ${skills} skill${skills === 1 ? "" : "s"}` : ""
                 } from ${toolLabel(tool)}`}
               >
                 <span className="tool-chip-icon">{toolIcon(tool)}</span>
                 {toolLabel(tool)}
-                <span className="tool-chip-count">{(threads + skills).toLocaleString()}</span>
+                <span className="tool-chip-count">{sessions.toLocaleString()}</span>
               </span>
             ))}
           </div>
@@ -853,7 +870,7 @@ export function App() {
         <div className="weekly-banner">
           <span>📋 Your weekly review is ready — how you worked, and one thing to try.</span>
           <span className="weekly-banner-actions">
-            <button className="linklike" onClick={openWeekly}>
+            <button className="linklike" onClick={() => openInsights("weekly")}>
               Read it
             </button>
             <button
@@ -869,18 +886,22 @@ export function App() {
 
       <form className="searchbar" onSubmit={runSearch}>
         <input
-          autoFocus
+          ref={searchInput}
+          aria-label="Search your sessions"
+          title="Search (press / or Ctrl+K)"
           placeholder="e.g. where did we set up the OAuth refresh retry?"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-          {MODES.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
+        <button
+          type="button"
+          className={`secondary filters-toggle ${showFilters ? "on" : ""}`}
+          onClick={() => setShowFilters((v) => !v)}
+          aria-expanded={showFilters}
+          title="Narrow the search by tool, kind, project, date or device"
+        >
+          Filters{activeFilters > 0 ? ` · ${activeFilters}` : ""}
+        </button>
         <button type="submit" disabled={loading}>
           {loading ? "…" : "Search"}
         </button>
@@ -891,17 +912,35 @@ export function App() {
         )}
       </form>
 
+      {showFilters && (
       <div className="filters">
-        <select value={filters.kind ?? ""} onChange={(e) => setF({ kind: e.target.value || undefined })}>
-          <option value="">sessions + skills</option>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as Mode)}
+          title="Hybrid combines keyword and meaning; keyword matches exact words; meaning finds related wording"
+          aria-label="Search mode"
+        >
+          {MODES.map((m) => (
+            <option key={m} value={m}>
+              {MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.kind ?? ""}
+          onChange={(e) => setF({ kind: e.target.value || undefined })}
+          aria-label="What to search"
+        >
+          <option value="">everything</option>
           <option value="thread">sessions</option>
-          <option value="skill">skills</option>
+          <option value="exchange">room exchanges</option>
+          <option value="skill">skills &amp; prompts</option>
         </select>
         <select value={filters.tool ?? ""} onChange={(e) => setF({ tool: e.target.value || undefined })}>
           <option value="">all tools</option>
           {tools.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {toolLabel(t)}
             </option>
           ))}
         </select>
@@ -944,6 +983,7 @@ export function App() {
           </div>
         )}
       </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -979,7 +1019,7 @@ export function App() {
 
       {saved.length > 0 && !searched && (
         <section className="saved">
-          <h2>Saved &amp; pinned</h2>
+          <h2>Saved</h2>
           <div className="saved-list">
             {saved.map((h) => (
               <div
@@ -987,7 +1027,7 @@ export function App() {
                 className="saved-item"
                 onClick={() => openConversation(h.conversation_id)}
               >
-                <span className={`tool tool-${h.tool}`}>{h.tool}</span>
+                <ToolChip tool={h.tool} />
                 <span className="title">{h.title ?? "(untitled)"}</span>
                 {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
                 {flagButtons(h)}
@@ -1000,6 +1040,8 @@ export function App() {
       {!searched && (
         <Board
           onOpenSession={(id, device) => openConversation(id, device)}
+          openThreadFor={threadRequest}
+          onThreadOpened={() => setThreadRequest(null)}
           localDevice={localDevice}
           refreshKey={boardKey}
           onError={reportError}
@@ -1038,7 +1080,11 @@ export function App() {
           >
             <div className="hit-head">
               {h.kind === "skill" && <span className="badge-skill">skill</span>}
-              <span className={`tool tool-${h.tool}`}>{h.tool}</span>
+              {h.kind === "exchange" ? (
+                <span className="badge-skill">room exchange</span>
+              ) : (
+                <ToolChip tool={h.tool} />
+              )}
               {h.device && h.device !== localDevice && (
                 <span className="device-chip" title={`from ${h.device}`}>💻 {h.device}</span>
               )}
@@ -1046,7 +1092,11 @@ export function App() {
               {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
               {flagButtons(h)}
             </div>
-            {h.project && <div className="project">{h.project}</div>}
+            {h.project && (
+              <div className="project" title={h.project}>
+                {shortPath(h.project)}
+              </div>
+            )}
             <div className="snippet" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />
             {h.tags && h.tags.length > 0 && (
               <div className="tags">
@@ -1068,10 +1118,14 @@ export function App() {
         <div className="overlay" onClick={() => setOpen(null)}>
           <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <div>
-                <span className={`tool tool-${open.tool}`}>{open.tool}</span>{" "}
+              <div className="transcript-head-main">
+                <ToolChip tool={open.tool} />{" "}
                 <strong>{open.title ?? "(untitled)"}</strong>
-                {open.project && <div className="project">{open.project}</div>}
+                {open.project && (
+                  <div className="project" title={open.project}>
+                    {shortPath(open.project)}
+                  </div>
+                )}
               </div>
               <div className="modal-head-actions">
                 {flagButtons({
@@ -1079,27 +1133,15 @@ export function App() {
                   pinned: open.pinned,
                   bookmarked: open.bookmarked,
                 })}
-                <button
-                  className="secondary"
-                  title="Download this conversation as Markdown"
-                  onClick={() => exportConversation(open, "md")}
-                >
-                  Export .md
-                </button>
-                <button
-                  className="secondary"
-                  title="Download this conversation as JSON"
-                  onClick={() => exportConversation(open, "json")}
-                >
-                  JSON
-                </button>
-                <button
-                  className="danger"
-                  title="Remove this conversation from the index for good"
-                  onClick={() => forgetConversation(open.id)}
-                >
-                  Forget
-                </button>
+                {!openDevice && open.kind !== "skill" && open.kind !== "exchange" && (
+                  <button
+                    className="secondary"
+                    title="See every session that is part of the same piece of work"
+                    onClick={() => showThreadOf(open.id)}
+                  >
+                    Thread
+                  </button>
+                )}
                 <button className="secondary" onClick={() => setOpen(null)}>
                   Close
                 </button>
@@ -1170,7 +1212,7 @@ export function App() {
                         )
                       }
                     >
-                      Copy resume cmd
+                      Copy resume command
                     </button>
                   )}
                   <button
@@ -1179,6 +1221,20 @@ export function App() {
                   >
                     Copy path
                   </button>
+                  <button
+                    className="secondary"
+                    title="Download this conversation as Markdown"
+                    onClick={() => exportConversation(open, "md")}
+                  >
+                    Export
+                  </button>
+                  <button
+                    className="danger"
+                    title="Remove this conversation from the index for good"
+                    onClick={() => forgetConversation(open.id)}
+                  >
+                    Forget
+                  </button>
                 </div>
               </div>
             )}
@@ -1186,93 +1242,10 @@ export function App() {
         </div>
       )}
 
-      {showThemes && (
-        <div className="overlay" onClick={() => setShowThemes(false)}>
+      {insightsTab && (
+        <div className="overlay" onClick={() => setInsightsTab(null)}>
           <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Theme map</h2>
-              <div className="modal-head-actions">
-                <button
-                  className="secondary"
-                  onClick={nameThemes}
-                  disabled={namingThemes || !themes || themes.length === 0}
-                  title="Label each theme with a short AI-generated name (needs a model login)"
-                >
-                  {namingThemes ? "Naming…" : "✨ Name with AI"}
-                </button>
-                <button className="secondary" onClick={() => setShowThemes(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
-            <p className="doc-desc">
-              Your indexed sessions clustered by topic — what you've been working on,
-              across tools. Click a session to open it.
-            </p>
-            {!themes && <p className="doc-desc">Clustering…</p>}
-            {themes && themes.length === 0 && (
-              <p className="doc-desc">
-                No themes yet — index some sessions first (semantic themes need
-                embeddings).
-              </p>
-            )}
-            {themes && themes.length > 0 && (
-              <div className="theme-grid">
-                {themes.map((t, i) => {
-                  // Scale the card by cluster size (sqrt keeps big themes sane).
-                  const max = Math.max(...themes.map((x) => x.size));
-                  const weight = Math.sqrt(t.size / max);
-                  return (
-                    <div
-                      key={i}
-                      className="theme-card"
-                      style={{ flexGrow: 1 + weight * 3, minWidth: `${180 + weight * 120}px` }}
-                    >
-                      <div className="theme-card-head">
-                        <span className="theme-label">{t.label}</span>
-                        <span className="theme-size">{t.size}</span>
-                      </div>
-                      <div className="theme-tools">
-                        {t.tools.slice(0, 3).map(([name, n]) => (
-                          <span key={name} className="theme-tool-chip">
-                            {name} {n}
-                          </span>
-                        ))}
-                      </div>
-                      <ul className="theme-samples">
-                        {t.samples.slice(0, 4).map((s) => (
-                          <li key={s.id}>
-                            <button
-                              className="linklike"
-                              title={s.title ?? ""}
-                              onClick={() => {
-                                setShowThemes(false);
-                                openConversation(s.id);
-                              }}
-                            >
-                              {(s.title ?? "(untitled)").trim()}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showInsights && (
-        <div className="overlay" onClick={() => setShowInsights(false)}>
-          <div
-            className="modal themes-modal"
+            className="modal themes-modal insights-hub"
             role="dialog"
             aria-modal="true"
             aria-label="Insights"
@@ -1280,170 +1253,36 @@ export function App() {
           >
             <div className="modal-head">
               <h2>Insights</h2>
-              <button className="secondary" onClick={() => setShowInsights(false)}>
+              <button className="secondary" onClick={() => setInsightsTab(null)}>
                 Close
               </button>
             </div>
-            {metrics && metrics.sessions > 0 && (
-              <div className="metric-strip">
-                <span><b>{metrics.sessions}</b> sessions</span>
-                <span><b>{metrics.median_user_turns}</b> median turns</span>
-                <span><b>{Math.round(metrics.correction_rate * 100)}%</b> rework</span>
-                <span><b>{Math.round(metrics.abandonment_rate * 100)}%</b> unresolved</span>
-                <span><b>{Math.round(metrics.specificity_rate * 100)}%</b> specific prompts</span>
-                <span><b>{metrics.avg_tool_actions.toFixed(1)}</b> actions/session</span>
-                {metrics.median_session_minutes > 0 && (
-                  <span><b>{Math.round(metrics.median_session_minutes)}</b> min median</span>
-                )}
-                {metrics.top_languages[0] && (
-                  <span>top lang <b>{metrics.top_languages[0][0]}</b></span>
-                )}
-              </div>
-            )}
-            <div className="insight-tabs">
+            <div className="settings-tabs insights-tabs" role="tablist" aria-label="Insights">
               {(
                 [
-                  ["work_dna", "Work DNA"],
-                  ["gaps", "Gaps"],
-                  ["prompt_coach", "Prompt coach"],
-                  ["process_miner", "Processes"],
-                  ["open_loops", "Open loops"],
-                  ["decision_log", "Decisions"],
-                  ["knowledge_cards", "Knowledge cards"],
-                  ["how_i_work", "How I work"],
-                  ["recurrence", "Recurring"],
-                  ["digest", "Digest"],
-                ] as [InsightKind, string][]
-              ).map(([k, label]) => (
+                  ["overview", "How you work"],
+                  ["weekly", "Weekly review"],
+                  ["themes", "Themes"],
+                  ["analyses", "Analyses"],
+                ] as [InsightsTab, string][]
+              ).map(([tab, label]) => (
                 <button
-                  key={k}
-                  className={insightKind === k ? "on" : ""}
-                  onClick={() => runInsight(k)}
-                  disabled={insightBusyKind !== null}
+                  key={tab}
+                  role="tab"
+                  aria-selected={insightsTab === tab}
+                  className={insightsTab === tab ? "on" : ""}
+                  onClick={() => openInsights(tab)}
                 >
                   {label}
+                  {tab === "weekly" && weeklyUnseen && <span className="tab-dot" aria-label="new" />}
                 </button>
               ))}
             </div>
-            <p className="doc-desc">
-              <b>Work DNA</b>, <b>Gaps</b>, <b>Prompt coach</b>, and <b>Processes</b> are
-              grounded in the metrics above (computed across your whole history); the rest
-              synthesize recent sessions. All use your configured model (Settings → Models).
-            </p>
-            {insightBusyKind && <p className="doc-desc">Synthesizing…</p>}
-            {insightError && <div className="error">{insightError}</div>}
-            {!insightBusyKind && !insightError && insightMd && (
-              <>
-                <pre className="insight-body">{insightMd}</pre>
-                {insightSources > 0 && (
-                  <p className="doc-desc">
-                    Drawn from {insightSources} recent session(s).
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
-      {showWeekly && (
-        <div className="overlay" onClick={() => setShowWeekly(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Weekly review"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Weekly review</h2>
-              <div className="modal-head-actions">
-                <button
-                  className="secondary"
-                  onClick={refreshWeekly}
-                  disabled={weeklyBusy}
-                  title="Regenerate from the last 7 days"
-                >
-                  {weeklyBusy ? "Refreshing…" : "↻ Refresh"}
-                </button>
-                <button className="secondary" onClick={() => setShowWeekly(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
-            {weekly && (
-              <p className="doc-desc">
-                Week of {weekly.period_start}
-                {weekly.llm_used ? "" : " — metrics only (add a model for a narrative)"}.
-              </p>
-            )}
-            {weeklyBusy && <p className="doc-desc">Generating…</p>}
-            {weekly && !weeklyBusy && <pre className="insight-body">{weekly.markdown}</pre>}
-            {!weekly && !weeklyBusy && (
-              <p className="doc-desc">No review yet — index some sessions first.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showOptimize && (
-        <div className="overlay" onClick={() => setShowOptimize(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Optimize how you work"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Optimize how you work</h2>
-              <div className="modal-head-actions">
-                <button
-                  className="secondary"
-                  onClick={() => openOptimize(true)}
-                  disabled={optimizeBusy}
-                  title="Grade the current focus now instead of waiting ~7 days"
-                >
-                  {optimizeBusy ? "…" : "↻ Grade now"}
-                </button>
-                <button className="secondary" onClick={() => setShowOptimize(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
+            {insightsTab === "overview" && (
+              <div className="insights-pane">
             <p className="doc-desc">
-              The single highest-impact change to make now — grounded in your metrics — plus a
-              measured verdict on the last change you tried, and your trends. Deterministic; no
-              model.
-            </p>
-            {optimizeBusy && <p className="doc-desc">Computing…</p>}
-            {optimizeError && <div className="error">{optimizeError}</div>}
-            {!optimizeBusy && !optimizeError && optimize && (
-              <pre className="insight-body">{optimize.markdown}</pre>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showFluency && (
-        <div className="overlay" onClick={() => setShowFluency(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Your AI-fluency"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Your AI-fluency</h2>
-              <button className="secondary" onClick={() => setShowFluency(false)}>
-                Close
-              </button>
-            </div>
-            <p className="doc-desc">
-              How you work with an agent across four dimensions — Delegation, Description,
-              Discernment, Diligence — each scored from your own metrics, with movement vs. the
-              previous window. Ends on a question, not a to-do. Deterministic; no model.
+              Four sides of working with an agent, scored from your own sessions, with the change since the previous 30 days. Computed locally; no model.
             </p>
             {fluencyBusy && <p className="doc-desc">Computing…</p>}
             {fluencyError && <div className="error">{fluencyError}</div>}
@@ -1502,7 +1341,7 @@ export function App() {
                     <button
                       className="secondary"
                       onClick={() => {
-                        setShowFluency(false);
+                        setInsightsTab(null);
                         setAskQuery(fluency.reflection!.prompt);
                         setShowAsk(true);
                       }}
@@ -1514,91 +1353,42 @@ export function App() {
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {showAsk && (
-        <div className="overlay" onClick={() => setShowAsk(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Ask your history"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Ask your history</h2>
-              <button className="secondary" onClick={() => setShowAsk(false)}>
-                Close
-              </button>
-            </div>
-            <form className="ask-form" onSubmit={runAsk}>
-              <input
-                autoFocus
-                type="text"
-                placeholder="e.g. how did we end up handling token refresh?"
-                value={askQuery}
-                onChange={(e) => setAskQuery(e.target.value)}
-              />
-              <button type="submit" disabled={askBusy || !askQuery.trim()}>
-                {askBusy ? "Asking…" : "Ask"}
-              </button>
-            </form>
-            <p className="doc-desc">
-              Answered from your own past sessions across every tool, with citations.
-              Uses your configured model (Settings → Models); without one it returns the
-              retrieved context.
-            </p>
-            {askError && <div className="error">{askError}</div>}
-            {!askBusy && askAnswer && (
-              <>
-                <pre className="insight-body">{askAnswer.markdown}</pre>
-                <p className="doc-desc">
-                  {askAnswer.sources.length > 0
-                    ? `Answered from ${askAnswer.sources.length} past session(s)`
-                    : "No matching sessions found"}
-                  {askAnswer.sources.length > 0 && !askAnswer.llm_used
-                    ? " — retrieved context (no model configured)."
-                    : "."}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showActivity && (
-        <div className="overlay" onClick={() => setShowActivity(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Activity"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Activity</h2>
-              <div className="modal-head-actions">
-                <div className="settings-tabs">
+                <div className="insights-section-head">
+                  <h3>Your focus</h3>
                   <button
-                    className={activityBucket === "day" ? "on" : ""}
-                    onClick={() => openActivity("day")}
+                    className="secondary"
+                    onClick={() => openOptimize(true)}
+                    disabled={optimizeBusy}
+                    title="Grade the current focus now instead of waiting ~7 days"
                   >
-                    Day
-                  </button>
-                  <button
-                    className={activityBucket === "week" ? "on" : ""}
-                    onClick={() => openActivity("week")}
-                  >
-                    Week
+                    {optimizeBusy ? "…" : "↻ Grade now"}
                   </button>
                 </div>
-                <button className="secondary" onClick={() => setShowActivity(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
+            <p className="doc-desc">
+              The one change most worth making now, whether the last one worked, and how your numbers are trending.
+            </p>
+            {optimizeBusy && <p className="doc-desc">Computing…</p>}
+            {optimizeError && <div className="error">{optimizeError}</div>}
+            {!optimizeBusy && !optimizeError && optimize && (
+              <pre className="insight-body">{optimize.markdown}</pre>
+            )}
+                <div className="insights-section-head">
+                  <h3>Activity</h3>
+                  <div className="settings-tabs">
+                    <button
+                      className={activityBucket === "day" ? "on" : ""}
+                      onClick={() => openActivity("day")}
+                    >
+                      Day
+                    </button>
+                    <button
+                      className={activityBucket === "week" ? "on" : ""}
+                      onClick={() => openActivity("week")}
+                    >
+                      Week
+                    </button>
+                  </div>
+                </div>
             {!activity && <p className="doc-desc">Loading…</p>}
             {activity && activity.length === 0 && (
               <p className="doc-desc">No dated sessions yet — index some first.</p>
@@ -1654,74 +1444,228 @@ export function App() {
                 </>
               );
             })()}
+              </div>
+            )}
+
+            {insightsTab === "weekly" && (
+              <div className="insights-pane">
+                <div className="insights-section-head">
+                  <span />
+                  <button
+                    className="secondary"
+                    onClick={refreshWeekly}
+                    disabled={weeklyBusy}
+                    title="Regenerate from the last 7 days"
+                  >
+                    {weeklyBusy ? "Refreshing…" : "↻ Refresh"}
+                  </button>
+                </div>
+            {weekly && (
+              <p className="doc-desc">
+                Week of {weekly.period_start}
+                {weekly.llm_used ? "" : " — metrics only (add a model for a narrative)"}.
+              </p>
+            )}
+            {weeklyBusy && <p className="doc-desc">Generating…</p>}
+            {weekly && !weeklyBusy && <pre className="insight-body">{weekly.markdown}</pre>}
+            {!weekly && !weeklyBusy && (
+              <p className="doc-desc">No review yet — index some sessions first.</p>
+            )}
+              </div>
+            )}
+
+            {insightsTab === "themes" && (
+              <div className="insights-pane">
+                <div className="insights-section-head">
+                  <span />
+                  <button
+                    className="secondary"
+                    onClick={nameThemes}
+                    disabled={namingThemes || !themes || themes.length === 0}
+                    title="Label each theme with a short AI-generated name (needs a model)"
+                  >
+                    {namingThemes ? "Naming…" : "✨ Name with AI"}
+                  </button>
+                </div>
+            <p className="doc-desc">
+              Your indexed sessions clustered by topic — what you've been working on,
+              across tools. Click a session to open it.
+            </p>
+            {!themes && <p className="doc-desc">Clustering…</p>}
+            {themes && themes.length === 0 && (
+              <p className="doc-desc">
+                No themes yet — index some sessions first (semantic themes need
+                embeddings).
+              </p>
+            )}
+            {themes && themes.length > 0 && (
+              <div className="theme-grid">
+                {themes.map((t, i) => {
+                  // Scale the card by cluster size (sqrt keeps big themes sane).
+                  const max = Math.max(...themes.map((x) => x.size));
+                  const weight = Math.sqrt(t.size / max);
+                  return (
+                    <div
+                      key={i}
+                      className="theme-card"
+                      style={{ flexGrow: 1 + weight * 3, minWidth: `${180 + weight * 120}px` }}
+                    >
+                      <div className="theme-card-head">
+                        <span className="theme-label">{t.label}</span>
+                        <span className="theme-size">{t.size}</span>
+                      </div>
+                      <div className="theme-tools">
+                        {t.tools.slice(0, 3).map(([name, n]) => (
+                          <span key={name} className="theme-tool-chip">
+                            {name} {n}
+                          </span>
+                        ))}
+                      </div>
+                      <ul className="theme-samples">
+                        {t.samples.slice(0, 4).map((s) => (
+                          <li key={s.id}>
+                            <button
+                              className="linklike"
+                              title={s.title ?? ""}
+                              onClick={() => {
+                                setInsightsTab(null);
+                                openConversation(s.id);
+                              }}
+                            >
+                              {(s.title ?? "(untitled)").trim()}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+              </div>
+            )}
+
+            {insightsTab === "analyses" && (
+              <div className="insights-pane">
+            {metrics && metrics.sessions > 0 && (
+              <div className="metric-strip">
+                <span><b>{metrics.sessions}</b> sessions</span>
+                <span><b>{metrics.median_user_turns}</b> median turns</span>
+                <span><b>{Math.round(metrics.correction_rate * 100)}%</b> rework</span>
+                <span><b>{Math.round(metrics.abandonment_rate * 100)}%</b> unresolved</span>
+                <span><b>{Math.round(metrics.specificity_rate * 100)}%</b> specific prompts</span>
+                <span><b>{metrics.avg_tool_actions.toFixed(1)}</b> actions/session</span>
+                {metrics.median_session_minutes > 0 && (
+                  <span><b>{Math.round(metrics.median_session_minutes)}</b> min median</span>
+                )}
+                {metrics.top_languages[0] && (
+                  <span>top lang <b>{metrics.top_languages[0][0]}</b></span>
+                )}
+              </div>
+            )}
+            <p className="doc-desc">
+              Each of these reads your history and writes a short report with your configured
+              model. They run only when you click one.
+            </p>
+            {ANALYSIS_GROUPS.map(([group, kinds]) => (
+              <div key={group} className="analysis-group">
+                <h3>{group}</h3>
+                <div className="analysis-grid">
+                  {kinds.map(([k, label, blurb]) => (
+                    <button
+                      key={k}
+                      className={`analysis-card ${insightKind === k && (insightMd || insightBusyKind) ? "on" : ""}`}
+                      onClick={() => runInsight(k)}
+                      disabled={insightBusyKind !== null}
+                    >
+                      <span className="analysis-label">{label}</span>
+                      <span className="analysis-blurb">{blurb}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {insightBusyKind && <p className="doc-desc">Writing it up… this takes a little while.</p>}
+            {insightError && /no usable model credential/i.test(insightError) && (
+              <div className="needs-model">
+                <p>
+                  <strong>These need a model.</strong> Sign into Claude Code or Codex on this
+                  machine, or paste an API key, and Crossthreads will use it. Nothing is sent
+                  anywhere else.
+                </p>
+                <button
+                  onClick={() => {
+                    setInsightsTab(null);
+                    setSettingsTab("models");
+                    setShowSettings(true);
+                  }}
+                >
+                  Set up a model
+                </button>
+              </div>
+            )}
+            {insightError && !/no usable model credential/i.test(insightError) && (
+              <div className="error">{insightError}</div>
+            )}
+            {!insightBusyKind && !insightError && insightMd && (
+              <>
+                <pre className="insight-body">{insightMd}</pre>
+                {insightSources > 0 && (
+                  <p className="doc-desc">Drawn from {insightSources} session(s).</p>
+                )}
+              </>
+            )}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {showGraph && (
-        <div className="overlay" onClick={() => setShowGraph(false)}>
+      {showAsk && (
+        <div className="overlay" onClick={() => setShowAsk(false)}>
           <div
             className="modal themes-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Knowledge graph"
+            aria-label="Ask your history"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-head">
-              <h2>Knowledge graph</h2>
-              <button className="secondary" onClick={() => setShowGraph(false)}>
+              <h2>Ask your history</h2>
+              <button className="secondary" onClick={() => setShowAsk(false)}>
                 Close
               </button>
             </div>
+            <form className="ask-form" onSubmit={runAsk}>
+              <input
+                autoFocus
+                type="text"
+                placeholder="e.g. how did we end up handling token refresh?"
+                value={askQuery}
+                onChange={(e) => setAskQuery(e.target.value)}
+              />
+              <button type="submit" disabled={askBusy || !askQuery.trim()}>
+                {askBusy ? "Asking…" : "Ask"}
+              </button>
+            </form>
             <p className="doc-desc">
-              Your projects, tools, and tags, sized by how much you work with them, and
-              the strongest connections between them. Offline; no model.
+              Answered from your own past sessions across every tool, with citations.
+              Uses your configured model (Settings → Models); without one it returns the
+              retrieved context.
             </p>
-            {!graph && <p className="doc-desc">Building…</p>}
-            {graph && graph.nodes.length === 0 && (
-              <p className="doc-desc">No graph yet — index some sessions first.</p>
-            )}
-            {graph && graph.nodes.length > 0 && (
-              <div className="graph-view">
-                {(["project", "tool", "tag"] as const).map((k) => {
-                  const nodes = graph.nodes
-                    .filter((n) => n.kind === k)
-                    .sort((a, b) => b.weight - a.weight);
-                  if (nodes.length === 0) return null;
-                  const max = Math.max(...nodes.map((n) => n.weight), 1);
-                  return (
-                    <div key={k} className="graph-group">
-                      <h3>{k[0].toUpperCase() + k.slice(1)}s</h3>
-                      <div className="graph-nodes">
-                        {nodes.slice(0, 24).map((n) => (
-                          <span
-                            key={n.id}
-                            className={`graph-node graph-node-${k}`}
-                            style={{ fontSize: `${0.8 + (n.weight / max) * 0.9}rem` }}
-                            title={`${n.weight} session(s)`}
-                          >
-                            {n.label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-                {graph.edges.length > 0 && (
-                  <div className="graph-group">
-                    <h3>Strongest links</h3>
-                    <ul className="graph-edges">
-                      {graph.edges.slice(0, 12).map((e, i) => (
-                        <li key={i}>
-                          {e.source.split(":").slice(1).join(":")} ↔{" "}
-                          {e.target.split(":").slice(1).join(":")}{" "}
-                          <span className="graph-edge-w">{e.weight}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+            {askError && <div className="error">{askError}</div>}
+            {!askBusy && askAnswer && (
+              <>
+                <pre className="insight-body">{askAnswer.markdown}</pre>
+                <p className="doc-desc">
+                  {askAnswer.sources.length > 0
+                    ? `Answered from ${askAnswer.sources.length} past session(s)`
+                    : "No matching sessions found"}
+                  {askAnswer.sources.length > 0 && !askAnswer.llm_used
+                    ? " — retrieved context (no model configured)."
+                    : "."}
+                </p>
+              </>
             )}
           </div>
         </div>

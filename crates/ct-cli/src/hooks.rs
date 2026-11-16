@@ -7,9 +7,18 @@
 //!
 //! Two rules keep this safe to leave installed:
 //!
-//! - **The hook never breaks the agent.** It prints nothing (some tools feed a
-//!   hook's output back to the model), waits a fraction of a second at most,
-//!   and exits 0 whatever happens, including when no daemon is running.
+//! - **The hook never breaks the agent.** It exits 0 whatever happens,
+//!   including when no daemon is running, and prints nothing (some tools feed
+//!   a hook's output back to the model) except in the two cases below.
+//!
+//! For an agent that has joined a room (SPEC §6.4) the same hook does two more
+//! things, and these are the only times it prints:
+//!
+//! - **Auto-wake.** When the agent ends its turn mid-exchange, the Stop hook
+//!   waits for the next room message and hands it back, so nobody has to type
+//!   "keep going".
+//! - **Claim guard.** Before an edit, the PreToolUse hook denies it if another
+//!   agent has claimed the file.
 //! - **The installer only touches its own entries.** Other hooks are kept, key
 //!   order is preserved, and the file is backed up before the first edit.
 //!
@@ -134,15 +143,19 @@ fn add(cfg: &mut Map<String, Value>, target: &Target, exe: &str) -> Result<()> {
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .context("`hooks` is not an object")?;
-    let command = format!("\"{exe}\" hook {}", target.tool);
     for event in target.events {
+        // The event is named on the command line, so the hook never depends on
+        // how a tool spells it in the payload. Stop may hold an agent that is
+        // waiting in a room, so it gets a long timeout; everything else is quick.
+        let command = format!("\"{exe}\" hook {} {event}", target.tool);
+        let timeout = if *event == "Stop" { 300 } else { 10 };
         hooks
             .entry(*event)
             .or_insert_with(|| json!([]))
             .as_array_mut()
             .with_context(|| format!("`hooks.{event}` is not a list"))?
             .push(json!({
-                "hooks": [{ "type": "command", "command": command, "timeout": 5 }]
+                "hooks": [{ "type": "command", "command": command, "timeout": timeout }]
             }));
     }
     Ok(())
@@ -297,9 +310,172 @@ fn event_from(tool: &str, event: Option<&str>, payload: &Value) -> Option<HookEv
     })
 }
 
+/// The name and room this session last used in a Crossthreads room, read from
+/// the tail of its own transcript. That is how a hook knows whether the agent
+/// has joined a room at all, without the agent having to register anything.
+fn room_identity(transcript: Option<&str>) -> Option<(String, Option<String>)> {
+    use std::io::{Seek, SeekFrom};
+    // MCP calls look like "me": "claude" (possibly escaped inside a JSON
+    // string); shell calls look like --me claude.
+    static ME: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static ROOM: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let me_re = ME.get_or_init(|| {
+        regex::Regex::new(r#"\\*"me\\*"\s*:\s*\\*"([^"\\]+)|--me[ =]\\*["']?([\w.-]+)"#).unwrap()
+    });
+    let room_re = ROOM.get_or_init(|| {
+        regex::Regex::new(r#"\\*"room\\*"\s*:\s*\\*"([^"\\]+)|--room[ =]\\*["']?([^"'\\\s]+)"#)
+            .unwrap()
+    });
+
+    let mut file = std::fs::File::open(transcript?).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(2_000_000)))
+        .ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    let tail = String::from_utf8_lossy(&bytes);
+
+    let mut found: Option<(String, Option<String>)> = None;
+    let pick = |c: regex::Captures<'_>| c.get(1).or(c.get(2)).map(|m| m.as_str().to_string());
+    for line in tail.lines() {
+        let ours = line.contains("crossthreads_room")
+            || line.contains("crossthreads_claim")
+            || line.contains("crossthreads_release")
+            || line.contains("crossthreads room ");
+        if !ours {
+            continue;
+        }
+        if let Some(me) = me_re.captures(line).and_then(pick) {
+            found = Some((me, room_re.captures(line).and_then(pick)));
+        }
+    }
+    found
+}
+
+/// The absolute paths a tool call is about to edit: Claude Code's edit tools
+/// name one file; Codex's `apply_patch` names files inside the patch text.
+fn edited_paths(payload: &Value) -> Vec<String> {
+    static PATCH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let patch_re = PATCH.get_or_init(|| {
+        regex::Regex::new(r"\*\*\* (?:Update|Add|Delete) File: ([^\n\\]+)").unwrap()
+    });
+    let Some(input) = payload.get("tool_input") else {
+        return Vec::new();
+    };
+    let mut paths: Vec<String> = ["file_path", "notebook_path", "path"]
+        .iter()
+        .filter_map(|k| input.get(k).and_then(Value::as_str).map(str::to_string))
+        .collect();
+    // In the serialised input a newline in the patch is the two characters
+    // `\n`, which the pattern stops at.
+    let raw = input.to_string();
+    paths.extend(
+        patch_re
+            .captures_iter(&raw)
+            .map(|c| c[1].trim().to_string()),
+    );
+
+    let cwd = payload
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    paths
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .map(|p| cwd.join(p).to_string_lossy().into_owned())
+        .collect()
+}
+
+/// What a hook should print, if anything.
+fn hook_output(tool: &str, event: &str, payload: &Value, client: &Client) -> Option<Value> {
+    let transcript = payload.get("transcript_path").and_then(Value::as_str);
+    let forward = |name: &str| {
+        if let Some(mut ev) = event_from(tool, Some(name), payload) {
+            ev.event = name.to_string();
+            let _ = client.call_timeout(&Request::HookEvent { event: ev }, HOOK_TIMEOUT);
+        }
+    };
+
+    if event.eq_ignore_ascii_case("PreToolUse") {
+        forward(event);
+        let paths = edited_paths(payload);
+        if paths.is_empty() {
+            return None;
+        }
+        let Ok(ct_daemon::Response::RoomGuard { claims }) =
+            client.call_timeout(&Request::RoomGuard { paths }, Duration::from_secs(2))
+        else {
+            return None;
+        };
+        // Only now, with a claim in the way, is it worth reading the
+        // transcript to learn who we are: an agent may edit what it claimed.
+        let me = room_identity(transcript).map(|(me, _)| me.to_lowercase());
+        let clash = claims.iter().find(|c| Some(&c.holder) != me.as_ref())?;
+        let until = chrono::TimeZone::timestamp_opt(&chrono::Local, clash.expires, 0)
+            .single()
+            .map(|t| t.format("%H:%M").to_string())
+            .unwrap_or_default();
+        return Some(json!({ "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": format!(
+                "{} is claimed by {} in a Crossthreads room until {until}. Ask {} to release it with crossthreads_room_send, or work on something else.",
+                clash.path, clash.holder, clash.holder
+            ),
+        }}));
+    }
+
+    if event.eq_ignore_ascii_case("Stop") {
+        let Some((me, room)) = room_identity(transcript) else {
+            forward(event);
+            return None; // this session never joined a room
+        };
+        let wait: u64 = std::env::var("CROSSTHREADS_HOOK_WAIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(240);
+        let room = room
+            .or_else(|| {
+                payload
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        forward("RoomListen");
+        let answer = client.call_timeout(
+            &Request::RoomStop {
+                me: me.clone(),
+                room: room.clone(),
+                wait,
+                transcript_path: transcript.map(str::to_string),
+            },
+            Duration::from_secs(wait + 15),
+        );
+        if let Ok(ct_daemon::Response::RoomStop {
+            room: Some(label),
+            messages: Some(messages),
+        }) = answer
+        {
+            forward("RoomWake");
+            return Some(json!({ "decision": "block", "reason": format!(
+                "Crossthreads: new messages for you ({me}) in room '{label}':\n{messages}\n\
+                 Handle them, then reply with crossthreads_room_send(me=\"{me}\", room=\"{room}\", ...)."
+            )}));
+        }
+        forward(event);
+        return None;
+    }
+
+    forward(event);
+    None
+}
+
 /// `crossthreads hook <tool> [event]` — called by the tools, not by people.
-/// Reads the hook payload on stdin and forwards it to the daemon. Never prints,
-/// never fails.
+/// Reads the hook payload on stdin and forwards it to the daemon. Prints only
+/// when it has a room message to hand back or an edit to deny; never fails.
 pub fn run_hook(args: &[String]) -> ExitCode {
     let Some(tool) = args.first() else {
         return ExitCode::SUCCESS;
@@ -307,8 +483,16 @@ pub fn run_hook(args: &[String]) -> ExitCode {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let payload: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
-    if let Some(event) = event_from(tool, args.get(1).map(String::as_str), &payload) {
-        let _ = Client::from_env().call_timeout(&Request::HookEvent { event }, HOOK_TIMEOUT);
+    let event = args.get(1).cloned().or_else(|| {
+        payload
+            .get("hook_event_name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+    if let Some(event) = event {
+        if let Some(out) = hook_output(tool, &event, &payload, &Client::from_env()) {
+            println!("{out}");
+        }
     }
     ExitCode::SUCCESS
 }
@@ -349,7 +533,7 @@ mod tests {
         assert_eq!(stop[0]["hooks"][0]["command"], "say done");
         assert_eq!(
             stop[1]["hooks"][0]["command"],
-            "\"/opt/ct/crossthreads\" hook claude-code"
+            "\"/opt/ct/crossthreads\" hook claude-code Stop"
         );
         assert_eq!(cfg["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
         assert_eq!(cfg["hooks"]["PreCompact"].as_array().unwrap().len(), 1);
@@ -429,6 +613,57 @@ mod tests {
             "{\"model\":\"x\"}\n"
         );
         assert!(!installed(&path));
+    }
+
+    #[test]
+    fn finds_the_room_identity_in_mcp_and_shell_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.jsonl");
+        let write = |lines: &[&str]| std::fs::write(&path, lines.join("\n")).unwrap();
+        let id = || room_identity(path.to_str());
+
+        // Never used a room tool: no identity, however the words appear.
+        write(&[r#"{"type":"user","message":"me and my room"}"#]);
+        assert_eq!(id(), None);
+
+        // An MCP tool call, as Claude Code records it.
+        write(&[
+            r#"{"type":"tool_use","name":"mcp__crossthreads__crossthreads_room_send","input":{"me":"Claude","room":"/code/demo","text":"hi"}}"#,
+        ]);
+        assert_eq!(id(), Some(("Claude".into(), Some("/code/demo".into()))));
+
+        // The same call nested inside an escaped JSON string (Codex rollouts).
+        write(&[
+            r#"{"payload":{"arguments":"{\"me\":\"codex\",\"room\":\"/code/demo\"}","name":"crossthreads_room_wait"}}"#,
+        ]);
+        assert_eq!(id(), Some(("codex".into(), Some("/code/demo".into()))));
+
+        // The shell fallback; the latest call wins, and a call without a room is fine.
+        write(&[
+            r#"{"input":{"command":"crossthreads room send --me old --room \"/tmp/x\" --to mia hi"}}"#,
+            r#"{"input":{"command":"crossthreads room wait --me newer"}}"#,
+        ]);
+        assert_eq!(id(), Some(("newer".into(), None)));
+        assert_eq!(room_identity(Some("/no/such/file")), None);
+        assert_eq!(room_identity(None), None);
+    }
+
+    #[test]
+    fn collects_the_files_an_edit_or_a_patch_touches() {
+        let edit = json!({"cwd": "/code/demo", "tool_name": "Edit",
+            "tool_input": {"file_path": "src/app.py"}});
+        assert_eq!(edited_paths(&edit), ["/code/demo/src/app.py"]);
+        let absolute = json!({"cwd": "/code/demo", "tool_input": {"file_path": "/etc/hosts"}});
+        assert_eq!(edited_paths(&absolute), ["/etc/hosts"]);
+        let patch = json!({"cwd": "/code/demo", "tool_name": "apply_patch", "tool_input": {
+            "command": ["apply_patch", "*** Begin Patch\n*** Update File: src/x.py\n@@\n-a\n+b\n*** Add File: docs/n.md\n+hi\n*** End Patch"]}});
+        assert_eq!(
+            edited_paths(&patch),
+            ["/code/demo/src/x.py", "/code/demo/docs/n.md"]
+        );
+        // A tool that edits nothing (Bash, Read) yields nothing to guard.
+        assert!(edited_paths(&json!({"tool_input": {"command": "ls"}})).is_empty());
+        assert!(edited_paths(&json!({})).is_empty());
     }
 
     #[test]

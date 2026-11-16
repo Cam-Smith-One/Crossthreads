@@ -290,3 +290,66 @@ fn punctuation_in_query_does_not_break_fts() {
     let hits = store.search("auth: (bug)!", 10).unwrap();
     assert_eq!(hits.len(), 1);
 }
+
+#[test]
+fn a_session_that_grows_replaces_its_older_version() {
+    let mut store = Store::open_in_memory().unwrap();
+    let first = vec![msg(
+        Role::User,
+        "why is the dashboard slow with ten thousand rows",
+    )];
+    let mut grown = first.clone();
+    grown.push(msg(
+        Role::Assistant,
+        "every row re-renders; virtualise the list",
+    ));
+    let mut v1 = convo(Tool::ClaudeCode, "/web", first);
+    let mut v2 = convo(Tool::ClaudeCode, "/web", grown);
+    v1.source.path = "/s/web.jsonl".into();
+    v2.source.path = "/s/web.jsonl".into();
+
+    store.upsert_conversation(&v1).unwrap();
+    store.set_flags(&v1.id, Some(true), None).unwrap();
+    store.upsert_conversation(&v2).unwrap();
+
+    // One session, one row, one search hit — and the bookmark carried over.
+    assert_eq!(store.conversation_count().unwrap(), 1);
+    let hits = store.search("dashboard slow", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].conversation_id, v2.id);
+    assert!(store.get_conversation(&v2.id).unwrap().unwrap().bookmarked);
+    // Re-indexing the old version is a fresh insert, then dropped again... but
+    // the longer one is never dropped by a shorter one.
+    store.upsert_conversation(&v1).unwrap();
+    assert!(store.get_conversation(&v2.id).unwrap().is_some());
+}
+
+#[test]
+fn two_different_chats_that_share_a_key_are_both_kept() {
+    let mut store = Store::open_in_memory().unwrap();
+    // Same source file and same opening line (a shared editor database), but
+    // the second message differs: not a continuation, so both stay.
+    let mut a = convo(
+        Tool::Cursor,
+        "/web",
+        vec![
+            msg(Role::User, "hello"),
+            msg(Role::Assistant, "answer about css"),
+        ],
+    );
+    let mut b = convo(
+        Tool::Cursor,
+        "/web",
+        vec![
+            msg(Role::User, "hello"),
+            msg(Role::Assistant, "answer about sql"),
+            msg(Role::User, "more"),
+        ],
+    );
+    a.source.path = "/db/state.vscdb".into();
+    b.source.path = "/db/state.vscdb".into();
+    store.upsert_conversation(&a).unwrap();
+    store.upsert_conversation(&b).unwrap();
+    assert_eq!(store.conversation_count().unwrap(), 2);
+    assert_eq!(store.collapse_session_versions().unwrap(), 0);
+}

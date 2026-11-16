@@ -166,6 +166,8 @@ pub fn embed_pending(store: &mut Store, embedder: &dyn Embedder) -> Result<usize
 /// only projects without a key touch the filesystem, and only sessions not
 /// examined before are compared.
 pub fn link_threads(store: &Store) -> Result<ct_store::DetectReport> {
+    // Older indexes may hold several versions of a session that grew.
+    store.collapse_session_versions()?;
     for project in store.projects_missing_repo_key()? {
         if let Some(key) = ct_core::repo::repo_key_for(&project) {
             store.set_repo_key(&project, &key)?;

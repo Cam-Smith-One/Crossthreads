@@ -48,7 +48,7 @@ const OPENING_CHARS: usize = 400_000;
 /// in; the daemon does, from tool hooks or from the transcript file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Live {
-    /// `running` | `needs_you` | `idle` | `ended`.
+    /// `running` | `needs_you` | `listening` | `idle` | `ended`.
     pub state: String,
     /// True when guessed from the transcript file instead of reported by a
     /// hook. An inferred state can't tell "needs you" from "idle".
@@ -1067,5 +1067,149 @@ impl Store {
             }
         }
         Ok(report)
+    }
+}
+
+/// Cut `s` to at most `max` bytes on a char boundary, marking the cut.
+fn clip(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max.saturating_sub(2);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{} …", s[..end].trim_end())
+}
+
+fn day(ts: &Option<String>) -> &str {
+    ts.as_deref().and_then(|t| t.get(..10)).unwrap_or("undated")
+}
+
+/// A paste-ready brief for continuing a thread in another tool, or handing it
+/// to another agent: what the work is, every session that touched it, the
+/// original request, and where the latest session left off.
+///
+/// The budget goes mostly to the **end** of the latest session, because that
+/// is where the work stands; the opening request gets a fixed share so the
+/// goal is never lost. `first` is the earliest session's transcript and
+/// `latest` the most recent; they may be the same.
+pub fn render_handoff(
+    t: &ThreadDetail,
+    first: Option<&crate::StoredConversation>,
+    latest: &crate::StoredConversation,
+    max_chars: usize,
+) -> crate::ContextBlock {
+    let s = &t.summary;
+    let mut md = format!("## Handoff: {}\n\n", s.title);
+    let mut facts = Vec::new();
+    if let Some(repo) = &s.repo_label {
+        facts.push(format!("Repository: {repo}"));
+    }
+    if let Some(project) = &latest.project {
+        facts.push(format!("Working directory: `{project}`"));
+    }
+    if let Some(branch) = s.branches.last() {
+        facts.push(format!("Branch: `{branch}`"));
+    }
+    for f in facts {
+        md.push_str(&format!("- {f}\n"));
+    }
+    md.push_str(
+        "\nYou are picking up work that started in another session. Read where it left off, \
+         check the current state of the files before trusting the summary, and continue.\n",
+    );
+
+    md.push_str("\n### Sessions so far\n");
+    for (i, sess) in t.sessions.iter().enumerate() {
+        md.push_str(&format!(
+            "{}. {} · {} · {} messages — {}\n",
+            i + 1,
+            sess.tool,
+            day(&sess.started_at),
+            sess.message_count,
+            clip(sess.title.as_deref().unwrap_or("(untitled)"), 90),
+        ));
+    }
+
+    let mut sources = Vec::new();
+    // The goal: the first thing the user asked, in the first session.
+    let opening = first.unwrap_or(latest);
+    if let Some(ask) = opening
+        .messages
+        .iter()
+        .find(|m| m.role == "user" && !m.content.trim().is_empty())
+    {
+        md.push_str("\n### The original request\n\n");
+        md.push_str(&clip(&ask.content, (max_chars / 5).clamp(300, 2000)));
+        md.push('\n');
+        sources.push(opening.id.clone());
+    }
+
+    // Where it stands: the tail of the latest session, newest kept first, then
+    // put back in order.
+    let budget = max_chars.saturating_sub(md.len() + 120);
+    let mut tail: Vec<String> = Vec::new();
+    let mut used = 0;
+    let mut cut_short = false;
+    for m in latest.messages.iter().rev() {
+        let body = m.content.trim();
+        if body.is_empty() || m.role == "tool" || m.role == "system" {
+            continue;
+        }
+        let left = budget.saturating_sub(used);
+        if left < 200 {
+            cut_short = true;
+            break;
+        }
+        let turn = format!("**{}:** {}\n\n", m.role, clip(body, left - 20));
+        used += turn.len();
+        tail.push(turn);
+    }
+    tail.reverse();
+    md.push_str(&format!(
+        "\n### Where it left off ({}, {})\n\n",
+        latest.tool,
+        day(&latest.started_at)
+    ));
+    if cut_short {
+        md.push_str("_…earlier messages omitted…_\n\n");
+    }
+    for turn in tail {
+        md.push_str(&turn);
+    }
+    if !sources.contains(&latest.id) {
+        sources.push(latest.id.clone());
+    }
+
+    let chars = md.chars().count();
+    crate::ContextBlock {
+        markdown: md,
+        sources,
+        chars,
+        token_estimate: chars / 4,
+    }
+}
+
+impl Store {
+    /// A handoff for a thread on this device (see [`render_handoff`]). `id` is
+    /// a thread id or any of its sessions' conversation ids.
+    pub fn thread_handoff(
+        &self,
+        id: &str,
+        max_chars: usize,
+    ) -> Result<Option<crate::ContextBlock>> {
+        let Some(t) = self.thread(id)? else {
+            return Ok(None);
+        };
+        let (Some(first), Some(last)) = (t.sessions.first(), t.sessions.last()) else {
+            return Ok(None);
+        };
+        let first = self.get_conversation(&first.conversation_id)?;
+        let Some(latest) = self.get_conversation(&last.conversation_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(render_handoff(&t, first.as_ref(), &latest, max_chars)))
     }
 }

@@ -505,6 +505,17 @@ that spans machines is not yet one thread, because that needs the metadata
 exchange in ADR-011. Open from M1: phone access (FR-BRD-04), which waits on
 authenticated HTTP (§8), the tray count, and notifications.
 
+M2 (rooms) has shipped in 0.18.0 for one machine: the five room tools, the
+Stop and PreToolUse hooks, human messages from the board, the turn cap, the
+shell fallback, indexing of closed exchanges, and the Meat Proxy importer.
+Where it departs from §6.4: a room is keyed by the **repository** rather than
+by a thread id, because two agents have to find each other before any thread
+connects them; the exchange then links their sessions into one thread. A
+participant is still a self-chosen name, tied to a session only once a hook
+reports its transcript. Claims stay absolute paths until rooms span devices
+(M4). The HTTP same-origin protection from §8 landed here too, since rooms are
+what make it necessary.
+
 **Why this order.** Identity comes first because everything else writes to it.
 The board is next because it has the clearest unmet demand and dispatch needs
 to know what is idle where. Rooms follow because the hook installer is shared

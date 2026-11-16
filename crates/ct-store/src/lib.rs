@@ -15,11 +15,13 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 pub mod behavior;
+pub mod rooms;
 mod schema;
 pub mod themes;
 pub mod threads;
 
 pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
+pub use rooms::{Claim, RoomMessage, RoomSummary};
 pub use schema::SCHEMA_VERSION;
 pub use themes::{Theme, ThemeSample};
 pub use threads::{
@@ -228,38 +230,6 @@ pub struct ActivityBucket {
     pub total: i64,
     /// Per-tool counts, busiest tool first.
     pub by_tool: Vec<(String, i64)>,
-}
-
-/// A node in the knowledge [`Graph`]: a project, tool, or tag.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNode {
-    /// Stable id, namespaced by kind: `project:…` | `tool:…` | `tag:…`.
-    pub id: String,
-    /// Display label.
-    pub label: String,
-    /// `project` | `tool` | `tag`.
-    pub kind: String,
-    /// How many sessions this node covers (node size).
-    pub weight: i64,
-}
-
-/// A weighted, undirected co-occurrence edge between two [`GraphNode`]s.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdge {
-    /// Source node id.
-    pub source: String,
-    /// Target node id.
-    pub target: String,
-    /// Number of sessions where the two co-occur.
-    pub weight: i64,
-}
-
-/// A knowledge graph of the user's work: projects/tools/tags as nodes, with
-/// co-occurrence edges. Produced by [`Store::graph`]. Deterministic; no model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Graph {
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<GraphEdge>,
 }
 
 /// A conversation reduced to one centroid embedding plus light metadata, for
@@ -568,8 +538,75 @@ impl Store {
         }
 
         tx.commit()?;
+        // A session that grew is stored again under a new content hash; the
+        // copy it replaces would otherwise show up as a second, stale result.
+        self.drop_superseded(&session_key, &convo.id)?;
         self.bump_write_gen();
         Ok(Upsert::Inserted)
+    }
+
+    /// Delete the older versions of a session that `keep_id` extends: rows
+    /// with the same `session_key` whose messages are an exact prefix of
+    /// `keep_id`'s. A row that isn't a prefix (two different chats that happen
+    /// to share a key) is left alone. Returns how many rows went.
+    fn drop_superseded(&self, session_key: &str, keep_id: &str) -> Result<usize> {
+        let older: Vec<(String, i64)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, message_count FROM conversations
+                 WHERE session_key = ?1 AND id <> ?2
+                   AND message_count <= (SELECT message_count FROM conversations WHERE id = ?2)",
+            )?;
+            let rows = stmt
+                .query_map(params![session_key, keep_id], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut dropped = 0;
+        for (id, count) in older {
+            let matching: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages o
+                 JOIN messages k ON k.conversation_id = ?2 AND k.seq = o.seq
+                 WHERE o.conversation_id = ?1 AND o.role = k.role AND o.content = k.content",
+                params![id, keep_id],
+                |r| r.get(0),
+            )?;
+            if matching == count {
+                dropped += self
+                    .conn
+                    .execute("DELETE FROM conversations WHERE id = ?1", [&id])?;
+            }
+        }
+        Ok(dropped)
+    }
+
+    /// Clean up indexes built before older versions were dropped on insert:
+    /// for every session stored more than once, keep the longest version and
+    /// drop the ones it extends. Cheap when there is nothing to do.
+    pub fn collapse_session_versions(&self) -> Result<usize> {
+        let keys: Vec<(String, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT session_key,
+                        (SELECT id FROM conversations c2 WHERE c2.session_key = c.session_key
+                         ORDER BY message_count DESC, indexed_at DESC LIMIT 1)
+                 FROM conversations c
+                 WHERE session_key <> ''
+                 GROUP BY session_key HAVING COUNT(*) > 1",
+            )?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut dropped = 0;
+        for (key, keep) in keys {
+            dropped += self.drop_superseded(&key, &keep)?;
+        }
+        if dropped > 0 {
+            self.bump_write_gen();
+        }
+        Ok(dropped)
     }
 
     /// Number of stored conversations.
@@ -699,9 +736,11 @@ impl Store {
         }
         // Pull metadata for every conversation in one pass.
         let mut meta: HashMap<String, (Option<String>, String, Option<String>)> = HashMap::new();
+        // Themes describe your work, so only sessions: not skills, not room
+        // exchanges (which repeat what the sessions already say).
         let mut stmt = self
             .conn
-            .prepare("SELECT id, title, tool, project FROM conversations")?;
+            .prepare("SELECT id, title, tool, project FROM conversations WHERE kind = 'thread'")?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -722,7 +761,9 @@ impl Store {
                 *v *= inv;
             }
             normalize_in_place(&mut centroid);
-            let (title, tool, project) = meta.remove(&id).unwrap_or((None, String::new(), None));
+            let Some((title, tool, project)) = meta.remove(&id) else {
+                continue;
+            };
             out.push(ConversationVec {
                 id,
                 title,
@@ -837,10 +878,10 @@ impl Store {
                     continue;
                 }
             }
-            if let Some(k) = &f.kind {
-                if &kind != k {
-                    continue;
-                }
+            // Activity is sessions unless asked otherwise: a skill's date is
+            // just when its file was written.
+            if kind != f.kind.as_deref().unwrap_or("thread") {
+                continue;
             }
             if let Some(p) = &f.project {
                 if !project.as_deref().unwrap_or("").contains(p.as_str()) {
@@ -879,122 +920,6 @@ impl Store {
                 }
             })
             .collect())
-    }
-
-    /// A deterministic knowledge graph of the user's work: project, tool, and tag
-    /// nodes (sized by session count) with co-occurrence edges (project↔tool,
-    /// project↔tag). `limit` caps the nodes kept per category (by weight). No
-    /// model involved — pure metadata aggregation.
-    pub fn graph(&self, limit: usize) -> Result<Graph> {
-        use std::collections::{HashMap, HashSet};
-        let mut stmt = self.conn.prepare(
-            "SELECT c.tool, c.project, COALESCE(us.tags, '')
-             FROM conversations c
-             LEFT JOIN user_state us ON us.session_key = c.session_key
-             WHERE c.kind = 'thread'",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, Option<String>>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        })?;
-
-        let mut tool_w: HashMap<String, i64> = HashMap::new();
-        let mut proj_w: HashMap<String, i64> = HashMap::new();
-        let mut tag_w: HashMap<String, i64> = HashMap::new();
-        let mut pt: HashMap<(String, String), i64> = HashMap::new(); // project↔tool
-        let mut pg: HashMap<(String, String), i64> = HashMap::new(); // project↔tag
-        for row in rows {
-            let (tool, project, tags) = row?;
-            *tool_w.entry(tool.clone()).or_default() += 1;
-            let proj = project
-                .as_deref()
-                .map(project_label)
-                .filter(|p| !p.is_empty());
-            if let Some(proj) = &proj {
-                *proj_w.entry(proj.clone()).or_default() += 1;
-                *pt.entry((proj.clone(), tool.clone())).or_default() += 1;
-            }
-            for tag in split_tags(&tags) {
-                *tag_w.entry(tag.clone()).or_default() += 1;
-                if let Some(proj) = &proj {
-                    *pg.entry((proj.clone(), tag)).or_default() += 1;
-                }
-            }
-        }
-
-        // Keep the top `limit` of each category by weight.
-        let top = |m: &HashMap<String, i64>| -> HashSet<String> {
-            let mut v: Vec<(&String, &i64)> = m.iter().collect();
-            v.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
-            v.into_iter().take(limit).map(|(k, _)| k.clone()).collect()
-        };
-        let keep_tool = top(&tool_w);
-        let keep_proj = top(&proj_w);
-        let keep_tag = top(&tag_w);
-
-        let mut nodes = Vec::new();
-        for (k, w) in &proj_w {
-            if keep_proj.contains(k) {
-                nodes.push(GraphNode {
-                    id: format!("project:{k}"),
-                    label: k.clone(),
-                    kind: "project".into(),
-                    weight: *w,
-                });
-            }
-        }
-        for (k, w) in &tool_w {
-            if keep_tool.contains(k) {
-                nodes.push(GraphNode {
-                    id: format!("tool:{k}"),
-                    label: k.clone(),
-                    kind: "tool".into(),
-                    weight: *w,
-                });
-            }
-        }
-        for (k, w) in &tag_w {
-            if keep_tag.contains(k) {
-                nodes.push(GraphNode {
-                    id: format!("tag:{k}"),
-                    label: k.clone(),
-                    kind: "tag".into(),
-                    weight: *w,
-                });
-            }
-        }
-        nodes.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.id.cmp(&b.id)));
-
-        let mut edges = Vec::new();
-        for ((proj, tool), w) in &pt {
-            if keep_proj.contains(proj) && keep_tool.contains(tool) {
-                edges.push(GraphEdge {
-                    source: format!("project:{proj}"),
-                    target: format!("tool:{tool}"),
-                    weight: *w,
-                });
-            }
-        }
-        for ((proj, tag), w) in &pg {
-            if keep_proj.contains(proj) && keep_tag.contains(tag) {
-                edges.push(GraphEdge {
-                    source: format!("project:{proj}"),
-                    target: format!("tag:{tag}"),
-                    weight: *w,
-                });
-            }
-        }
-        edges.sort_by(|a, b| {
-            b.weight
-                .cmp(&a.weight)
-                .then_with(|| a.source.cmp(&b.source))
-                .then_with(|| a.target.cmp(&b.target))
-        });
-
-        Ok(Graph { nodes, edges })
     }
 
     /// Behavioral metrics over the indexed coding sessions — the deterministic
@@ -1762,13 +1687,6 @@ fn bytes_to_f32s(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
-}
-
-/// A short, human label for a project path: its last path component (the repo /
-/// folder name), trimmed of trailing slashes. Falls back to the whole string.
-fn project_label(path: &str) -> String {
-    let p = path.trim().trim_end_matches('/');
-    p.rsplit(['/', '\\']).next().unwrap_or(p).trim().to_string()
 }
 
 /// Parse the stored comma-joined tag string into normalized tags.

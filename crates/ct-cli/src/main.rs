@@ -15,7 +15,6 @@ mod ask;
 mod context;
 mod fluency;
 mod glance;
-mod graph;
 mod hooks;
 mod index;
 mod insight;
@@ -23,6 +22,7 @@ mod llm_auth;
 mod metrics;
 mod optimize;
 mod resume;
+mod room;
 mod schedule;
 mod search;
 mod skill;
@@ -51,6 +51,9 @@ COMMANDS:
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
                       sidecar provides it), fluency, focus (--json)
+    room <CMD>        Talk to other agents in this project's room: history |
+                      send | wait | claim | release (the MCP room tools, from
+                      a shell), or `room import` a Meat Proxy database
     hooks <CMD>       install | uninstall | status the hooks that report live
                       session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
@@ -58,12 +61,11 @@ COMMANDS:
     themes            Cluster your sessions into themes (--k N; --name to label
                       them with your local Claude/Codex login)
     insight <KIND>    Synthesize over your history with your model login:
-                      open_loops | knowledge_cards | decision_log | how_i_work |
-                      digest | recurrence | work_dna | gaps | prompt_coach |
+                      open_loops | knowledge_cards | decision_log |
+                      recurrence | work_dna | gaps | prompt_coach |
                       process_miner (--limit N)
     ask <QUESTION>    Answer a question from your history (cited; uses your model)
     activity          Session activity over time (--by day|week)
-    graph             Knowledge graph of projects, tools, and tags
     metrics           Behavioral metrics: how you work (turns, friction, tempo)
     weekly            Your weekly review: how you worked + one thing to try
                       (--deliver writes it to a file + notifies; --to <DIR>)
@@ -120,6 +122,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("thread") => threads::run_thread(&args[1..]),
         Some("resume") => resume::run(&args[1..]),
         Some("glance") => glance::run(&args[1..]),
+        Some("room") => room::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.
         Some("hook") => Ok(hooks::run_hook(&args[1..])),
@@ -129,7 +132,6 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("insight") => insight::run(&args[1..]),
         Some("ask") => ask::run(&args[1..]),
         Some("activity") => activity::run(&args[1..]),
-        Some("graph") => graph::run(&args[1..]),
         Some("metrics") => metrics::run(&args[1..]),
         Some("weekly") => weekly::run(&args[1..]),
         Some("schedule") => schedule::run(&args[1..]),

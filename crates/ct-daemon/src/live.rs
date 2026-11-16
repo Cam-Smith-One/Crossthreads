@@ -62,6 +62,8 @@ enum State {
     Running,
     NeedsYou,
     Idle,
+    /// Parked in a room, waiting for another agent's message.
+    Listening,
     Ended,
 }
 
@@ -71,6 +73,7 @@ impl State {
             State::Running => "running",
             State::NeedsYou => "needs_you",
             State::Idle => "idle",
+            State::Listening => "listening",
             State::Ended => "ended",
         }
     }
@@ -81,6 +84,7 @@ fn urgency(state: &str) -> u8 {
     match state {
         "needs_you" => 3,
         "running" => 2,
+        "listening" => 1,
         "idle" => 1,
         _ => 0,
     }
@@ -94,6 +98,9 @@ fn transition(event: &str, message: Option<&str>) -> Option<State> {
         "userpromptsubmit" | "pretooluse" | "posttooluse" => Some(State::Running),
         "stop" => Some(State::Idle),
         "sessionend" => Some(State::Ended),
+        // Sent by our own Stop hook around a wait in a room.
+        "roomlisten" => Some(State::Listening),
+        "roomwake" => Some(State::Running),
         "notification" => {
             let text = message.unwrap_or("").to_ascii_lowercase();
             if text.contains("permission") || text.contains("approv") {

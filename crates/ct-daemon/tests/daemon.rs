@@ -143,7 +143,7 @@ fn dated(tool: Tool, project: &str, text: &str, date: &str) -> Conversation {
 }
 
 #[test]
-fn activity_and_graph_over_the_wire() {
+fn activity_over_the_wire() {
     let mut store = Store::open_in_memory().unwrap();
     for c in [
         dated(
@@ -185,22 +185,6 @@ fn activity_and_graph_over_the_wire() {
             let first = periods.iter().find(|p| p.period == "2026-06-01").unwrap();
             assert_eq!(first.total, 2);
             assert_eq!(first.by_tool[0].0, "claude-code");
-        }
-        other => panic!("unexpected: {other:?}"),
-    }
-
-    // Graph: project + tool nodes, with project↔tool edges.
-    match client.call(&Request::Graph { limit: Some(40) }).unwrap() {
-        Response::Graph { graph } => {
-            assert!(graph.nodes.iter().any(|n| n.kind == "project"));
-            assert!(graph
-                .nodes
-                .iter()
-                .any(|n| n.kind == "tool" && n.label == "claude-code"));
-            assert!(graph
-                .edges
-                .iter()
-                .any(|e| e.source.starts_with("project:") && e.target.starts_with("tool:")));
         }
         other => panic!("unexpected: {other:?}"),
     }
@@ -1363,4 +1347,526 @@ fn the_board_spans_devices_and_opens_remote_threads() {
             .unwrap(),
         Response::Error { .. }
     ));
+}
+
+// ---- rooms -----------------------------------------------------------------
+
+/// Call a room tool and return its text.
+fn room(client: &Client, req: serde_json::Value) -> String {
+    let req: Request = serde_json::from_value(req).unwrap();
+    match client.call(&req).unwrap() {
+        Response::Text { text } => text,
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+fn rooms_daemon(cap: i64) -> Client {
+    Client::new(serve(
+        Daemon::new(
+            Store::open_in_memory().unwrap(),
+            Box::new(HashEmbedder::default()),
+        )
+        .with_room_turn_cap(cap),
+    ))
+}
+
+#[test]
+fn rooms_ping_pong_dms_and_isolation() {
+    let client = rooms_daemon(0);
+    use serde_json::json;
+
+    // send blocks for the reply; bob waits, then answers.
+    let bob = {
+        let client = Client::new(client_addr(&client));
+        thread::spawn(move || {
+            let got = room(
+                &client,
+                json!({"op":"room_wait","me":"Bob","room":"demo","timeout":10}),
+            );
+            assert!(got.contains("alice→bob: ping"), "{got}");
+            room(
+                &client,
+                json!({"op":"room_send","me":"bob","room":"demo","to":"alice","text":"pong","wait":false}),
+            )
+        })
+    };
+    let a = room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"demo","to":"bob","text":"ping","timeout":10}),
+    );
+    bob.join().unwrap();
+    assert!(a.starts_with("Posted #"), "{a}");
+    let reply = a.split_once('\n').unwrap().1;
+    assert!(
+        reply.contains("bob→alice: pong") && !reply.contains("ping"),
+        "{a}"
+    );
+
+    // A direct message stays private, and nobody reads their own messages back.
+    assert!(!room(
+        &client,
+        json!({"op":"room_wait","me":"carol","room":"demo","timeout":0})
+    )
+    .contains("ping"));
+    assert!(room(
+        &client,
+        json!({"op":"room_wait","me":"bob","room":"demo","timeout":0})
+    )
+    .contains("No new messages"));
+
+    // Rooms are isolated.
+    room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"other","text":"elsewhere","wait":false}),
+    );
+    assert!(!room(
+        &client,
+        json!({"op":"room_wait","me":"bob","room":"demo","timeout":0})
+    )
+    .contains("elsewhere"));
+    let history = room(
+        &client,
+        json!({"op":"room_history","me":"bob","room":"demo"}),
+    );
+    assert!(
+        history.starts_with("Room 'demo'. Agents: alice active"),
+        "{history}"
+    );
+    assert!(
+        history.contains("Claims: none.") && history.contains("alice→bob: ping"),
+        "{history}"
+    );
+    // Missing arguments are reported to the agent, not thrown.
+    assert!(room(
+        &client,
+        json!({"op":"room_send","me":" ","room":"demo","text":"x"})
+    )
+    .starts_with("Error"));
+}
+
+/// The address a client talks to, so a second client can be opened on it.
+fn client_addr(client: &Client) -> String {
+    client.addr().to_string()
+}
+
+#[test]
+fn rooms_turn_cap_holds_until_done_or_the_human_steps_in() {
+    let client = rooms_daemon(4);
+    use serde_json::json;
+    let say = |text: &str| {
+        room(
+            &client,
+            json!({"op":"room_send","me":"alice","room":"cap","text":text,"wait":false}),
+        )
+    };
+    assert_eq!(say("t0"), "Posted #1.");
+    assert!(say("t1").contains("[turn 2/4: wrap up soon]"));
+    say("t2");
+    say("t3");
+    assert!(say("t4").starts_with("Refused: turn cap reached (4/4)"));
+
+    // The human extends it from the board.
+    let Response::RoomPosted { .. } = client
+        .call(&Request::RoomPost {
+            room: "cap".into(),
+            text: "keep going".into(),
+            to: None,
+            author: None,
+        })
+        .unwrap()
+    else {
+        panic!("expected a posted id");
+    };
+    assert!(say("t5").starts_with("Posted"));
+    let got = room(
+        &client,
+        json!({"op":"room_wait","me":"bob","room":"cap","timeout":0}),
+    );
+    assert!(got.contains("human (human): keep going"), "{got}");
+    // DONE is always allowed and starts a fresh exchange.
+    for t in ["t6", "t7", "t8"] {
+        say(t);
+    }
+    assert!(say("t9").starts_with("Refused"));
+    assert!(say("DONE wrapped up").contains("Exchange closed"));
+    assert!(say("next").starts_with("Posted"));
+    // An empty human message is rejected.
+    assert!(matches!(
+        client
+            .call(&Request::RoomPost {
+                room: "cap".into(),
+                text: "  ".into(),
+                to: None,
+                author: None
+            })
+            .unwrap(),
+        Response::Error { .. }
+    ));
+}
+
+#[test]
+fn rooms_claims_guard_edits_and_done_releases_them() {
+    let client = rooms_daemon(0);
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let app = src.join("app.py");
+    std::fs::write(&app, "x").unwrap();
+    let (src, app) = (src.to_str().unwrap(), app.to_str().unwrap());
+
+    let got = room(
+        &client,
+        json!({"op":"room_claim","me":"alice","room":"demo","paths":[src]}),
+    );
+    assert!(got.starts_with("Claimed until"), "{got}");
+    let got = room(
+        &client,
+        json!({"op":"room_claim","me":"bob","room":"demo","paths":[app, "relative.py"]}),
+    );
+    assert!(
+        got.contains("held by alice") && got.contains("must be an absolute path"),
+        "{got}"
+    );
+
+    // What the PreToolUse hook asks before an edit.
+    let guard = |path: &str| {
+        let Response::RoomGuard { claims } = client
+            .call(&Request::RoomGuard {
+                paths: vec![path.into()],
+            })
+            .unwrap()
+        else {
+            panic!("expected claims");
+        };
+        claims.into_iter().map(|c| c.holder).collect::<Vec<_>>()
+    };
+    assert_eq!(guard(app), ["alice"]);
+    assert!(guard(dir.path().join("docs/readme.md").to_str().unwrap()).is_empty());
+
+    // The board lists the claim against its room.
+    let Response::Rooms { rooms } = client.call(&Request::Rooms).unwrap() else {
+        panic!("expected rooms");
+    };
+    assert!(rooms.is_empty(), "a room appears once it has a message");
+    room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"demo","text":"working","wait":false}),
+    );
+    let Response::Rooms { rooms } = client.call(&Request::Rooms).unwrap() else {
+        panic!("expected rooms");
+    };
+    assert_eq!(
+        (rooms[0].label.as_str(), rooms[0].claims.len()),
+        ("demo", 1)
+    );
+    assert_eq!(
+        rooms[0]
+            .agents
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
+        ["alice", "bob"]
+    );
+
+    // DONE releases everything the sender holds in that room.
+    room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"demo","text":"DONE shipped","wait":false}),
+    );
+    assert!(guard(app).is_empty());
+    let history = room(&client, json!({"op":"room_history","room":"demo"}));
+    assert!(history.contains("Claims: none."), "{history}");
+    // Explicit release.
+    room(
+        &client,
+        json!({"op":"room_claim","me":"bob","room":"demo","paths":[app]}),
+    );
+    assert_eq!(
+        room(&client, json!({"op":"room_release","me":"bob"})),
+        "Released 1 claim(s)."
+    );
+}
+
+#[test]
+fn rooms_stop_hook_wakes_an_agent_mid_exchange_only() {
+    let client = rooms_daemon(0);
+    use serde_json::json;
+    let stop = |me: &str, wait: u64| {
+        let Response::RoomStop { messages, room } = client
+            .call(&Request::RoomStop {
+                me: me.into(),
+                room: "demo".into(),
+                wait,
+                transcript_path: None,
+            })
+            .unwrap()
+        else {
+            panic!("expected a stop answer");
+        };
+        messages.map(|m| (room.unwrap(), m))
+    };
+    // Never joined: not held.
+    assert_eq!(stop("bob", 0), None);
+
+    room(
+        &client,
+        json!({"op":"room_wait","me":"bob","room":"demo","timeout":0}),
+    );
+    room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"demo","to":"bob","text":"wake up","wait":false}),
+    );
+    let (label, got) = stop("bob", 0).unwrap();
+    assert_eq!(label, "demo");
+    assert!(got.contains("alice→bob: wake up"), "{got}");
+    // Nothing new: let it stop.
+    assert_eq!(stop("bob", 0), None);
+
+    // A message that arrives while the hook is waiting is handed straight back.
+    let waiter = {
+        let client = Client::new(client_addr(&client));
+        thread::spawn(move || {
+            let Response::RoomStop { messages, .. } = client
+                .call(&Request::RoomStop {
+                    me: "bob".into(),
+                    room: "demo".into(),
+                    wait: 10,
+                    transcript_path: None,
+                })
+                .unwrap()
+            else {
+                panic!("expected a stop answer");
+            };
+            messages
+        })
+    };
+    thread::sleep(Duration::from_millis(300));
+    let Response::Rooms { rooms } = client.call(&Request::Rooms).unwrap() else {
+        panic!("expected rooms");
+    };
+    assert!(
+        rooms[0]
+            .agents
+            .iter()
+            .any(|a| a.name == "bob" && a.listening),
+        "the board shows who is listening"
+    );
+    room(
+        &client,
+        json!({"op":"room_send","me":"alice","room":"demo","to":"bob","text":"second","wait":false}),
+    );
+    assert!(waiter.join().unwrap().unwrap().contains("second"));
+
+    // Once the exchange is closed, a stopping agent is not held.
+    room(
+        &client,
+        json!({"op":"room_send","me":"carol","room":"demo","to":"bob","text":"late","wait":false}),
+    );
+    room(
+        &client,
+        json!({"op":"room_send","me":"carol","room":"demo","text":"DONE","wait":false}),
+    );
+    assert_eq!(stop("bob", 0), None);
+}
+
+#[test]
+fn a_closed_exchange_is_searchable_and_links_the_sessions_that_took_part() {
+    use serde_json::json;
+    let mut a = dated(
+        Tool::ClaudeCode,
+        "/acme-api",
+        "plan the oauth refresh fix",
+        "2026-11-01",
+    );
+    a.source.path = "/t/claude.jsonl".into();
+    let mut b = dated(
+        Tool::Codex,
+        "/acme-api",
+        "implement what claude briefs",
+        "2026-11-02",
+    );
+    b.source.path = "/t/codex.jsonl".into();
+    let client = Client::new(serve(Daemon::new(
+        seed(&[a.clone(), b.clone()]),
+        Box::new(HashEmbedder::default()),
+    )));
+
+    // The Stop hook is how the daemon learns which session each agent is.
+    for (me, path) in [("claude", "/t/claude.jsonl"), ("codex", "/t/codex.jsonl")] {
+        client
+            .call(&Request::RoomStop {
+                me: me.into(),
+                room: "launch".into(),
+                wait: 0,
+                transcript_path: Some(path.into()),
+            })
+            .unwrap();
+    }
+    room(
+        &client,
+        json!({"op":"room_send","me":"claude","room":"launch","to":"codex","text":"add exponential backoff to the token refresh","wait":false}),
+    );
+    room(
+        &client,
+        json!({"op":"room_send","me":"codex","room":"launch","to":"claude","text":"added backoff with jitter in src/auth/refresh.rs","wait":false}),
+    );
+    room(
+        &client,
+        json!({"op":"room_send","me":"claude","room":"launch","text":"DONE backoff shipped and reviewed","wait":false}),
+    );
+
+    // Recall finds the exchange itself.
+    let hits = client
+        .search(
+            "jitter refresh backoff",
+            Mode::Lexical,
+            10,
+            Default::default(),
+        )
+        .unwrap();
+    let hit = hits
+        .iter()
+        .find(|h| h.tool == "room")
+        .expect("exchange indexed");
+    assert_eq!(hit.kind, "exchange");
+    assert!(hit
+        .title
+        .as_deref()
+        .unwrap()
+        .starts_with("launch: add exponential backoff"));
+
+    // And the two sessions are now one thread.
+    let Response::Thread { thread: Some(t) } = client
+        .call(&Request::Thread {
+            id: a.id.clone(),
+            device: None,
+        })
+        .unwrap()
+    else {
+        panic!("expected a thread");
+    };
+    assert_eq!(t.summary.tools, vec!["claude-code", "codex"]);
+    assert_eq!(
+        (t.links[0].kind.as_str(), t.links[0].origin.as_str()),
+        ("conversed", "explicit")
+    );
+    // The exchange is not a session, so it doesn't appear on the board.
+    let Response::Threads { threads, .. } = client
+        .call(&Request::Threads {
+            filters: Default::default(),
+            devices: None,
+        })
+        .unwrap()
+    else {
+        panic!("expected threads");
+    };
+    assert_eq!(threads.len(), 1);
+}
+
+/// Send a raw HTTP request and return (status, body).
+fn http(addr: &str, headers: &[(&str, &str)], body: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    let mut req = format!(
+        "POST /api/rpc HTTP/1.1\r\nContent-Length: {}\r\nConnection: close\r\n",
+        body.len()
+    );
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    stream.write_all(req.as_bytes()).unwrap();
+    let mut out = String::new();
+    stream.read_to_string(&mut out).unwrap();
+    let status = out.split_whitespace().nth(1).unwrap().parse().unwrap();
+    (
+        status,
+        out.split("\r\n\r\n").nth(1).unwrap_or("").to_string(),
+    )
+}
+
+#[test]
+fn the_http_api_refuses_other_websites() {
+    let daemon = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    drop(listener);
+    {
+        let (daemon, addr) = (daemon.clone(), addr.clone());
+        thread::spawn(move || daemon.serve_http(&addr, None));
+    }
+    // Wait for the server to come up.
+    for _ in 0..50 {
+        if std::net::TcpStream::connect(&addr).is_ok() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let post = r#"{"op":"room_post","room":"demo","text":"rm -rf everything"}"#;
+    let json = ("Content-Type", "application/json");
+    let host = ("Host", addr.as_str());
+    let origin = format!("http://{addr}");
+
+    // Our own page, and a local script with no Origin, are fine.
+    assert_eq!(
+        http(
+            &addr,
+            &[json, host, ("Origin", &origin)],
+            r#"{"op":"ping"}"#
+        )
+        .0,
+        200
+    );
+    assert_eq!(http(&addr, &[json, host], r#"{"op":"ping"}"#).0, 200);
+
+    // Another site open in the browser: wrong origin.
+    assert_eq!(
+        http(
+            &addr,
+            &[json, host, ("Origin", "https://evil.example")],
+            post
+        )
+        .0,
+        403
+    );
+    // A cross-site form can't send JSON without a preflight.
+    assert_eq!(
+        http(&addr, &[("Content-Type", "text/plain"), host], post).0,
+        403
+    );
+    assert_eq!(http(&addr, &[host], post).0, 403);
+    // DNS rebinding: a hostile name pointed at loopback, origin "matching".
+    let evil_host = format!("evil.example:{}", addr.rsplit(':').next().unwrap());
+    assert_eq!(
+        http(
+            &addr,
+            &[
+                json,
+                ("Host", &evil_host),
+                ("Origin", &format!("http://{evil_host}"))
+            ],
+            post
+        )
+        .0,
+        403
+    );
+    // None of the refused posts reached the room.
+    let (_, body) = http(&addr, &[json, host], r#"{"op":"rooms"}"#);
+    assert!(body.contains(r#""rooms":[]"#), "{body}");
+
+    // A blocking call over HTTP returns at once instead of freezing the UI.
+    let started = std::time::Instant::now();
+    let (status, body) = http(
+        &addr,
+        &[json, host],
+        r#"{"op":"room_wait","me":"bob","room":"demo","timeout":30}"#,
+    );
+    assert_eq!(status, 200);
+    assert!(body.contains("No new messages"), "{body}");
+    assert!(started.elapsed() < Duration::from_secs(5));
 }

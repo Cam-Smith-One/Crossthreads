@@ -106,6 +106,9 @@ pub enum Kind {
     #[default]
     Thread,
     Skill,
+    /// A closed exchange between agents in a room. Searchable like a
+    /// conversation, but not a session of any one tool.
+    Exchange,
 }
 
 impl Kind {
@@ -113,6 +116,7 @@ impl Kind {
         match self {
             Kind::Thread => "thread",
             Kind::Skill => "skill",
+            Kind::Exchange => "exchange",
         }
     }
 }
