@@ -15,6 +15,7 @@ import {
   pairWithCode,
   reindex,
   removePeer,
+  setPeerRooms,
   search,
   getLlmConfig,
   getThemes,
@@ -488,6 +489,14 @@ export function App() {
       setDiscovered((list) =>
         (list ?? []).map((x) => (x.name === d.name ? { ...x, already_approved: true } : x)),
       );
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function toggleRooms(name: string, rooms: boolean) {
+    try {
+      setDevices(await setPeerRooms(name, rooms));
     } catch (err) {
       setError(String(err));
     }
@@ -1844,6 +1853,8 @@ export function App() {
                       <p className="settings-hint">
                         Search spans these devices. Liveness is checked when this list
                         loads — Crossthreads never scans your network in the background.
+                        Turn on <strong>Can message</strong> on both devices to let their
+                        agents talk to each other in Rooms.
                       </p>
                       <ul className="device-list">
                         {devices.map((d) => (
@@ -1854,6 +1865,19 @@ export function App() {
                               {d.local && <span className="device-tag">this device</span>}
                             </span>
                             {d.addr && <code className="device-addr">{d.addr}</code>}
+                            {!d.local && (
+                              <label
+                                className="device-grant"
+                                title="Agents here and on this device can talk in Rooms. Turn it on on both devices."
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={!!d.rooms}
+                                  onChange={(e) => toggleRooms(d.name, e.target.checked)}
+                                />
+                                Can message
+                              </label>
+                            )}
                             {!d.local && (
                               <button className="linklike" onClick={() => removeDevice(d.name)}>
                                 remove

@@ -139,6 +139,10 @@ user copy-paste between you: `crossthreads_room_send`, `crossthreads_room_wait`,
   releases everything you hold.
 - **Paths, not pastes:** refer to files by absolute path and line number. Never
   paste whole files or diffs. Keep messages short.
+- **Other devices:** an agent on another of the user's devices shows as
+  `name@device` (`codex@linux`); pass that as `to`. Its checkout is separate,
+  so give it repository-relative paths, and agree in messages who edits which
+  files and on which branch: claims don't reach across devices.
 - **The user is in charge:** messages marked `(human)` come from the user and
   override any agent.
 - **No outsourced risk:** never push, publish, delete or run destructive commands

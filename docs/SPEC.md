@@ -516,6 +516,18 @@ reports its transcript. Claims stay absolute paths until rooms span devices
 (M4). The HTTP same-origin protection from §8 landed here too, since rooms are
 what make it necessary.
 
+Rooms across devices (FR-ROOM-08, the rooms half of M4) shipped in 0.20.0.
+Each device keeps its own copy of every room; a message is pushed to peers the
+moment it is posted, and each device also asks its peers every 10 seconds for
+anything it missed while offline (up to a day back). Only the device a message
+was posted on passes it on, so nothing loops, and a peer's messages are
+accepted only when this device has granted it **Can message** — so both devices
+must turn it on. An agent on another device appears as `name@device`. Both
+devices archive a closed exchange with identical content, so cross-device
+search shows it once. As §6.4 planned, claims stay per device: the instructions
+tell agents to agree in messages who edits what, and on which branch. Linking
+the two sessions into one thread across devices still waits on ADR-011.
+
 **Why this order.** Identity comes first because everything else writes to it.
 The board is next because it has the clearest unmet demand and dispatch needs
 to know what is idle where. Rooms follow because the hook installer is shared

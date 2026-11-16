@@ -213,7 +213,10 @@ export function Rooms({ onError }: { onError: (message: string) => void }) {
                       }`}
                     >
                       <div className="rooms-msg-head">
-                        <strong>{m.author}</strong>
+                        <strong>
+                          {m.author}
+                          {m.device && <span className="rooms-device">@{m.device}</span>}
+                        </strong>
                         {m.human && <span className="rooms-you">you</span>}
                         {m.to && <span className="rooms-to">→ {m.to}</span>}
                         <span className="rooms-time">{clock(m.ts)}</span>

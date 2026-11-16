@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -176,7 +176,11 @@ CREATE TABLE IF NOT EXISTS room_messages (
     author    TEXT NOT NULL,
     recipient TEXT,
     text      TEXT NOT NULL,
-    human     INTEGER NOT NULL DEFAULT 0
+    human     INTEGER NOT NULL DEFAULT 0,
+    -- The device a message came from, and its id there. Both NULL for a
+    -- message posted on this device (SPEC FR-ROOM-08).
+    device     TEXT,
+    origin_seq INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room, id);
 

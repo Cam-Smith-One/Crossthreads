@@ -33,6 +33,10 @@ use crate::protocol::DiscoveredDevice;
 pub struct Peer {
     pub name: String,
     pub addr: String,
+    /// The "can message" grant: room messages are exchanged with this peer
+    /// (SPEC FR-ROOM-08). Off until the user turns it on, on each side.
+    #[serde(default)]
+    pub rooms: bool,
 }
 
 /// Federation settings for this daemon. Present only when the user opts in
@@ -181,6 +185,7 @@ impl Federation {
             peer: Peer {
                 name: id.device.clone(),
                 addr,
+                rooms: false,
             },
         };
         Some(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).ok()?))
@@ -250,6 +255,7 @@ impl Federation {
             match peers.iter_mut().find(|p| p.name == peer.name) {
                 Some(existing) => {
                     existing.addr = peer.addr;
+                    existing.rooms |= peer.rooms;
                     false
                 }
                 None => {
@@ -260,6 +266,35 @@ impl Federation {
         };
         self.save();
         added
+    }
+
+    /// Grant or withdraw "can message" for a peer and persist. Returns `false`
+    /// when no approved peer has that name.
+    pub fn set_peer_rooms(&self, name: &str, rooms: bool) -> bool {
+        let found = {
+            let mut peers = self.peers.lock().expect("peers mutex poisoned");
+            match peers.iter_mut().find(|p| p.name == name) {
+                Some(p) => {
+                    p.rooms = rooms;
+                    true
+                }
+                None => false,
+            }
+        };
+        if found {
+            self.save();
+        }
+        found
+    }
+
+    /// The approved peer called `name`, if it may exchange room messages.
+    pub fn room_peer(&self, name: &str) -> Option<Peer> {
+        self.peers().into_iter().find(|p| p.rooms && p.name == name)
+    }
+
+    /// Peers that may exchange room messages.
+    pub fn room_peers(&self) -> Vec<Peer> {
+        self.peers().into_iter().filter(|p| p.rooms).collect()
     }
 
     /// Remove an approved peer by name and persist. Returns `true` if present.
@@ -616,11 +651,13 @@ mod tests {
         assert!(fed.add_peer(Peer {
             name: "linux".into(),
             addr: "100.1.2.3:47100".into(),
+            rooms: false,
         }));
         // Re-adding the same name updates rather than duplicates.
         assert!(!fed.add_peer(Peer {
             name: "linux".into(),
             addr: "100.1.2.4:47100".into(),
+            rooms: false,
         }));
         assert_eq!(fed.peers().len(), 1);
         assert_eq!(fed.peers()[0].addr, "100.1.2.4:47100");

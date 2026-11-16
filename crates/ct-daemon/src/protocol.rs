@@ -60,6 +60,9 @@ pub enum Request {
     ApprovePeer { name: String, addr: String },
     /// Remove an approved peer and persist the change.
     RemovePeer { name: String },
+    /// Grant or withdraw "can message" for an approved peer: whether room
+    /// messages are exchanged with it (SPEC FR-ROOM-08). Answers `Devices`.
+    SetPeerRooms { name: String, rooms: bool },
     /// Search forwarded from a peer daemon during cross-device federation
     /// (ADR-010). Unlike `Search`, it runs **local-only** (never re-fans-out, so
     /// queries can't loop/amplify) and is gated by the shared `token`. The
@@ -270,6 +273,25 @@ pub enum Request {
         token: Option<String>,
         id: String,
     },
+    /// Room messages pushed by peer `from` as they are posted there.
+    /// Token-gated, and accepted only when this device has granted `from`
+    /// "can message". Answers `Ok`.
+    PeerRoomPost {
+        #[serde(default)]
+        token: Option<String>,
+        from: String,
+        messages: Vec<ct_store::rooms::RoomWire>,
+    },
+    /// A peer catching up: this device's own room messages after id `after`
+    /// (the last 24 hours at most). Same gate as `PeerRoomPost`. Answers
+    /// `RoomWire`.
+    PeerRoomSync {
+        #[serde(default)]
+        token: Option<String>,
+        from: String,
+        #[serde(default)]
+        after: i64,
+    },
     // ---- rooms (SPEC §6.4) ------------------------------------------------
     /// Post a message to a room and, unless `wait` is false, block until a
     /// reply arrives (up to `timeout` seconds). Answers `Text`.
@@ -389,6 +411,9 @@ pub struct DeviceInfo {
     pub online: bool,
     /// True for this machine.
     pub local: bool,
+    /// Room messages are exchanged with this peer ("can message").
+    #[serde(default)]
+    pub rooms: bool,
 }
 
 /// A candidate device found on the tailnet during discovery.
@@ -583,6 +608,10 @@ pub enum Response {
     },
     RoomMessages {
         messages: Vec<ct_store::RoomMessage>,
+    },
+    /// Room messages for a peer catching up.
+    RoomWire {
+        messages: Vec<ct_store::rooms::RoomWire>,
     },
     /// The id of a message the human posted.
     RoomPosted {

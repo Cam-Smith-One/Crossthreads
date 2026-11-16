@@ -27,6 +27,47 @@ pub struct RoomMessage {
     pub text: String,
     /// Sent by the user from the board, not by an agent.
     pub human: bool,
+    /// The device it was posted on; `None` for this device.
+    #[serde(default)]
+    pub device: Option<String>,
+}
+
+impl RoomMessage {
+    /// Who sent it, as everyone should see it: `codex`, or `codex@linux` when
+    /// it came from another device.
+    pub fn sender(&self) -> String {
+        match &self.device {
+            Some(d) => format!("{}@{d}", self.author),
+            None => self.author.clone(),
+        }
+    }
+}
+
+/// A room message as it travels between devices. `seq` is its id on the
+/// device that posted it, so a message delivered twice is stored once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomWire {
+    pub seq: i64,
+    pub ts: i64,
+    pub room: String,
+    pub author: String,
+    pub to: Option<String>,
+    pub text: String,
+    pub human: bool,
+}
+
+impl From<&RoomMessage> for RoomWire {
+    fn from(m: &RoomMessage) -> Self {
+        Self {
+            seq: m.id,
+            ts: m.ts,
+            room: m.room.clone(),
+            author: m.author.clone(),
+            to: m.to.clone(),
+            text: m.text.clone(),
+            human: m.human,
+        }
+    }
 }
 
 /// A file or folder an agent has reserved.
@@ -84,10 +125,11 @@ fn message(r: &rusqlite::Row<'_>) -> rusqlite::Result<RoomMessage> {
         to: r.get(4)?,
         text: r.get(5)?,
         human: r.get::<_, i64>(6)? != 0,
+        device: r.get(7)?,
     })
 }
 
-const COLS: &str = "id, ts, room, author, recipient, text, human";
+const COLS: &str = "id, ts, room, author, recipient, text, human, device";
 
 impl Store {
     /// Add a message and return its id.
@@ -106,6 +148,81 @@ impl Store {
             params![now, room, author, to, text, human as i64],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Store a message relayed from device `from`. Returns its local id, or
+    /// `None` when it was already here.
+    pub fn room_receive(&self, from: &str, m: &RoomWire) -> Result<Option<i64>> {
+        let n = self.conn.execute(
+            "INSERT OR IGNORE INTO room_messages
+                (ts, room, author, recipient, text, human, device, origin_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                m.ts,
+                m.room,
+                m.author,
+                m.to,
+                m.text,
+                m.human as i64,
+                from,
+                m.seq
+            ],
+        )?;
+        Ok((n > 0).then(|| self.conn.last_insert_rowid()))
+    }
+
+    /// The highest message id from device `from` that is stored here, so a
+    /// catch-up asks only for what came after it.
+    pub fn room_received_upto(&self, from: &str) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT IFNULL(MAX(origin_seq), 0) FROM room_messages WHERE device = ?1",
+            [from],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Messages posted on this device after id `after` and no older than
+    /// `since` (epoch seconds), oldest first: what a peer asks for to catch up.
+    pub fn room_local_after(
+        &self,
+        after: i64,
+        since: i64,
+        limit: usize,
+    ) -> Result<Vec<RoomMessage>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM room_messages
+             WHERE device IS NULL AND id > ?1 AND ts >= ?2 ORDER BY id LIMIT ?3"
+        ))?;
+        let rows = stmt
+            .query_map(params![after, since, limit as i64], message)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// One message by id.
+    pub fn room_message(&self, id: i64) -> Result<Option<RoomMessage>> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {COLS} FROM room_messages WHERE id = ?1"),
+                [id],
+                message,
+            )
+            .optional()?)
+    }
+
+    /// Agents on other devices that have spoken in a room since `since`, as
+    /// `name@device` with the time of their latest message.
+    pub fn room_remote_agents(&self, room: &str, since: i64) -> Result<Vec<(String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT author || '@' || device, MAX(ts) FROM room_messages
+             WHERE room = ?1 AND device IS NOT NULL AND human = 0 AND ts >= ?2
+             GROUP BY author, device ORDER BY 1",
+        )?;
+        let rows = stmt
+            .query_map(params![room, since], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// Note that an agent is here, creating its record on first sight. A
@@ -130,8 +247,15 @@ impl Store {
     }
 
     /// Messages an agent has not read: everything after its cursor that it
-    /// didn't write and that is addressed to it or to everyone.
-    pub fn room_unread(&self, room: &str, name: &str) -> Result<Vec<RoomMessage>> {
+    /// didn't write and that is addressed to it or to everyone. `device` is
+    /// this device's name, if it has one, so `claude@mac` reaches `claude`
+    /// on `mac`. An agent of the same name on another device is someone else.
+    pub fn room_unread(
+        &self,
+        room: &str,
+        name: &str,
+        device: Option<&str>,
+    ) -> Result<Vec<RoomMessage>> {
         let cursor: i64 = self
             .conn
             .query_row(
@@ -143,12 +267,13 @@ impl Store {
             .unwrap_or(0);
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM room_messages
-             WHERE room = ?1 AND id > ?2 AND author <> ?3
-               AND (recipient IS NULL OR recipient = ?3)
+             WHERE room = ?1 AND id > ?2 AND (device IS NOT NULL OR author <> ?3)
+               AND (recipient IS NULL OR recipient = ?3 OR recipient = ?4)
              ORDER BY id"
         ))?;
+        let full = device.map(|d| format!("{name}@{d}"));
         let rows = stmt
-            .query_map(params![room, cursor, name], message)?
+            .query_map(params![room, cursor, name, full], message)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -306,6 +431,7 @@ impl Store {
                     .room_agents(&room)?
                     .into_iter()
                     .map(|(name, seen, _)| (name, seen))
+                    .chain(self.room_remote_agents(&room, 0)?)
                     .collect(),
                 room,
                 messages,

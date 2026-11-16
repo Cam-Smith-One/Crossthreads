@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.20.0] - 2026-11-16
+
+Rooms across devices: an agent on one machine can talk to an agent on another.
+
+### Added
+- **Rooms span your approved devices.** Tick **Can message** next to a device
+  in Settings → Devices, on both devices, and their agents share every room:
+  Claude Code on the laptop can ask `codex@linux-desktop` for a review in the
+  same repository's room and block for the answer, as on one machine. Messages
+  are pushed the moment they are posted; a device that was offline catches up
+  within about 10 seconds of coming back (up to a day of messages).
+- Agents on other devices show as `name@device` in replies, presence, the
+  Rooms view and the room list.
+- `crossthreads room devices [NAME on|off]` lists and changes the grant from a
+  shell. Daemon ops `set_peer_rooms`, `peer_room_post` and `peer_room_sync`.
+- Both devices archive a closed exchange identically, so cross-device search
+  shows it once.
+
+### Notes
+- File claims still cover only the device they were made on (each device has
+  its own checkout); agents are told to agree on files and branches instead.
+- The index schema moves to v11 (two columns on room messages); upgrading is
+  automatic.
+
 ## [0.19.0] - 2026-11-15
 
 A review of the whole product: fewer places to look, two real bugs fixed, and a
