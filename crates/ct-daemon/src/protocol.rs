@@ -296,6 +296,9 @@ pub enum Request {
     /// Who is asking: a paired phone (with its name and grants) or this
     /// device. Answers `Session`.
     Session,
+    /// What's installed and turned on here, for the "Get started" checklist.
+    /// Answers `Setup`.
+    SetupStatus,
     /// Phone access settings and paired phones. Answers `Phone`.
     PhoneStatus,
     /// Turn the phone listener on or off. Answers `Phone`.
@@ -649,6 +652,10 @@ pub enum Response {
         /// The phone may post to rooms.
         #[serde(default)]
         can_post: bool,
+    },
+    /// What's installed and turned on (see `Request::SetupStatus`).
+    Setup {
+        setup: crate::setup::SetupStatus,
     },
     /// Phone access state.
     Phone {

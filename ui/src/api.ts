@@ -119,6 +119,28 @@ export interface PhonePairing {
   expires_secs: number;
 }
 
+/** What's installed and turned on here, for the Get started checklist. */
+export interface SetupStatus {
+  hooks_claude: boolean;
+  hooks_codex: boolean;
+  mcp_claude: boolean;
+  mcp_codex: boolean;
+  skill_claude: boolean;
+  skill_codex: boolean;
+  model: boolean;
+  devices: number;
+  devices_can_message: number;
+  phone_enabled: boolean;
+  phones: number;
+  claude_present: boolean;
+  codex_present: boolean;
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  const data = await rpc<{ setup: SetupStatus }>({ op: "setup_status" });
+  return data.setup;
+}
+
 export const phoneStatus = () => rpc<PhoneStatus>({ op: "phone_status" });
 export const setPhoneEnabled = (enabled: boolean) =>
   rpc<PhoneStatus>({ op: "phone_set_enabled", enabled });

@@ -29,6 +29,7 @@ pub mod protocol;
 pub mod resume;
 pub mod rooms;
 pub mod schedule;
+pub mod setup;
 pub mod weekly;
 pub use ct_store::{
     behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
@@ -365,6 +366,9 @@ impl Daemon {
                 can_post: true,
             },
             Request::PhoneStatus => self.phone_status(),
+            Request::SetupStatus => Response::Setup {
+                setup: self.setup_status(),
+            },
             Request::PhoneSetEnabled { enabled } => self.phone_set_enabled(enabled),
             Request::PhonePair => self.phone_pair(),
             Request::PhoneRevoke { id } => {
@@ -878,6 +882,19 @@ impl Daemon {
             rooms: false,
         });
         self.devices_list()
+    }
+
+    /// What's set up on this machine, for the "Get started" checklist.
+    fn setup_status(&self) -> setup::SetupStatus {
+        let mut s = setup::local_checks();
+        if let Some(fed) = &self.federation {
+            let peers = fed.peers();
+            s.devices = peers.len();
+            s.devices_can_message = peers.iter().filter(|p| p.rooms).count();
+        }
+        s.phone_enabled = self.phone.enabled();
+        s.phones = self.phone.phones().len();
+        s
     }
 
     /// Turn "can message" on or off for a peer, then return the device list.

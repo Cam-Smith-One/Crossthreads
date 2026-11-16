@@ -496,6 +496,7 @@ Tailscale address (default port `47102`), off until turned on
 
 | Op | Answers | What it does |
 |---|---|---|
+| `setup_status` | `setup {hooks_claude, hooks_codex, mcp_claude, mcp_codex, skill_claude, skill_codex, model, devices, devices_can_message, phone_enabled, phones, claude_present, codex_present}` | What's installed and turned on here, for Settings → Get started. Reads the files each installer writes; changes nothing. |
 | `session` | `{"type":"session","phone":false,"can_post":true}` | Who is asking. On the phone listener: `phone: true`, the phone's `name`, and its `can_post` grant. |
 | `phone_status` | `phone {enabled, listening, url?, error?, phones:[{id,name,created,last_seen,can_post}]}` | Settings → Phone. |
 | `phone_set_enabled {enabled}` | `phone` | Start or stop the listener. Binds `CROSSTHREADS_PHONE_ADDR`, else the saved address, else this device's tailnet IP; never `0.0.0.0`. |

@@ -23,6 +23,28 @@ that describes the product as it is now.
 - Daemon ops `session`, `phone_status`, `phone_set_enabled`, `phone_pair`,
   `phone_revoke`, `phone_set_post`.
 
+- **Settings → Get started**: a checklist of what's set up on this computer
+  (indexing, hooks, the MCP server, the agent skill, other devices, a phone, a
+  model), each with why it matters and the command or button that turns it on.
+  The daemon checks the files each installer writes (`setup_status` op).
+
+### Changed
+- **The app has a structure now.** A sidebar with five places — **Threads**
+  (home), **Rooms**, **Search**, **Insights**, **Settings** — replaces a single
+  page with everything else in pop-ups. Each place has its own address
+  (`#/rooms`, `#/settings/devices`), so Back and bookmarks work. On a phone the
+  sidebar is a tab bar at the bottom.
+- **Search and Ask are one place**, with a switch between *Find sessions* and
+  *Ask a question*; saved sessions and search tips show before you search. The
+  board no longer has a search box above it competing with its own filter.
+- Every page opens with one sentence saying what it's for. While essential setup
+  is missing, the Threads page shows one line with the next step; the weekly
+  review notice moved there too. The header's session count, tool chips and
+  re-index link moved to **Settings → Index**, and Documentation became
+  **Settings → Help**.
+- In a session's transcript, *Thread* became *Open its thread*, and *Forget*
+  is set apart in red.
+
 ### Security
 - The phone listener binds only the computer's Tailscale address and refuses
   `0.0.0.0`. Pairing codes work once, for 10 minutes, and five wrong guesses

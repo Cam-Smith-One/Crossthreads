@@ -3,8 +3,10 @@ import {
   approvePeer,
   buildContext,
   getSession,
+  getSetupStatus,
   UnpairedError,
   type Session,
+  type SetupStatus,
   discoverDevices,
   forget,
   getConversation,
@@ -57,6 +59,7 @@ import {
 import { Board } from "./Board";
 import { Rooms } from "./Rooms";
 import { PairPhone, PhoneSettings } from "./Phone";
+import { SetupChecklist, SetupNudge } from "./Setup";
 import { toolIcon, toolLabel } from "./tools";
 
 const MODES: Mode[] = ["hybrid", "semantic", "lexical"];
@@ -67,6 +70,10 @@ const MODE_LABELS: Record<Mode, string> = {
 };
 
 type InsightsTab = "overview" | "weekly" | "themes" | "analyses";
+/** The app's places. Each is a page with its own address (#/search, …). */
+type Page = "threads" | "rooms" | "search" | "insights" | "settings";
+type SettingsTab = "start" | "devices" | "phone" | "models" | "index" | "help";
+const PAGES: Page[] = ["threads", "rooms", "search", "insights", "settings"];
 
 const ANALYSIS_GROUPS: [string, [InsightKind, string, string][]][] = [
   [
@@ -133,6 +140,7 @@ export function App() {
     setHits([]);
     setContext(null);
     setThreadRequest(conversationId);
+    go("threads");
   }
   const [context, setContext] = useState<string | null>(null);
   const [open, setOpen] = useState<StoredConversation | null>(null);
@@ -143,10 +151,29 @@ export function App() {
 
   const [reindexing, setReindexing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"docs" | "devices" | "phone" | "models">(
-    "docs",
-  );
+  const [page, setPage] = useState<Page>("threads");
+  const showSettings = page === "settings";
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("start");
+  const [searchMode, setSearchMode] = useState<"find" | "ask">("find");
+  const [roomsListening, setRoomsListening] = useState(false);
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+  const [nudgeDismissed, setNudgeDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("ct-setup-nudge") === "dismissed";
+    } catch {
+      return false;
+    }
+  });
+  const refreshSetup = useCallback(() => {
+    getSetupStatus().then(setSetup).catch(() => {});
+  }, []);
+
+  /** Go to a place. The address changes, so Back works and links can be shared. */
+  function go(p: Page, sub?: string) {
+    const hash = `#/${p}${sub ? `/${sub}` : ""}`;
+    if (window.location.hash !== hash) window.location.hash = hash;
+    else routeRef.current();
+  }
   // A paired phone sees a read-only board (SPEC FR-BRD-04); an unpaired one
   // sees the pairing screen.
   const [session, setSession] = useState<Session | null>(null);
@@ -303,8 +330,7 @@ export function App() {
     }
   }
 
-  // Ask (RAG over history).
-  const [showAsk, setShowAsk] = useState(false);
+  // Ask (RAG over history), the second mode of the Search page.
   const [askQuery, setAskQuery] = useState("");
   const [askAnswer, setAskAnswer] = useState<Answer | null>(null);
   const [askBusy, setAskBusy] = useState(false);
@@ -431,6 +457,35 @@ export function App() {
     if (showSettings && settingsTab === "models") refreshLlmConfig();
   }, [showSettings, settingsTab, refreshFedConfig, refreshLlmConfig]);
 
+  // Follow the address: #/threads, #/rooms, #/search[/ask], #/insights/<tab>,
+  // #/settings/<tab>. A ref so the listener always sees the latest state.
+  const routeRef = useRef<() => void>(() => {});
+  routeRef.current = () => {
+    const [p, sub] = window.location.hash.replace(/^#\/?/, "").split("/");
+    let next: Page = PAGES.includes(p as Page) ? (p as Page) : "threads";
+    if (phone && (next === "insights" || next === "settings")) next = "threads";
+    setPage(next);
+    if (next === "insights") openInsights((sub as InsightsTab) || "overview");
+    if (next === "settings") setSettingsTab((sub as SettingsTab) || "start");
+    if (next === "search") setSearchMode(sub === "ask" ? "ask" : "find");
+    window.scrollTo({ top: 0 });
+  };
+  useEffect(() => {
+    const onHash = () => routeRef.current();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  // Apply the address once we know whether this is a phone.
+  useEffect(() => {
+    routeRef.current();
+  }, [phone]);
+  useEffect(() => {
+    if (!phone) refreshSetup();
+  }, [phone, refreshSetup]);
+  useEffect(() => {
+    if (page === "settings" && settingsTab === "start") refreshSetup();
+  }, [page, settingsTab, refreshSetup]);
+
   // The local device's name, so remote-only chips can be shown on results.
   const localDevice = devices.find((d) => d.local)?.name;
 
@@ -465,6 +520,15 @@ export function App() {
     .filter(([tool, sessions]) => tool !== "room" && sessions > 0)
     .sort((a, b) => b[1] - a[1]);
   const sessionCount = toolChips.reduce((n, [, sessions]) => n + sessions, 0);
+  // Essential setup steps still to do (the sidebar and Settings show the count).
+  const setupLeft = setup
+    ? [
+        sessionCount > 0,
+        setup.hooks_claude || setup.hooks_codex,
+        setup.mcp_claude || setup.mcp_codex,
+        setup.skill_claude || setup.skill_codex,
+      ].filter((done) => !done).length
+    : 0;
   const activeFilters = [
     filters.kind,
     filters.tool,
@@ -727,8 +791,11 @@ export function App() {
       const palette = e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey);
       if (palette || (e.key === "/" && !typing)) {
         e.preventDefault();
-        searchInput.current?.focus();
-        searchInput.current?.select();
+        go("search", "find");
+        window.setTimeout(() => {
+          searchInput.current?.focus();
+          searchInput.current?.select();
+        }, 0);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -738,23 +805,11 @@ export function App() {
   // Keyboard navigation over results (j/k or arrows; Enter opens; Esc closes).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (insightsTab) {
-        if (e.key === "Escape") setInsightsTab(null);
-        return;
-      }
-      if (showAsk) {
-        if (e.key === "Escape") setShowAsk(false);
-        return;
-      }
-      if (showSettings) {
-        if (e.key === "Escape") setShowSettings(false);
-        return;
-      }
       if (open) {
         if (e.key === "Escape") setOpen(null);
         return;
       }
-      if (!hits.length) return;
+      if (page !== "search" || !hits.length) return;
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
         setSelected((s) => Math.min(s + 1, hits.length - 1));
@@ -775,9 +830,7 @@ export function App() {
     hits,
     selected,
     open,
-    showSettings,
-    showAsk,
-    insightsTab,
+    page,
   ]);
 
   const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -821,36 +874,66 @@ export function App() {
   if (unpaired || window.location.pathname === "/pair") return <PairPhone />;
 
   return (
-    <div className={`app${phone ? " on-phone" : ""}`}>
-      <header>
-        <div className="brand-row">
-          <img className="brand-mark" src="/mark.png" alt="Crossthreads" />
-          <h1 className="brand-name">
+    <div className={`shell${phone ? " on-phone" : ""}`}>
+      <aside className="sidebar">
+        <a className="side-brand" href="#/threads" aria-label="Crossthreads home">
+          <img className="brand-mark" src="/mark.png" alt="" />
+          <span className="brand-name">
             <span className="brand-cross">Cross</span>
             <span className="brand-threads">threads</span>
-          </h1>
-          <nav className="top-nav" aria-label="Main">
-            {!phone && (
-              <button
-                className="nav-btn"
-                onClick={() => openInsights("overview")}
-                title="How you work, your weekly review, themes, and analyses of your history"
+          </span>
+        </a>
+        <nav className="side-nav" aria-label="Main">
+            {(
+              [
+                ["threads", "🧵", "Threads", "Your work, one thread per piece of work"],
+                ["rooms", "🤝", "Rooms", "Where your agents talk to each other"],
+                ["search", "🔎", "Search", "Find any past session, or ask a question"],
+                ...(phone
+                  ? []
+                  : [
+                      ["insights", "💡", "Insights", "How you work, your weekly review, themes"],
+                      ["settings", "⚙️", "Settings", "Set up, devices, phone, models"],
+                    ]),
+              ] as [Page, string, string, string][]
+            ).map(([p, icon, label, hint]) => (
+              <a
+                key={p}
+                href={`#/${p}`}
+                className={`side-link ${page === p ? "on" : ""}`}
+                aria-current={page === p ? "page" : undefined}
+                title={hint}
               >
-                <span aria-hidden="true">💡</span> Insights
-                {weeklyUnseen && <span className="nav-dot" aria-label="new weekly review" />}
-              </button>
-            )}
-            <Rooms onError={reportError} canPost={session?.can_post ?? true} />
-            {!phone && (
-              <button
-                className="nav-btn"
-                onClick={() => setShowAsk(true)}
-                title="Ask a question and get an answer from your own past sessions, with citations"
-              >
-                <span aria-hidden="true">💬</span> Ask
-              </button>
-            )}
-          </nav>
+                <span className="side-icon" aria-hidden="true">
+                  {icon}
+                </span>
+                <span className="side-label">{label}</span>
+                {p === "rooms" && roomsListening && (
+                  <span className="nav-dot live" aria-label="an agent is listening" />
+                )}
+                {p === "insights" && weeklyUnseen && (
+                  <span className="nav-dot" aria-label="new weekly review" />
+                )}
+                {p === "settings" && setupLeft > 0 && (
+                  <span className="side-count" aria-label={`${setupLeft} setup steps left`}>
+                    {setupLeft}
+                  </span>
+                )}
+              </a>
+            ))}
+        </nav>
+        <div className="side-foot">
+          {status && (
+            <a
+              className="side-status"
+              href={phone ? undefined : "#/settings/index"}
+              title={`${status.conversations.toLocaleString()} records indexed · ${status.embeddings.toLocaleString()} embeddings · embedder ${status.embedder}`}
+            >
+              {sessionCount.toLocaleString()} session{sessionCount === 1 ? "" : "s"} ·{" "}
+              {toolChips.length} tool{toolChips.length === 1 ? "" : "s"}
+            </a>
+          )}
+          {phone && <span className="phone-badge">Read-only on {session?.name ?? "phone"}</span>}
           <button
             className="theme-toggle"
             onClick={toggleTheme}
@@ -859,300 +942,362 @@ export function App() {
           >
             {theme === "dark" ? "☀️" : "🌙"}
           </button>
-          {!phone && (
-            <button
-              className="settings-toggle"
-              onClick={() => setShowSettings(true)}
-              title="Settings and documentation"
-              aria-label="Open settings"
-            >
-              ⚙️
-            </button>
+        </div>
+      </aside>
+
+      <main className="main">
+      {error && (
+        <div className="error">
+          {error}
+          <button className="linklike" onClick={() => setError(null)}>
+            dismiss
+          </button>
+        </div>
+      )}
+
+      {page === "threads" && (
+        <section className="page">
+          <div className="page-head">
+            <h2>Threads</h2>
+            <p className="page-lede">
+              Each thread is one piece of work: every session that touched it, across your tools
+              {federation && devices.length > 1 ? " and machines" : ""}. Open one to see its
+              history and pick it up where it left off.
+            </p>
+          </div>
+          {!phone && setup && !nudgeDismissed && (
+            <SetupNudge
+              setup={setup}
+              sessions={sessionCount}
+              onOpen={() => go("settings", "start")}
+              onDismiss={() => {
+                setNudgeDismissed(true);
+                try {
+                  localStorage.setItem("ct-setup-nudge", "dismissed");
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
           )}
-        </div>
-        <p className="tagline">Every AI coding thread, across your tools and machines.</p>
-        {status && (
-          <p
-            className="status"
-            title={`${status.conversations.toLocaleString()} records indexed (sessions, skills, room exchanges) · ${status.embeddings.toLocaleString()} embeddings · embedder ${status.embedder}`}
-          >
-            {sessionCount.toLocaleString()} session{sessionCount === 1 ? "" : "s"} indexed
-            {toolChips.length > 0 && <> across {toolChips.length} tool{toolChips.length === 1 ? "" : "s"}</>}
-            {!phone && (
-              <button className="linklike" onClick={runReindex} disabled={reindexing}>
-                {reindexing ? "re-indexing…" : "re-index"}
-              </button>
-            )}
-            {phone && <span className="phone-badge"> · read-only on {session?.name ?? "phone"}</span>}
-          </p>
-        )}
-        {toolChips.length > 0 && (
-          <div className="tool-chips" aria-label="Indexed tools">
-            {toolChips.map(([tool, sessions, skills]) => (
-              <span
-                key={tool}
-                className="tool-chip"
-                title={`${sessions} session${sessions === 1 ? "" : "s"}${
-                  skills > 0 ? ` and ${skills} skill${skills === 1 ? "" : "s"}` : ""
-                } from ${toolLabel(tool)}`}
-              >
-                <span className="tool-chip-icon">{toolIcon(tool)}</span>
-                {toolLabel(tool)}
-                <span className="tool-chip-count">{sessions.toLocaleString()}</span>
+          {weeklyUnseen && !phone && (
+            <div className="nudge">
+              <div>
+                <strong>📋 Your weekly review is ready</strong>
+                <span className="nudge-next">How you worked, and one thing to try.</span>
+              </div>
+              <span className="nudge-actions">
+                <button onClick={() => go("insights", "weekly")}>Read it</button>
+                <button className="linklike" onClick={() => setWeeklyUnseen(false)}>
+                  Dismiss
+                </button>
               </span>
-            ))}
-          </div>
-        )}
-      </header>
-
-      {weeklyUnseen && (
-        <div className="weekly-banner">
-          <span>📋 Your weekly review is ready — how you worked, and one thing to try.</span>
-          <span className="weekly-banner-actions">
-            <button className="linklike" onClick={() => openInsights("weekly")}>
-              Read it
-            </button>
-            <button
-              className="linklike"
-              onClick={() => setWeeklyUnseen(false)}
-              aria-label="Dismiss"
-            >
-              Dismiss
-            </button>
-          </span>
-        </div>
-      )}
-
-      <form className="searchbar" onSubmit={runSearch}>
-        <input
-          ref={searchInput}
-          aria-label="Search your sessions"
-          title="Search (press / or Ctrl+K)"
-          placeholder="e.g. where did we set up the OAuth refresh retry?"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button
-          type="button"
-          className={`secondary filters-toggle ${showFilters ? "on" : ""}`}
-          onClick={() => setShowFilters((v) => !v)}
-          aria-expanded={showFilters}
-          title="Narrow the search by tool, kind, project, date or device"
-        >
-          Filters{activeFilters > 0 ? ` · ${activeFilters}` : ""}
-        </button>
-        <button type="submit" disabled={loading}>
-          {loading ? "…" : "Search"}
-        </button>
-        {searched && hits.length > 0 && (
-          <button type="button" className="secondary" onClick={showContext} disabled={loading}>
-            Build context
-          </button>
-        )}
-      </form>
-
-      {showFilters && (
-      <div className="filters">
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value as Mode)}
-          title="Hybrid combines keyword and meaning; keyword matches exact words; meaning finds related wording"
-          aria-label="Search mode"
-        >
-          {MODES.map((m) => (
-            <option key={m} value={m}>
-              {MODE_LABELS[m]}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.kind ?? ""}
-          onChange={(e) => setF({ kind: e.target.value || undefined })}
-          aria-label="What to search"
-        >
-          <option value="">everything</option>
-          <option value="thread">sessions</option>
-          <option value="exchange">room exchanges</option>
-          <option value="skill">skills &amp; prompts</option>
-        </select>
-        <select value={filters.tool ?? ""} onChange={(e) => setF({ tool: e.target.value || undefined })}>
-          <option value="">all tools</option>
-          {tools.map((t) => (
-            <option key={t} value={t}>
-              {toolLabel(t)}
-            </option>
-          ))}
-        </select>
-        {tagFacets.length > 0 && (
-          <select value={filters.tag ?? ""} onChange={(e) => setF({ tag: e.target.value || undefined })}>
-            <option value="">all tags</option>
-            {tagFacets.map((t) => (
-              <option key={t} value={t}>
-                #{t}
-              </option>
-            ))}
-          </select>
-        )}
-        <input
-          placeholder="project contains…"
-          value={filters.project ?? ""}
-          onChange={(e) => setF({ project: e.target.value || undefined })}
-        />
-        <label>
-          since <input type="date" value={filters.since ?? ""} onChange={(e) => setF({ since: e.target.value || undefined })} />
-        </label>
-        <label>
-          until <input type="date" value={filters.until ?? ""} onChange={(e) => setF({ until: e.target.value || undefined })} />
-        </label>
-        {federation && devices.length > 1 && (
-          <div className="device-filter" title="Which devices to search">
-            {devices.map((d) => (
-              <button
-                key={d.name}
-                type="button"
-                className={`device-toggle ${deviceSel.has(d.name) ? "on" : ""}`}
-                onClick={() => toggleDevice(d.name)}
-                title={d.online ? "online" : "offline"}
-              >
-                <span className={`device-dot ${d.online ? "online" : "offline"}`} />
-                {d.name}
-                {d.local ? " (this)" : ""}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      )}
-
-      {error && <div className="error">{error}</div>}
-
-      {status && status.conversations === 0 && !searched && (
-        <section className="onboarding">
-          <h2>No conversations indexed yet</h2>
-          <p>
-            Crossthreads looks for history from <strong>Claude Code, Codex, Cursor, Aider,
-            Cline, Copilot Chat, Gemini CLI, Windsurf,</strong> and <strong>Antigravity</strong>.
-            Use any of them, then re-index — new sessions are picked up automatically as you work.
-          </p>
-          <button onClick={runReindex} disabled={reindexing}>
-            {reindexing ? "Indexing…" : "Index now"}
-          </button>
-        </section>
-      )}
-
-      {searched && (
-        <button
-          className="board-back"
-          onClick={() => {
-            searchGen.current += 1;
-            setSearched(false);
-            setHits([]);
-            setContext(null);
-            setUnreachable([]);
-            setBoardKey((k) => k + 1);
-          }}
-        >
-          ← Back to threads
-        </button>
-      )}
-
-      {saved.length > 0 && !searched && (
-        <section className="saved">
-          <h2>Saved</h2>
-          <div className="saved-list">
-            {saved.map((h) => (
-              <div
-                key={h.conversation_id}
-                className="saved-item"
-                onClick={() => openConversation(h.conversation_id)}
-              >
-                <ToolChip tool={h.tool} />
-                <span className="title">{h.title ?? "(untitled)"}</span>
-                {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
-                {flagButtons(h)}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {!searched && (
-        <Board
-          onOpenSession={(id, device) => openConversation(id, device)}
-          openThreadFor={threadRequest}
-          onThreadOpened={() => setThreadRequest(null)}
-          localDevice={localDevice}
-          readOnly={phone}
-          refreshKey={boardKey}
-          onError={reportError}
-        />
-      )}
-
-      {context !== null && (
-        <section className="context">
-          <div className="context-head">
-            <h2>Context block</h2>
-            <button className="secondary" onClick={() => navigator.clipboard?.writeText(context)}>
-              Copy
-            </button>
-          </div>
-          <pre>{context}</pre>
-        </section>
-      )}
-
-      {searched && unreachable.length > 0 && (
-        <div className="unreachable-banner">
-          ⚠ {unreachable.length} device{unreachable.length > 1 ? "s" : ""} unreachable (
-          {unreachable.join(", ")}) — results may be incomplete.
-        </div>
-      )}
-
-      <section className="results">
-        {searched && hits.length === 0 && !loading && <p className="empty">No matches.</p>}
-        {hits.map((h, i) => (
-          <article
-            key={h.conversation_id}
-            className={`hit ${i === selected ? "selected" : ""}`}
-            onClick={() => {
-              setSelected(i);
-              openConversation(h.conversation_id, h.device);
-            }}
-          >
-            <div className="hit-head">
-              {h.kind === "skill" && <span className="badge-skill">skill</span>}
-              {h.kind === "exchange" ? (
-                <span className="badge-skill">room exchange</span>
-              ) : (
-                <ToolChip tool={h.tool} />
-              )}
-              {h.device && h.device !== localDevice && (
-                <span className="device-chip" title={`from ${h.device}`}>💻 {h.device}</span>
-              )}
-              <span className="title">{h.title ?? "(untitled)"}</span>
-              {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
-              {flagButtons(h)}
             </div>
-            {h.project && (
-              <div className="project" title={h.project}>
-                {shortPath(h.project)}
-              </div>
-            )}
-            <div className="snippet" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />
-            {h.tags && h.tags.length > 0 && (
-              <div className="tags">
-                {h.tags.map((t) => (
-                  <span key={t} className="tag-chip">#{t}</span>
+          )}
+          {status && status.conversations === 0 && (
+            <section className="onboarding">
+              <h2>No conversations indexed yet</h2>
+              <p>
+                Crossthreads looks for history from <strong>Claude Code, Codex, Cursor, Aider,
+                Cline, Copilot Chat, Gemini CLI, Windsurf,</strong> and <strong>Antigravity</strong>.
+                Use any of them, then re-index — new sessions are picked up automatically as you work.
+              </p>
+              <button onClick={runReindex} disabled={reindexing}>
+                {reindexing ? "Indexing…" : "Index now"}
+              </button>
+            </section>
+          )}
+
+
+          <Board
+            onOpenSession={(id, device) => openConversation(id, device)}
+            openThreadFor={threadRequest}
+            onThreadOpened={() => setThreadRequest(null)}
+            localDevice={localDevice}
+            readOnly={phone}
+            refreshKey={boardKey}
+            onError={reportError}
+          />
+        </section>
+      )}
+
+      <Rooms
+        active={page === "rooms"}
+        onError={reportError}
+        canPost={session?.can_post ?? true}
+        onListening={setRoomsListening}
+      />
+
+      {page === "search" && (
+        <section className="page">
+          <div className="page-head">
+            <h2>Search</h2>
+            <p className="page-lede">
+              Every session from every tool{federation && devices.length > 1 ? " and machine" : ""},
+              searchable by words or by meaning. Or ask a question and get an answer drawn from
+              them, with the sessions it came from.
+            </p>
+          </div>
+          {!phone && (
+            <div className="seg" role="tablist" aria-label="Search mode">
+              <button
+                role="tab"
+                aria-selected={searchMode === "find"}
+                className={searchMode === "find" ? "on" : ""}
+                onClick={() => go("search", "find")}
+              >
+                Find sessions
+              </button>
+              <button
+                role="tab"
+                aria-selected={searchMode === "ask"}
+                className={searchMode === "ask" ? "on" : ""}
+                onClick={() => go("search", "ask")}
+              >
+                Ask a question
+              </button>
+            </div>
+          )}
+          {(searchMode === "find" || phone) && (
+            <>
+            <form className="searchbar" onSubmit={runSearch}>
+              <input
+                ref={searchInput}
+                aria-label="Search your sessions"
+                title="Search (press / or Ctrl+K)"
+                placeholder="e.g. where did we set up the OAuth refresh retry?"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <button
+                type="button"
+                className={`secondary filters-toggle ${showFilters ? "on" : ""}`}
+                onClick={() => setShowFilters((v) => !v)}
+                aria-expanded={showFilters}
+                title="Narrow the search by tool, kind, project, date or device"
+              >
+                Filters{activeFilters > 0 ? ` · ${activeFilters}` : ""}
+              </button>
+              <button type="submit" disabled={loading}>
+                {loading ? "…" : "Search"}
+              </button>
+              {searched && hits.length > 0 && (
+                <button type="button" className="secondary" onClick={showContext} disabled={loading}>
+                  Build context
+                </button>
+              )}
+            </form>
+
+            {showFilters && (
+            <div className="filters">
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as Mode)}
+                title="Hybrid combines keyword and meaning; keyword matches exact words; meaning finds related wording"
+                aria-label="Search mode"
+              >
+                {MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {MODE_LABELS[m]}
+                  </option>
                 ))}
+              </select>
+              <select
+                value={filters.kind ?? ""}
+                onChange={(e) => setF({ kind: e.target.value || undefined })}
+                aria-label="What to search"
+              >
+                <option value="">everything</option>
+                <option value="thread">sessions</option>
+                <option value="exchange">room exchanges</option>
+                <option value="skill">skills &amp; prompts</option>
+              </select>
+              <select value={filters.tool ?? ""} onChange={(e) => setF({ tool: e.target.value || undefined })}>
+                <option value="">all tools</option>
+                {tools.map((t) => (
+                  <option key={t} value={t}>
+                    {toolLabel(t)}
+                  </option>
+                ))}
+              </select>
+              {tagFacets.length > 0 && (
+                <select value={filters.tag ?? ""} onChange={(e) => setF({ tag: e.target.value || undefined })}>
+                  <option value="">all tags</option>
+                  {tagFacets.map((t) => (
+                    <option key={t} value={t}>
+                      #{t}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input
+                placeholder="project contains…"
+                value={filters.project ?? ""}
+                onChange={(e) => setF({ project: e.target.value || undefined })}
+              />
+              <label>
+                since <input type="date" value={filters.since ?? ""} onChange={(e) => setF({ since: e.target.value || undefined })} />
+              </label>
+              <label>
+                until <input type="date" value={filters.until ?? ""} onChange={(e) => setF({ until: e.target.value || undefined })} />
+              </label>
+              {federation && devices.length > 1 && (
+                <div className="device-filter" title="Which devices to search">
+                  {devices.map((d) => (
+                    <button
+                      key={d.name}
+                      type="button"
+                      className={`device-toggle ${deviceSel.has(d.name) ? "on" : ""}`}
+                      onClick={() => toggleDevice(d.name)}
+                      title={d.online ? "online" : "offline"}
+                    >
+                      <span className={`device-dot ${d.online ? "online" : "offline"}`} />
+                      {d.name}
+                      {d.local ? " (this)" : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            )}
+
+
+            {context !== null && (
+              <section className="context">
+                <div className="context-head">
+                  <h2>Context block</h2>
+                  <button className="secondary" onClick={() => navigator.clipboard?.writeText(context)}>
+                    Copy
+                  </button>
+                </div>
+                <pre>{context}</pre>
+              </section>
+            )}
+
+            {searched && unreachable.length > 0 && (
+              <div className="unreachable-banner">
+                ⚠ {unreachable.length} device{unreachable.length > 1 ? "s" : ""} unreachable (
+                {unreachable.join(", ")}) — results may be incomplete.
               </div>
             )}
-          </article>
-        ))}
-        {searched && hits.length >= limit && (
-          <button className="load-more" onClick={loadMore} disabled={loading}>
-            {loading ? "…" : "Load more"}
-          </button>
-        )}
-      </section>
+
+            <section className="results">
+              {searched && hits.length === 0 && !loading && <p className="empty">No matches.</p>}
+              {hits.map((h, i) => (
+                <article
+                  key={h.conversation_id}
+                  className={`hit ${i === selected ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelected(i);
+                    openConversation(h.conversation_id, h.device);
+                  }}
+                >
+                  <div className="hit-head">
+                    {h.kind === "skill" && <span className="badge-skill">skill</span>}
+                    {h.kind === "exchange" ? (
+                      <span className="badge-skill">room exchange</span>
+                    ) : (
+                      <ToolChip tool={h.tool} />
+                    )}
+                    {h.device && h.device !== localDevice && (
+                      <span className="device-chip" title={`from ${h.device}`}>💻 {h.device}</span>
+                    )}
+                    <span className="title">{h.title ?? "(untitled)"}</span>
+                    {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
+                    {flagButtons(h)}
+                  </div>
+                  {h.project && (
+                    <div className="project" title={h.project}>
+                      {shortPath(h.project)}
+                    </div>
+                  )}
+                  <div className="snippet" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />
+                  {h.tags && h.tags.length > 0 && (
+                    <div className="tags">
+                      {h.tags.map((t) => (
+                        <span key={t} className="tag-chip">#{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {searched && hits.length >= limit && (
+                <button className="load-more" onClick={loadMore} disabled={loading}>
+                  {loading ? "…" : "Load more"}
+                </button>
+              )}
+            </section>
+
+              {!searched && (
+                <div className="search-empty">
+                  <p className="settings-hint">
+                    Try a feature, an error message, a file name or a question: <em>oauth refresh
+                    retry</em>, <em>why is the table slow</em>, <em>rate limiter tests</em>. Press{" "}
+                    <kbd>/</kbd> anywhere to search.
+                  </p>
+              {saved.length > 0 && !searched && (
+                <section className="saved">
+                  <h3>Saved sessions</h3>
+                  <div className="saved-list">
+                    {saved.map((h) => (
+                      <div
+                        key={h.conversation_id}
+                        className="saved-item"
+                        onClick={() => openConversation(h.conversation_id)}
+                      >
+                        <ToolChip tool={h.tool} />
+                        <span className="title">{h.title ?? "(untitled)"}</span>
+                        {h.started_at && <span className="date">{h.started_at.slice(0, 10)}</span>}
+                        {flagButtons(h)}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+
+                </div>
+              )}
+            </>
+          )}
+          {searchMode === "ask" && !phone && (
+            <div className="ask-pane">
+            <form className="ask-form" onSubmit={runAsk}>
+              <input
+                autoFocus
+                type="text"
+                placeholder="e.g. how did we end up handling token refresh?"
+                value={askQuery}
+                onChange={(e) => setAskQuery(e.target.value)}
+              />
+              <button type="submit" disabled={askBusy || !askQuery.trim()}>
+                {askBusy ? "Asking…" : "Ask"}
+              </button>
+            </form>
+            <p className="doc-desc">
+              Answered from your own past sessions across every tool, with citations.
+              Uses your configured model (Settings → Models); without one it returns the
+              retrieved context.
+            </p>
+            {askError && <div className="error">{askError}</div>}
+            {!askBusy && askAnswer && (
+              <>
+                <pre className="insight-body">{askAnswer.markdown}</pre>
+                <p className="doc-desc">
+                  {askAnswer.sources.length > 0
+                    ? `Answered from ${askAnswer.sources.length} past session(s)`
+                    : "No matching sessions found"}
+                  {askAnswer.sources.length > 0 && !askAnswer.llm_used
+                    ? " — retrieved context (no model configured)."
+                    : "."}
+                </p>
+              </>
+            )}
+
+            </div>
+          )}
+        </section>
+      )}
 
       {open && (
         <div className="overlay" onClick={() => setOpen(null)}>
@@ -1179,7 +1324,7 @@ export function App() {
                     title="See every session that is part of the same piece of work"
                     onClick={() => showThreadOf(open.id)}
                   >
-                    Thread
+                    Open its thread
                   </button>
                 )}
                 <button className="secondary" onClick={() => setOpen(null)}>
@@ -1282,21 +1427,15 @@ export function App() {
         </div>
       )}
 
-      {insightsTab && (
-        <div className="overlay" onClick={() => setInsightsTab(null)}>
-          <div
-            className="modal themes-modal insights-hub"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Insights"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Insights</h2>
-              <button className="secondary" onClick={() => setInsightsTab(null)}>
-                Close
-              </button>
-            </div>
+      {page === "insights" && insightsTab && (
+        <section className="page insights-hub">
+          <div className="page-head">
+            <h2>Insights</h2>
+            <p className="page-lede">
+              What your history says about how you work. The scores, focus and activity are
+              computed here with no model; the weekly review and analyses use your model.
+            </p>
+          </div>
             <div className="settings-tabs insights-tabs" role="tablist" aria-label="Insights">
               {(
                 [
@@ -1311,7 +1450,7 @@ export function App() {
                   role="tab"
                   aria-selected={insightsTab === tab}
                   className={insightsTab === tab ? "on" : ""}
-                  onClick={() => openInsights(tab)}
+                  onClick={() => go("insights", tab)}
                 >
                   {label}
                   {tab === "weekly" && weeklyUnseen && <span className="tab-dot" aria-label="new" />}
@@ -1381,9 +1520,8 @@ export function App() {
                     <button
                       className="secondary"
                       onClick={() => {
-                        setInsightsTab(null);
                         setAskQuery(fluency.reflection!.prompt);
-                        setShowAsk(true);
+                        go("search", "ask");
                       }}
                       title="Talk it through with your history"
                     >
@@ -1567,10 +1705,7 @@ export function App() {
                             <button
                               className="linklike"
                               title={s.title ?? ""}
-                              onClick={() => {
-                                setInsightsTab(null);
-                                openConversation(s.id);
-                              }}
+                              onClick={() => openConversation(s.id)}
                             >
                               {(s.title ?? "(untitled)").trim()}
                             </button>
@@ -1634,11 +1769,7 @@ export function App() {
                   anywhere else.
                 </p>
                 <button
-                  onClick={() => {
-                    setInsightsTab(null);
-                    setSettingsTab("models");
-                    setShowSettings(true);
-                  }}
+                  onClick={() => go("settings", "models")}
                 >
                   Set up a model
                 </button>
@@ -1657,108 +1788,98 @@ export function App() {
             )}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {showAsk && (
-        <div className="overlay" onClick={() => setShowAsk(false)}>
-          <div
-            className="modal themes-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Ask your history"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <h2>Ask your history</h2>
-              <button className="secondary" onClick={() => setShowAsk(false)}>
-                Close
-              </button>
-            </div>
-            <form className="ask-form" onSubmit={runAsk}>
-              <input
-                autoFocus
-                type="text"
-                placeholder="e.g. how did we end up handling token refresh?"
-                value={askQuery}
-                onChange={(e) => setAskQuery(e.target.value)}
-              />
-              <button type="submit" disabled={askBusy || !askQuery.trim()}>
-                {askBusy ? "Asking…" : "Ask"}
-              </button>
-            </form>
-            <p className="doc-desc">
-              Answered from your own past sessions across every tool, with citations.
-              Uses your configured model (Settings → Models); without one it returns the
-              retrieved context.
-            </p>
-            {askError && <div className="error">{askError}</div>}
-            {!askBusy && askAnswer && (
-              <>
-                <pre className="insight-body">{askAnswer.markdown}</pre>
-                <p className="doc-desc">
-                  {askAnswer.sources.length > 0
-                    ? `Answered from ${askAnswer.sources.length} past session(s)`
-                    : "No matching sessions found"}
-                  {askAnswer.sources.length > 0 && !askAnswer.llm_used
-                    ? " — retrieved context (no model configured)."
-                    : "."}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+        </section>
       )}
 
       {showSettings && (
-        <div className="overlay" onClick={() => setShowSettings(false)}>
-          <div
-            className="modal settings-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Settings"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <div className="settings-tabs">
-                <button
-                  className={settingsTab === "docs" ? "on" : ""}
-                  onClick={() => setSettingsTab("docs")}
-                >
-                  Documentation
-                </button>
-                <button
-                  className={settingsTab === "devices" ? "on" : ""}
-                  onClick={() => setSettingsTab("devices")}
-                >
-                  Devices
-                </button>
-                <button
-                  className={settingsTab === "phone" ? "on" : ""}
-                  onClick={() => setSettingsTab("phone")}
-                >
-                  Phone
-                </button>
-                <button
-                  className={settingsTab === "models" ? "on" : ""}
-                  onClick={() => setSettingsTab("models")}
-                >
-                  Models
-                </button>
-              </div>
-              <button className="secondary" onClick={() => setShowSettings(false)}>
-                Close
+        <section className="page settings-page">
+          <div className="page-head">
+            <h2>Settings</h2>
+          </div>
+          <div className="settings-tabs page-tabs" role="tablist" aria-label="Settings">
+            {(
+              [
+                ["start", "Get started"],
+                ["devices", "Devices"],
+                ["phone", "Phone"],
+                ["models", "Models"],
+                ["index", "Index"],
+                ["help", "Help"],
+              ] as [SettingsTab, string][]
+            ).map(([tab, label]) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={settingsTab === tab}
+                className={settingsTab === tab ? "on" : ""}
+                onClick={() => go("settings", tab)}
+              >
+                {label}
+                {tab === "start" && setupLeft > 0 && <span className="tab-dot" aria-label="steps left" />}
               </button>
-            </div>
+            ))}
+          </div>
 
-            {settingsTab === "docs" && (
+            {settingsTab === "start" && (
+              <div className="settings-body">
+                <SetupChecklist
+                  setup={setup}
+                  sessions={sessionCount}
+                  reindexing={reindexing}
+                  onReindex={async () => {
+                    await runReindex();
+                    refreshSetup();
+                  }}
+                  go={go}
+                />
+              </div>
+            )}
+
+            {settingsTab === "index" && (
               <div className="settings-body">
                 <section className="settings-section">
-                  <h3>Documentation</h3>
+                  <h3>Your index</h3>
                   <p className="settings-hint">
-                    Guides, references, and troubleshooting. Links open the docs on
-                    GitHub.
+                    Crossthreads keeps one local database of the sessions it found. It updates on
+                    its own as you work; re-index if something seems missing.
+                  </p>
+                  {status && (
+                    <p className="settings-hint">
+                      {sessionCount.toLocaleString()} sessions from {toolChips.length} tool
+                      {toolChips.length === 1 ? "" : "s"} · {status.embeddings.toLocaleString()}{" "}
+                      embeddings · search model: {status.embedder}
+                    </p>
+                  )}
+                  {toolChips.length > 0 && (
+                    <div className="tool-chips" aria-label="Indexed tools">
+                      {toolChips.map(([tool, sessions, skills]) => (
+                        <span
+                          key={tool}
+                          className="tool-chip"
+                          title={`${sessions} session${sessions === 1 ? "" : "s"}${
+                            skills > 0 ? ` and ${skills} skill${skills === 1 ? "" : "s"}` : ""
+                          } from ${toolLabel(tool)}`}
+                        >
+                          <span className="tool-chip-icon">{toolIcon(tool)}</span>
+                          {toolLabel(tool)}
+                          <span className="tool-chip-count">{sessions.toLocaleString()}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={runReindex} disabled={reindexing}>
+                    {reindexing ? "Re-indexing…" : "Re-index now"}
+                  </button>
+                </section>
+              </div>
+            )}
+
+            {settingsTab === "help" && (
+              <div className="settings-body">
+                <section className="settings-section">
+                  <h3>Help and documentation</h3>
+                  <p className="settings-hint">
+                    Guides, references and troubleshooting. Links open the docs on GitHub.
                   </p>
                   <ul className="doc-links">
                     {DOC_LINKS.map((d) => (
@@ -1769,23 +1890,6 @@ export function App() {
                         <span className="doc-desc">{d.desc}</span>
                       </li>
                     ))}
-                  </ul>
-                </section>
-                <section className="settings-section">
-                  <h3>Set up another device</h3>
-                  <p className="settings-hint">
-                    Search the history on your other machines too. Install
-                    Crossthreads on each device, join them to one private Tailscale
-                    network, then use the <strong>Devices</strong> tab to discover
-                    and approve them. Full walkthrough:
-                  </p>
-                  <ul className="doc-links">
-                    <li>
-                      <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
-                        Multi-device setup guide
-                      </a>
-                      <span className="doc-desc">Step-by-step: connect your devices for cross-device search.</span>
-                    </li>
                   </ul>
                 </section>
               </div>
@@ -2102,9 +2206,9 @@ export function App() {
                 )}
               </div>
             )}
-          </div>
-        </div>
+        </section>
       )}
+      </main>
     </div>
   );
 }

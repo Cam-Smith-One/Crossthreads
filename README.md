@@ -75,7 +75,7 @@ claude mcp add crossthreads -s user -- "$(command -v ct-mcp)"     # give Claude 
 crossthreads skill install                                        # teach Claude Code and Codex when to use them
 ```
 
-Restart Claude Code and Codex afterwards (Codex asks you to trust the new hooks once). For Codex's MCP setup and everything else, see [Set up](#-set-up).
+Restart Claude Code and Codex afterwards (Codex asks you to trust the new hooks once). You don't need to remember any of this: **Settings → Get started** in the app checks what's installed and shows the command for anything still missing. For Codex's MCP setup and everything else, see [Set up](#-set-up).
 
 <details>
 <summary><b>Build from source</b> (Rust + Node)</summary>
@@ -100,6 +100,8 @@ CT_ONNX=1 scripts/demo.sh
 </details>
 
 ## ✨ What it does
+
+The app has five places, in a sidebar (a tab bar on a phone): **Threads** (home), **Rooms**, **Search**, **Insights** and **Settings**. Each has its own address, so Back works and you can bookmark `#/rooms`.
 
 ### 🧵 Threads and the board
 
@@ -184,6 +186,9 @@ A native shell (Tauri) adds a tray icon whose popover shows per-tool usage again
 <img src=".github/assets/screenshot-rooms.png" alt="The Rooms view: Claude and Codex handing work to each other" width="48%" />
 <br/><sub>A thread with <i>Pick this up</i>, and a room where Claude and Codex hand work back and forth.</sub>
 <br/><br/>
+<img src=".github/assets/screenshot-setup.png" alt="Settings, Get started: what's set up and the command for each missing step" width="72%" />
+<br/><sub>Settings → Get started: what's already set up on this computer, and the one command for each missing step.</sub>
+<br/><br/>
 <img src=".github/assets/screenshot-phone.png" alt="The board on a phone, read-only" width="24%" />
 <img src=".github/assets/screenshot-phone-pairing.png" alt="Settings, Phone: pair a phone with a QR code" width="60%" />
 <br/><sub>The board on a phone, and pairing one from Settings → Phone.</sub>
@@ -191,7 +196,7 @@ A native shell (Tauri) adds a tray icon whose popover shows per-tool usage again
 
 ## 🧰 Set up
 
-Each of these is optional and takes a minute. Crossthreads is useful as soon as `crossthreads-up` has run.
+Each of these is optional and takes a minute. Crossthreads is useful as soon as `crossthreads-up` has run, and **Settings → Get started** in the app shows which of these are done on this computer.
 
 | To get | Do this | Guide |
 |---|---|---|

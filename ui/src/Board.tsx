@@ -337,7 +337,6 @@ export function Board({
   return (
     <section className="board" aria-label="Threads">
       <div className="board-head">
-        <h2>Threads</h2>
         <div className="board-tabs" role="tablist" aria-label="Thread status">
           {(["active", "parked", "done", "all"] as StatusFilter[]).map((s) => (
             <button
@@ -357,7 +356,7 @@ export function Board({
       </div>
       <div className="board-filters">
         <input
-          placeholder="filter by title, repository or branch…"
+          placeholder="Filter threads by title, repository or branch"
           value={text}
           onChange={(e) => setText(e.target.value)}
           aria-label="Filter threads"
