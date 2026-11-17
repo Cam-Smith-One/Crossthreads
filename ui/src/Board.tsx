@@ -3,15 +3,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  addNote,
+  editNote,
   getResume,
   getThread,
   getThreadHandoff,
   getThreads,
+  joinThread,
   linkSessions,
   rejectLink,
   setThread,
+  splitThread,
   unlinkSession,
   type Live,
+  type NoteKind,
   type ResumePlan,
   type ThreadDetail,
   type ThreadStatus,
@@ -146,7 +151,7 @@ export function Board({
   // The open thread's latest session, and how to resume it in its own tool.
   const latest = open?.sessions[open.sessions.length - 1];
   const latestId = latest?.conversation_id;
-  const latestRemote = !!open && !!open.device && !!localDevice && open.device !== localDevice;
+  const latestRemote = !!latest?.device && !!localDevice && latest.device !== localDevice;
   useEffect(() => {
     setCopied(null);
     setResume(null);
@@ -168,7 +173,7 @@ export function Board({
           ? resume?.action.kind === "resume"
             ? resume.action.display
             : ""
-          : await getThreadHandoff(open.id, latestRemote ? open.device : null);
+          : await getThreadHandoff(open.id, open.device ?? null);
       if (!text) return;
       await navigator.clipboard.writeText(text);
       setCopied(what);
@@ -203,7 +208,7 @@ export function Board({
     return () => window.clearInterval(timer);
   }, []);
 
-  /** True when a thread lives on another device (read-only from here). */
+  /** True when a thread lives on another device. */
   const isRemote = useCallback(
     (t: { device?: string | null }) => !!t.device && !!localDevice && t.device !== localDevice,
     [localDevice],
@@ -255,7 +260,9 @@ export function Board({
   async function openThread(t: ThreadSummary) {
     try {
       setRenaming(null);
-      setOpen(await getThread(t.id, isRemote(t) ? t.device : null));
+      const detail = await getThread(t.id, t.device ?? null);
+      // "Same work elsewhere" is worked out for the list; carry it over.
+      setOpen(detail && { ...detail, related: t.related ?? [] });
     } catch (e) {
       onError(String(e));
     }
@@ -277,29 +284,53 @@ export function Board({
     }
   }
 
+  /** Run a change that keeps the thread's id, then reload it where it is. */
+  async function changeHere(action: () => Promise<unknown>) {
+    if (!open) return;
+    const { id, device } = open;
+    setBusy(true);
+    try {
+      await action();
+      load();
+      setOpen(await getThread(id, device ?? null));
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Other threads in the same repository, offered for a manual merge.
   const mergeable = useMemo(() => {
-    if (!open || everythingReadOnly || isRemote(open)) return [];
+    if (!open || everythingReadOnly) return [];
     return (threads ?? [])
-      .filter(
-        (t) =>
-          !isRemote(t) && t.id !== open.id && (t.repo_key ?? null) === (open.repo_key ?? null),
-      )
+      .filter((t) => t.id !== open.id && (t.repo_key ?? null) === (open.repo_key ?? null))
       .slice(0, 50);
-  }, [threads, open, isRemote, everythingReadOnly]);
+  }, [threads, open, everythingReadOnly]);
 
-  async function mergeWith(otherId: string) {
-    if (!open || !otherId) return;
-    const anchor = open.sessions[0].conversation_id;
-    await change(anchor, async () => {
-      const other = await getThread(otherId);
-      if (other) await linkSessions(anchor, other.sessions[0].conversation_id);
-    });
+  /** Bring another thread (on any device) into the open one. */
+  async function mergeWith(key: string) {
+    if (!open || !key) return;
+    const other = (threads ?? []).find((t) => `${t.device ?? ""}|${t.id}` === key);
+    if (!other) return;
+    if (!isRemote(other) && !isRemote(open)) {
+      const anchor = open.sessions[0].conversation_id;
+      await change(anchor, async () => {
+        const full = await getThread(other.id);
+        if (full) await linkSessions(anchor, full.sessions[0].conversation_id);
+      });
+    } else {
+      await changeHere(() => joinThread(other.id, other.device, open.id, open.device));
+    }
   }
+
+  const [noteKind, setNoteKind] = useState<NoteKind>("decision");
+  const [noteText, setNoteText] = useState("");
 
   if (!threads || threads.length === 0) return null;
 
-  const readOnly = everythingReadOnly || (!!open && isRemote(open));
+  const readOnly = everythingReadOnly;
+  const notes = open?.notes ?? [];
   const row = (t: ThreadSummary) => (
     <button key={`${t.device ?? ""}:${t.id}`} className="board-row" onClick={() => openThread(t)}>
       <span className="board-row-main">
@@ -307,9 +338,23 @@ export function Board({
         <span className="board-meta">
           <LiveBadge live={t.live} />
           <ToolChips tools={t.tools} />
-          {isRemote(t) && (
-            <span className="device-chip" title={`on ${t.device}`}>
-              💻 {t.device}
+          {(t.devices?.length ?? 0) > 1 ? (
+            <span className="device-chip" title={`on ${t.devices!.join(" and ")}`}>
+              💻 {t.devices!.join(" + ")}
+            </span>
+          ) : (
+            isRemote(t) && (
+              <span className="device-chip" title={`on ${t.device}`}>
+                💻 {t.device}
+              </span>
+            )
+          )}
+          {(t.related?.length ?? 0) > 0 && (
+            <span
+              className="board-badge board-badge-hint"
+              title={`Looks like the same work on ${t.related!.map((r) => r.device).join(", ")}`}
+            >
+              also on {t.related![0].device}?
             </span>
           )}
           {t.session_count > 1 && <span className="board-badge">{t.session_count} sessions</span>}
@@ -426,7 +471,7 @@ export function Board({
                       e.preventDefault();
                       const title = renaming;
                       setRenaming(null);
-                      change(open.sessions[0].conversation_id, () => setThread(open.id, { title }));
+                      changeHere(() => setThread(open.id, { title }, open.device));
                     }}
                   >
                     <input
@@ -444,11 +489,14 @@ export function Board({
                   {open.session_count === 1 ? "" : "s"} · {open.message_count} messages
                   {open.branches.length > 0 && <> · ⎇ {open.branches.join(", ")}</>}
                 </div>
+                {(open.parts?.length ?? 0) > 0 && (
+                  <div className="project">
+                    💻 Spans {[open.device, ...open.parts!.map((p) => p.device)].filter(Boolean).join(", ")}
+                  </div>
+                )}
                 {readOnly && (
                   <div className="project">
-                    {everythingReadOnly
-                      ? "📱 Read-only on your phone. Rename or regroup it on your computer."
-                      : `💻 On ${open.device}. Open Crossthreads there to rename or regroup it.`}
+                    📱 Read-only on your phone. Rename or regroup it on your computer.
                   </div>
                 )}
               </div>
@@ -470,9 +518,7 @@ export function Board({
                     className={`board-tab ${open.status === s ? "on" : ""}`}
                     aria-pressed={open.status === s}
                     disabled={busy || open.status === s}
-                    onClick={() =>
-                      change(open.sessions[0].conversation_id, () => setThread(open.id, { status: s }))
-                    }
+                    onClick={() => changeHere(() => setThread(open.id, { status: s }, open.device))}
                   >
                     {s}
                   </button>
@@ -536,6 +582,9 @@ export function Board({
                         </span>
                         <span className="thread-session-title">{s.title ?? "(untitled)"}</span>
                         <LiveBadge live={s.live} />
+                        {(open.parts?.length ?? 0) > 0 && s.device && (
+                          <span className="device-chip">💻 {s.device}</span>
+                        )}
                       </div>
                       <div className="thread-session-meta">
                         <span>
@@ -545,12 +594,15 @@ export function Board({
                         <span className="thread-session-actions">
                           <button
                             onClick={() =>
-                              onOpenSession(s.conversation_id, readOnly ? open.device : null)
+                              onOpenSession(
+                                s.conversation_id,
+                                s.device && s.device !== localDevice ? s.device : null,
+                              )
                             }
                           >
                             Open
                           </button>
-                          {stays && !readOnly && (
+                          {stays && !readOnly && !(s.device && localDevice && s.device !== localDevice) && (
                             <button
                               disabled={busy}
                               title="Take this session out of the thread"
@@ -567,6 +619,127 @@ export function Board({
                   );
                 })}
               </ol>
+
+              <div className="thread-notes">
+                <h3>Notes</h3>
+                <p className="settings-hint">
+                  Decisions, open todos and context. Your agents read these at the start of a
+                  session (in any tool, on any of your computers) and add their own.
+                </p>
+                {notes.length === 0 && <p className="settings-hint">No notes yet.</p>}
+                <ul className="note-list">
+                  {notes.map((n) => (
+                    <li key={n.id} className={`note note-${n.kind}`}>
+                      {n.kind === "todo" || n.kind === "done" ? (
+                        <input
+                          type="checkbox"
+                          checked={n.kind === "done"}
+                          disabled={busy || readOnly}
+                          aria-label="Done"
+                          onChange={(e) =>
+                            changeHere(() =>
+                              editNote(n.id, { kind: e.target.checked ? "done" : "todo" }),
+                            )
+                          }
+                        />
+                      ) : (
+                        <span className="note-kind">{n.kind === "decision" ? "Decided" : "Note"}</span>
+                      )}
+                      <span className="note-text">{n.text}</span>
+                      <span className="note-meta">
+                        {n.author || "you"}
+                        {n.device ? ` · ${n.device}` : ""}
+                      </span>
+                      {!readOnly && (
+                        <button
+                          className="linklike"
+                          title="Remove this note"
+                          disabled={busy}
+                          onClick={() => changeHere(() => editNote(n.id, { removed: true }))}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {!readOnly && (
+                  <form
+                    className="note-add"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const text = noteText.trim();
+                      if (!text) return;
+                      setNoteText("");
+                      changeHere(() => addNote(open.id, open.device, noteKind, text));
+                    }}
+                  >
+                    <select
+                      value={noteKind}
+                      onChange={(e) => setNoteKind(e.target.value as NoteKind)}
+                      aria-label="Kind of note"
+                    >
+                      <option value="decision">Decision</option>
+                      <option value="todo">Todo</option>
+                      <option value="context">Note</option>
+                    </select>
+                    <input
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      placeholder="e.g. Keep the v1 API until the mobile app ships"
+                      aria-label="Note"
+                    />
+                    <button type="submit" disabled={busy || !noteText.trim()}>
+                      Add
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              {!readOnly && (open.parts?.length ?? 0) > 0 && (
+                <div className="thread-suggestions">
+                  <h3>On other computers</h3>
+                  {open.parts!.map((p) => (
+                    <div key={`${p.device}|${p.id}`} className="thread-suggestion">
+                      <span className="device-chip">💻 {p.device}</span>
+                      <span className="thread-suggestion-title">{p.title}</span>
+                      <span className="thread-session-actions">
+                        <button
+                          disabled={busy}
+                          title="Show it as its own thread again"
+                          onClick={() => changeHere(() => splitThread(p.id, p.device))}
+                        >
+                          Separate
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!readOnly && (open.related?.length ?? 0) > 0 && (
+                <div className="thread-suggestions">
+                  <h3>Same work on another computer?</h3>
+                  <p className="settings-hint">
+                    Same repository and branch, active around the same time. Join them to see
+                    and manage one thread everywhere.
+                  </p>
+                  {open.related!.map((r) => (
+                    <div key={`${r.device}|${r.id}`} className="thread-suggestion">
+                      <span className="device-chip">💻 {r.device}</span>
+                      <span className="thread-suggestion-title">{r.title}</span>
+                      <span className="thread-session-actions">
+                        <button
+                          disabled={busy}
+                          onClick={() => changeHere(() => joinThread(r.id, r.device, open.id, open.device))}
+                        >
+                          Join
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {open.suggestions.length > 0 && !readOnly && (
                 <div className="thread-suggestions">
@@ -619,8 +792,9 @@ export function Board({
                   <select value="" disabled={busy} onChange={(e) => mergeWith(e.target.value)}>
                     <option value="">choose a thread in {open.repo_label ?? "no repository"}…</option>
                     {mergeable.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {ago(t.last_activity)} · {t.tools.map(toolLabel).join(" + ")} · {t.title}
+                      <option key={`${t.device ?? ""}|${t.id}`} value={`${t.device ?? ""}|${t.id}`}>
+                        {ago(t.last_activity)} · {t.tools.map(toolLabel).join(" + ")}
+                        {isRemote(t) ? ` · on ${t.device}` : ""} · {t.title}
                       </option>
                     ))}
                   </select>

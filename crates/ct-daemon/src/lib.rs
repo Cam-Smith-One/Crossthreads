@@ -1046,7 +1046,9 @@ impl Daemon {
             let peers = fed.peers();
             s.devices = peers.len();
             s.devices_can_message = peers.iter().filter(|p| p.rooms).count();
+            s.tailnet = fed.listen_addr.is_some();
         }
+        s.agent_context = self.agent_context_on();
         s.keyless_client_at = *self.keyless_client_at.lock().expect("poisoned");
         s.phone_enabled = self.phone.enabled();
         s.phones = self.phone.phones().len();

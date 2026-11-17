@@ -2,7 +2,7 @@
 // up, and the one command or click that turns on each remaining piece.
 
 import { useEffect, useState } from "react";
-import type { SetupStatus } from "./api";
+import { setAgentContext, type SetupStatus } from "./api";
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -32,7 +32,7 @@ export function useDesktop(): Desktop | null {
   return { ctMcp, run: (step) => invoke("setup_step", { step }) as Promise<string> };
 }
 
-type Go = (page: "settings", tab: string) => void;
+type Go = (page: "settings" | "devices", tab?: string) => void;
 
 interface Step {
   id: string;
@@ -76,10 +76,6 @@ export function setupSteps(
   desktop: Desktop | null = null,
   done: () => void = () => {},
 ): { essentials: Step[]; optional: Step[] } {
-  // In the desktop app, the bundled CLI does the work at the click of a button.
-  const runner = (step: string) =>
-    desktop ? { label: "Set it up for me", run: () => desktop.run(step).then(done) } : undefined;
-  const ctMcp = desktop?.ctMcp ? `"${desktop.ctMcp}"` : '"$(command -v ct-mcp)"';
   const tools = (claude: boolean, codex: boolean): [string, boolean][] => {
     const out: [string, boolean][] = [];
     if (s.claude_present || !s.codex_present) out.push(["Claude Code", claude]);
@@ -90,18 +86,6 @@ export function setupSteps(
   const hooks = tools(s.hooks_claude, s.hooks_codex);
   const mcp = tools(s.mcp_claude, s.mcp_codex);
   const skill = tools(s.skill_claude, s.skill_codex);
-  const mcpCommands = [
-    ...(s.claude_present || !s.codex_present
-      ? [`claude mcp add crossthreads -s user -- ${ctMcp}`]
-      : []),
-    ...(s.codex_present
-      ? [
-          `# Codex: add to ~/.codex/config.toml\n[mcp_servers.crossthreads]\ncommand = ${
-            desktop?.ctMcp ? ctMcp : '"<output of: command -v ct-mcp>"'
-          }`,
-        ]
-      : []),
-  ];
   return {
     essentials: [
       {
@@ -116,31 +100,22 @@ export function setupSteps(
             : "Nothing found yet. Use one of your AI coding tools, then index again.",
       },
       {
-        id: "hooks",
-        title: "See what's running",
-        why: "Your tools report each session's state, so the board shows what's running and pins what's waiting for you. It also wakes an agent mid-conversation in a room and stops agents editing a file another has claimed.",
-        done: anyOf(hooks),
-        perTool: hooks,
-        commands: desktop ? undefined : ["crossthreads hooks install"],
-        action: runner("hooks"),
+        id: "connect",
+        title: "Connect your AI tools",
+        why: "Your agents get Crossthreads: they see what's running, read a thread's decisions and todos before they start, leave notes for the next agent, search your past work, and talk to each other in rooms.",
+        done: anyOf(hooks) && anyOf(mcp) && anyOf(skill),
+        perTool: tools(
+          s.hooks_claude && s.mcp_claude && s.skill_claude,
+          s.hooks_codex && s.mcp_codex && s.skill_codex,
+        ),
+        commands: desktop ? undefined : ["crossthreads connect"],
+        action: desktop
+          ? {
+              label: anyOf(hooks) || anyOf(mcp) ? "Connect again" : "Connect Claude Code and Codex",
+              run: () => desktop.run("connect").then(done),
+            }
+          : undefined,
         note: "Restart Claude Code and Codex afterwards. Codex asks you to trust the new hooks once.",
-      },
-      {
-        id: "mcp",
-        title: "Give your agents Crossthreads",
-        why: "Your agents can search your past work, read a thread before continuing it, and talk to each other in rooms.",
-        done: anyOf(mcp),
-        perTool: mcp,
-        commands: mcpCommands,
-      },
-      {
-        id: "skill",
-        title: "Teach them when to use it",
-        why: "A short skill for Claude Code and a /crossthreads prompt for Codex: look for prior work before building, and how to lead or listen in a room.",
-        done: anyOf(skill),
-        perTool: skill,
-        commands: desktop ? undefined : ["crossthreads skill install"],
-        action: runner("skill"),
       },
     ],
     optional: [
@@ -158,28 +133,17 @@ export function setupSteps(
       {
         id: "devices",
         title: "Add your other computers",
-        why: "One search and one board across all your machines, over your own Tailscale network.",
+        why: "One search and one set of threads across all your computers, and agents that can message each other. Type a short code on the new computer; it talks to the others over your own Tailscale network.",
         done: s.devices > 0,
-        action: { label: "Open Devices", run: () => go("settings", "devices") },
+        action: { label: "Add a device", run: () => go("devices") },
         note: s.devices > 0 ? `${s.devices} other device(s) connected.` : undefined,
       },
-      ...(s.devices > 0
-        ? [
-            {
-              id: "rooms",
-              title: "Let agents talk across computers",
-              why: "Tick Can message for a device, on both machines, and their agents share your repositories' rooms.",
-              done: s.devices_can_message > 0,
-              action: { label: "Open Devices", run: () => go("settings", "devices") },
-            },
-          ]
-        : []),
       {
         id: "phone",
         title: "Open your board on your phone",
         why: "Check what's running and what needs you from anywhere on your Tailscale network. Read-only unless you allow more.",
         done: s.phones > 0,
-        action: { label: "Open Phone", run: () => go("settings", "phone") },
+        action: { label: "Add a phone", run: () => go("devices") },
       },
       {
         id: "model",
@@ -228,7 +192,7 @@ function StepCard({ step, n }: { step: Step; n: number }) {
         </div>
         <p className="setup-why">{step.why}</p>
         {!step.done && step.commands?.map((c) => <CopyCommand key={c} cmd={c} />)}
-        {step.action && (!step.done || step.id === "index" || step.id === "cli") && (
+        {step.action && (!step.done || ["index", "cli", "connect"].includes(step.id)) && (
           <button className="secondary" onClick={act} disabled={busy}>
             {busy ? "Working…" : step.action.label}
           </button>
@@ -261,7 +225,8 @@ function StaleClientWarning({ setup, ctMcp }: { setup: SetupStatus; ctMcp: strin
         At {when}, something connected without this computer's key and was refused. It is almost
         always Codex or Claude Code still running an older <code>ct-mcp</code>, so its Crossthreads
         tools (search, threads, rooms) fail. Quit and reopen Codex and Claude Code. If it happens
-        again, point them at this version:
+        again, use <strong>Connect again</strong> below (or run <code>crossthreads connect</code>),
+        which points them at this version, or do it by hand:
       </p>
       <CopyCommand
         cmd={`claude mcp remove crossthreads -s user; claude mcp add crossthreads -s user -- ${
@@ -323,6 +288,26 @@ export function SetupChecklist({
         </ol>
       </section>
       <section className="settings-section">
+        <h3>Agents</h3>
+        <label className="phone-toggle">
+          <input
+            type="checkbox"
+            checked={setup.agent_context ?? true}
+            onChange={(e) =>
+              setAgentContext(e.target.checked)
+                .then(() => onChanged?.())
+                .catch(() => {})
+            }
+          />
+          Brief agents when a session starts
+        </label>
+        <p className="settings-hint">
+          When Claude Code starts in a folder whose thread has notes, or work in another tool or on
+          another computer, it gets a short summary: decisions, open todos, and who else is working
+          on it. Agents can always ask for it with <code>crossthreads_thread_context</code>.
+        </p>
+      </section>
+      <section className="settings-section">
         <h3>When you want more</h3>
         <ol className="setup-steps">
           {optional.map((s, i) => (
@@ -371,7 +356,7 @@ export function SetupNudge({
         <strong>
           Finish setting up · {essentials.length - left.length} of {essentials.length} done
         </strong>
-        <span className="nudge-next">Next: {next.title.toLowerCase()}.</span>
+        <span className="nudge-next">Next: {next.title.charAt(0).toLowerCase() + next.title.slice(1)}.</span>
       </div>
       <span className="nudge-actions">
         <button onClick={onOpen}>Show me how</button>

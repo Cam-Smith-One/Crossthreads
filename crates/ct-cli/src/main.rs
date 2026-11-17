@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 
 mod activity;
 mod ask;
+mod connect;
 mod context;
 mod devices;
 mod fluency;
@@ -66,6 +67,8 @@ COMMANDS:
                       just print the one-time link)
     phone [CMD]       Open your board on your phone over Tailscale: on | off |
                       pair (QR code) | post <ID> on|off | revoke <ID>
+    connect           Connect Claude Code and Codex in one step: hooks, skill
+                      and MCP server (safe to re-run; fixes stale entries)
     hooks <CMD>       install | uninstall | status the hooks that report live
                       session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
@@ -148,6 +151,7 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("brief") => devices::context(&args[1..]),
         Some("open") => open::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
+        Some("connect") => connect::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.
         Some("hook") => Ok(hooks::run_hook(&args[1..])),
         Some("status") => status::run(&args[1..]),

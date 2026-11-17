@@ -229,6 +229,7 @@ async fn setup_step(step: String) -> Result<String, String> {
         let args: &[&str] = match step.as_str() {
             "hooks" => &["hooks", "install"],
             "skill" => &["skill", "install"],
+            "connect" => &["connect"],
             "cli" => return link_cli(),
             other => return Err(format!("unknown setup step `{other}`")),
         };
