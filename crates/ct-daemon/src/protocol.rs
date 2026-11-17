@@ -491,6 +491,44 @@ pub enum Request {
     },
     /// Turn session-start context for agents on or off.
     SetAgentContext { on: bool },
+    /// Start a thread from the app: a name, an optional goal, and the folder
+    /// (on this computer) the work happens in.
+    ThreadCreate {
+        title: String,
+        #[serde(default)]
+        goal: Option<String>,
+        cwd: String,
+    },
+    /// Open a terminal on this computer running `tool` (`claude-code` or
+    /// `codex`) to continue a thread: resuming its latest session when that
+    /// was here in the same tool (unless `fresh`), else a new session briefed
+    /// with the thread's handoff.
+    ThreadContinue {
+        id: String,
+        #[serde(default)]
+        device: Option<String>,
+        tool: String,
+        #[serde(default)]
+        fresh: bool,
+    },
+    /// Send a thread to another of your devices to continue there (`to` =
+    /// null clears it). It shows at the top of that device's Home.
+    ThreadMove {
+        id: String,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        to: Option<String>,
+        #[serde(default)]
+        tool: Option<String>,
+    },
+    /// Folders on this computer recent sessions ran in, newest first, for
+    /// starting a thread.
+    RecentFolders,
+    /// Turn background thread summaries (by the user's model) on or off.
+    SetAutoStanding { on: bool },
+    /// Have the user's model write where a thread on this device stands now.
+    ThreadSummarize { id: String },
     /// Show a short code for adding another computer (SPEC §6.8).
     DevicePairStart,
     /// Stop showing the code.
@@ -609,6 +647,9 @@ fn default_max_chars() -> usize {
 /// A response from the daemon to a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// A response is built once and serialized straight away; boxing variants to
+// even out their sizes would buy nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Response {
     /// The daemon's version (see `Request::Version`).
     Version {
@@ -851,6 +892,13 @@ pub enum Response {
         name: String,
         token: String,
         has_peers: bool,
+    },
+    Folders {
+        folders: Vec<String>,
+    },
+    /// Where a thread stands.
+    Standing {
+        standing: ct_store::Standing,
     },
     /// Shared thread state, for a peer.
     Shared {

@@ -18,6 +18,7 @@ pub mod behavior;
 pub mod rooms;
 mod schema;
 pub mod shared;
+pub mod standing;
 pub mod themes;
 pub mod threads;
 
@@ -25,6 +26,7 @@ pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
 pub use rooms::{Claim, RoomMessage, RoomSummary};
 pub use schema::SCHEMA_VERSION;
 pub use shared::{SharedPart, SharedState, SharedThread, ThreadNote};
+pub use standing::Standing;
 pub use themes::{Theme, ThemeSample};
 pub use threads::{
     DetectReport, Live, PartRef, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink,
@@ -361,6 +363,19 @@ impl Store {
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
         // v8 -> v9: machine-independent repository identity for threads.
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN repo_key TEXT", []);
+        // v13: a thread sent to another device.
+        for col in [
+            "moved_to TEXT",
+            "moved_tool TEXT",
+            "moved_at INTEGER NOT NULL DEFAULT 0",
+            "moved_by TEXT NOT NULL DEFAULT ''",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE shared_threads ADD COLUMN {col}"), []);
+        }
+        // v12: threads started from the app, before any session.
+        let _ = conn.execute("ALTER TABLE threads ADD COLUMN project TEXT", []);
+        let _ = conn.execute("ALTER TABLE threads ADD COLUMN repo_key TEXT", []);
+        let _ = conn.execute("ALTER TABLE threads ADD COLUMN goal TEXT", []);
         // v10 -> v11: room messages relayed from other devices.
         let _ = conn.execute("ALTER TABLE room_messages ADD COLUMN device TEXT", []);
         let _ = conn.execute(

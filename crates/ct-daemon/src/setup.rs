@@ -38,6 +38,9 @@ pub struct SetupStatus {
     /// Agents get the thread's context when a session starts.
     #[serde(default)]
     pub agent_context: bool,
+    /// The user's model writes where threads stand.
+    #[serde(default)]
+    pub auto_standing: bool,
     /// This computer is reachable on Tailscale, so other devices can pair.
     #[serde(default)]
     pub tailnet: bool,

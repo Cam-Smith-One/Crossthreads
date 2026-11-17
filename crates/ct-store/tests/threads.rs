@@ -75,6 +75,12 @@ fn build(tool: Tool, file: &str, project: &str, messages: Vec<Message>) -> Conve
     }
 }
 
+/// The same session, on a git branch.
+fn on(branch: &str, mut c: Conversation) -> Conversation {
+    c.git_context.branch = Some(branch.into());
+    c
+}
+
 fn add(store: &mut Store, c: &Conversation, repo: &str) {
     assert_eq!(store.upsert_conversation(c).unwrap(), Upsert::Inserted);
     store
@@ -211,8 +217,15 @@ fn detects_a_transfer_and_links_it_as_continued() {
 #[test]
 fn a_nearby_session_in_another_tool_is_only_suggested() {
     let mut store = Store::open_in_memory().unwrap();
-    let claude = session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 4);
-    let codex = session(Tool::Codex, "/s/b.jsonl", "/work/api", "caching", 20, 4);
+    // Different branches, so they aren't one piece of work on their own.
+    let claude = on(
+        "feat/oauth",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 4),
+    );
+    let codex = on(
+        "feat/cache",
+        session(Tool::Codex, "/s/b.jsonl", "/work/api", "caching", 20, 4),
+    );
     add(&mut store, &claude, REPO);
     add(&mut store, &codex, REPO);
 
@@ -270,8 +283,14 @@ fn sessions_in_different_repositories_never_link() {
 #[test]
 fn a_rejected_suggestion_is_never_proposed_again() {
     let mut store = Store::open_in_memory().unwrap();
-    let claude = session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 4);
-    let codex = session(Tool::Codex, "/s/b.jsonl", "/work/api", "caching", 20, 4);
+    let claude = on(
+        "feat/oauth",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 4),
+    );
+    let codex = on(
+        "feat/cache",
+        session(Tool::Codex, "/s/b.jsonl", "/work/api", "caching", 20, 4),
+    );
     add(&mut store, &claude, REPO);
     add(&mut store, &codex, REPO);
     assert_eq!(store.detect_links().unwrap().suggested, 1);
@@ -287,7 +306,10 @@ fn a_rejected_suggestion_is_never_proposed_again() {
     // The Codex session grows and is seen again as new by a fresh scan.
     let conn_reset = store.unlink_session(&codex.id).unwrap();
     assert!(!conn_reset, "nothing to unlink: it was never applied");
-    let later = session(Tool::Codex, "/s/d.jsonl", "/work/api", "metrics", 22, 4);
+    let later = on(
+        "feat/metrics",
+        session(Tool::Codex, "/s/d.jsonl", "/work/api", "metrics", 22, 4),
+    );
     add(&mut store, &later, REPO);
     let report = store.detect_links().unwrap();
     // The new session gets its own suggestion; the rejected pair does not return.
@@ -416,17 +438,15 @@ fn manual_link_rename_status_and_unlink() {
         .unwrap()
         .is_empty());
 
-    // The founding session leaves. The thread keeps its title and members under
-    // a new id, and the leaver is a plain thread of one again.
+    // The founding session leaves. The thread keeps its id, title and the
+    // other members, and the leaver is a thread of one.
     assert!(store.unlink_session(&a.id).unwrap());
     let left = store.thread(&a.id).unwrap().unwrap();
-    assert_eq!(
-        (left.summary.id.as_str(), left.sessions.len()),
-        (solo.as_str(), 1)
-    );
+    assert_ne!(left.summary.id, solo);
+    assert_eq!(left.sessions.len(), 1);
     assert_eq!(left.summary.status, "active");
     let rest = store.thread(&b.id).unwrap().unwrap();
-    assert_ne!(rest.summary.id, solo);
+    assert_eq!(rest.summary.id, solo);
     assert_eq!(rest.summary.title, "OAuth refresh");
     assert_eq!(rest.sessions.len(), 2);
 
@@ -545,4 +565,140 @@ fn a_handoff_carries_the_goal_and_where_the_work_stands() {
         "{md}"
     );
     assert!(store.thread_handoff("th_missing", 2000).unwrap().is_none());
+}
+
+// ---- threads that group themselves (work key) ----------------------------
+
+#[test]
+fn sessions_on_one_branch_are_one_thread_in_any_tool() {
+    let mut store = Store::open_in_memory().unwrap();
+    // Days apart, different tools, same repository and branch: one thread.
+    let a = on(
+        "feat/oauth",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 2),
+    );
+    let b = on(
+        "feat/oauth",
+        session(Tool::Codex, "/s/b.jsonl", "/work/api", "review", 3000, 2),
+    );
+    let c = on(
+        "feat/billing",
+        session(Tool::Codex, "/s/c.jsonl", "/work/api", "billing", 10, 2),
+    );
+    for s in [&a, &b, &c] {
+        add(&mut store, s, REPO);
+    }
+    let threads = all(&store);
+    assert_eq!(threads.len(), 2);
+    let oauth = store.thread(&a.id).unwrap().unwrap();
+    assert_eq!(oauth.sessions.len(), 2);
+    assert_eq!(oauth.summary.tools, vec!["claude-code", "codex"]);
+    assert_eq!(
+        store.thread(&b.id).unwrap().unwrap().summary.id,
+        oauth.summary.id
+    );
+
+    // The id comes from the repository and branch alone, so another computer
+    // with its own sessions on that branch arrives at the same id.
+    let mut other = Store::open_in_memory().unwrap();
+    let d = on(
+        "feat/oauth",
+        session(Tool::Cursor, "/x/d.jsonl", "/home/me/api", "tests", 50, 2),
+    );
+    add(&mut other, &d, REPO);
+    assert_eq!(
+        other.thread(&d.id).unwrap().unwrap().summary.id,
+        oauth.summary.id
+    );
+}
+
+#[test]
+fn on_main_a_long_break_starts_a_new_thread() {
+    let mut store = Store::open_in_memory().unwrap();
+    let a = on(
+        "main",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 2),
+    );
+    let b = on(
+        "main",
+        session(Tool::Codex, "/s/b.jsonl", "/work/api", "review", 60, 2),
+    );
+    let c = on(
+        "main",
+        session(Tool::Codex, "/s/c.jsonl", "/work/api", "later", 60 * 8, 2),
+    );
+    for s in [&a, &b, &c] {
+        add(&mut store, s, REPO);
+    }
+    let first = store.thread(&a.id).unwrap().unwrap();
+    assert_eq!(
+        first.sessions.len(),
+        2,
+        "an hour apart: same stretch of work"
+    );
+    assert_ne!(
+        store.thread(&c.id).unwrap().unwrap().summary.id,
+        first.summary.id
+    );
+    assert_eq!(all(&store).len(), 2);
+}
+
+#[test]
+fn taking_a_session_out_of_its_work_thread_sticks() {
+    let mut store = Store::open_in_memory().unwrap();
+    let a = on(
+        "feat/x",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "x", 0, 2),
+    );
+    let b = on(
+        "feat/x",
+        session(Tool::Codex, "/s/b.jsonl", "/work/api", "y", 30, 2),
+    );
+    add(&mut store, &a, REPO);
+    add(&mut store, &b, REPO);
+    let id = store.thread(&a.id).unwrap().unwrap().summary.id;
+    // Renaming a thread that formed by itself works.
+    assert_eq!(
+        store.set_thread(&id, Some("X"), None).unwrap(),
+        Some(id.clone())
+    );
+    assert!(store.unlink_session(&b.id).unwrap());
+    assert_eq!(all(&store).len(), 2);
+    assert_eq!(store.thread(&a.id).unwrap().unwrap().summary.title, "X");
+    // A later session on the branch still joins the work's thread.
+    let c = on(
+        "feat/x",
+        session(Tool::Cursor, "/s/c.jsonl", "/work/api", "z", 90, 2),
+    );
+    add(&mut store, &c, REPO);
+    assert_eq!(store.thread(&c.id).unwrap().unwrap().summary.id, id);
+    assert!(!store.unlink_session(&a.id).unwrap() || all(&store).len() == 3);
+}
+
+#[test]
+fn where_a_thread_stands_comes_from_its_latest_session() {
+    let mut store = Store::open_in_memory().unwrap();
+    let a = on(
+        "feat/x",
+        session(Tool::ClaudeCode, "/s/a.jsonl", "/work/api", "oauth", 0, 3),
+    );
+    add(&mut store, &a, REPO);
+    let st = store.plain_standing(&a.id).unwrap().unwrap();
+    assert!(
+        st.summary.starts_with("For step 2 of oauth"),
+        "{}",
+        st.summary
+    );
+    assert!(st.last_ask.unwrap().starts_with("Step 2 of the oauth work"));
+    assert!(!st.by_model);
+
+    let id = store.thread(&a.id).unwrap().unwrap().summary.id;
+    assert!(store.saved_standing(&id).unwrap().is_none());
+    let mine = ct_store::Standing {
+        summary: "Retry done".into(),
+        by_model: true,
+        ..Default::default()
+    };
+    store.save_standing(&id, &mine).unwrap();
+    assert_eq!(store.saved_standing(&id).unwrap(), Some(mine));
 }

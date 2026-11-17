@@ -110,18 +110,18 @@ CT_ONNX=1 scripts/demo.sh
 
 The app has four places: **Home** (your threads, with Rooms and the weekly review a click away), **Search** (find, ask, and how you work), **Devices** (your computers and phones) and **Settings** (connect your tools, models, index, help). Each has its own address, so Back works and you can bookmark it.
 
-### 🧵 Threads and the board
+### 🧵 Threads: your work, managed
 
-The home screen is your work as **threads**. A thread is one piece of work: every session that touched it, across tools, in time order. A Claude Code session you continued in Codex is one thread, not two.
+Home is your work as **threads**. A thread is one piece of work: every session that touched it, in any tool, on any of your computers. They form on their own, and each says where it stands.
 
-- **Grouped by repository**, using a key that's the same on every machine and in every worktree, so `acme/api` on your laptop and on your desktop is one group.
-- **Linked automatically** when a session continues another: a transcript transfer, a resume, or copied context. A session started in another tool around the same time is only **suggested**; you accept or dismiss it, and a dismissal is remembered.
-- **Status** (active, parked, done), rename, merge and split. Your edits survive a full re-index.
-- **Live state.** With `crossthreads hooks install`, Claude Code and Codex report what each session is doing. The board marks what's **running** and pins what **needs you** at the top. Without hooks, a session written to in the last 45 seconds shows as running (marked "inferred").
-- **Across computers.** With your devices added, the board lists every computer's threads. Work that moved between computers is **one thread**: a session started from a handoff joins the thread it came from automatically, and you can join or separate threads by hand. Its name, status and notes are the same everywhere, and you can change them from any computer. Offline devices are named rather than silently dropped.
-- **Notes.** Keep decisions, todos and context on a thread. Your agents read them and add their own.
+- **They group themselves.** Everything on a feature branch is one thread, in any tool and on every computer (the id comes from the repository and branch, so every machine agrees). On main, sessions belong together while you keep working; a break of a few hours starts a new thread. A session that continues another (a resume, a transfer, a handoff) joins it. Link, remove, merge and rename by hand whenever you like; your edits win and survive re-indexing.
+- **Where it stands, at a glance.** Each thread shows what's done, what's next and what's in the way: from its latest session, or summarised by your model once a session goes quiet.
+- **Start and continue from here.** **New thread** (a name, a goal, a folder) and **Continue in Claude Code / Codex** open a terminal on this computer in the right folder, resuming the latest session or starting one briefed with the thread's handoff. That session joins the thread.
+- **Move it.** Send a thread to another computer and tool from the Continue menu; it waits at the top of that computer's Home.
+- **Live state.** With the hooks connected, the board marks what's **running** and pins what **needs you** at the top. Without them, a session written to in the last 45 seconds shows as running (marked "inferred").
+- **Notes** keep decisions, todos and context on a thread. Your agents read them and add their own, and they travel with the thread to your other computers.
 
-Offline and deterministic: no model is involved. Available in the web app, `crossthreads threads`, and MCP.
+Available in the app, `crossthreads threads`, and MCP.
 
 ### 🔁 Pick it up anywhere
 

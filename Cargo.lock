@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "ct-cli"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "ct-connectors"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "ct-core"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "ct-daemon"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "ct-embed"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "ct-index"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "ct-connectors",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "ct-llm"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "ct-mcp"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "ct-core",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "ct-relay"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "ct-tunnel",
  "getrandom 0.3.4",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "ct-store"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -679,12 +679,13 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
 [[package]]
 name = "ct-tunnel"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.3.4",

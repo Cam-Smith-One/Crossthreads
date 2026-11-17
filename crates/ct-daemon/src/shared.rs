@@ -248,11 +248,8 @@ impl Daemon {
             bail!("that's already the same thread");
         }
         if part_dev == into_dev && part_dev == me {
-            // Both here: an ordinary local link does it.
-            let a = self.first_session(part)?;
-            let b = self.first_session(&into)?;
-            let store = self.write_lock();
-            let id = store.link_sessions(&a, &b, "manual", "manual")?;
+            // Both here: move the sessions across.
+            let id = self.write_lock().merge_threads(part, &into)?;
             return Ok(Response::ThreadId { id });
         }
         {
@@ -295,13 +292,6 @@ impl Daemon {
         };
         self.sync_soon();
         Ok(Response::Ok { ok: changed })
-    }
-
-    /// The conversation id of a local thread's first session.
-    fn first_session(&self, thread: &str) -> Result<String> {
-        let t = self.read_lock().thread(thread)?;
-        t.and_then(|t| t.sessions.first().map(|s| s.conversation_id.clone()))
-            .ok_or_else(|| anyhow::anyhow!("no thread or session with id {thread} on this device"))
     }
 
     /// The thread an agent means: the one named, else the one for `cwd`.
@@ -560,7 +550,21 @@ impl Daemon {
         };
         for (conv, thread, device) in found {
             if device == me {
-                continue; // a handoff within this device is linked by detection
+                // A session started here from this thread's brief (Continue
+                // in…, or a pasted handoff) belongs to it.
+                let attached = {
+                    let store = self.write_lock();
+                    match store.thread(&thread) {
+                        Ok(Some(t)) if !t.sessions.iter().any(|s| s.conversation_id == conv) => {
+                            store.attach_session(&conv, &t.summary.id)
+                        }
+                        _ => Ok(false),
+                    }
+                };
+                if let Err(e) = attached {
+                    eprintln!("warn: attaching a session to {thread}: {e:#}");
+                }
+                continue;
             }
             let part = match self.read_lock().thread(&conv) {
                 Ok(Some(t)) => t.summary.id,
@@ -599,6 +603,9 @@ fn merge_group(
     let mut devices: BTreeSet<String> = BTreeSet::new();
     devices.insert(out.device.clone().unwrap_or_else(|| me.to_string()));
     for r in rows {
+        if r.last_activity > out.last_activity && r.standing.is_some() {
+            out.standing = r.standing.clone();
+        }
         devices.insert(r.device.clone().unwrap_or_else(|| me.to_string()));
         for tool in r.tools {
             if !out.tools.contains(&tool) {
@@ -641,6 +648,8 @@ fn merge_group(
                 out.status = s.clone();
             }
         }
+        out.moved_to = sh.moved_to.clone();
+        out.moved_tool = sh.moved_tool.clone();
     }
     out.id = id.clone();
     if out.device.is_some() || dev != me {
@@ -875,6 +884,9 @@ mod tests {
             device: Some(device.into()),
             devices: vec![],
             related: vec![],
+            standing: None,
+            moved_to: None,
+            moved_tool: None,
         }
     }
 

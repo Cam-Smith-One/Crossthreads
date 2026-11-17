@@ -152,6 +152,8 @@ export interface SetupStatus {
   devices_can_message: number;
   /** Agents get the thread's context when a session starts. */
   agent_context?: boolean;
+  /** Your model writes where threads stand. */
+  auto_standing?: boolean;
   phone_enabled: boolean;
   phones: number;
   claude_present: boolean;
@@ -760,6 +762,21 @@ export interface ThreadSummary {
   devices?: string[];
   /** Threads on other devices that look like the same work. */
   related?: PartRef[];
+  /** Where the work stands. */
+  standing?: Standing | null;
+  /** Sent to a device to continue there, and in which tool. */
+  moved_to?: string | null;
+  moved_tool?: string | null;
+}
+
+/** Where a thread stands: read from its latest session, or by your model. */
+export interface Standing {
+  summary: string;
+  next?: string | null;
+  blocked?: string | null;
+  last_ask?: string | null;
+  by_model?: boolean;
+  upto?: string | null;
 }
 
 export interface ThreadLink {
@@ -891,6 +908,61 @@ export async function editNote(id: string, change: { kind?: NoteKind; removed?: 
   const data = await rpc<{ note: ThreadNote }>({ op: "thread_note_edit", id, ...change });
   return data.note;
 }
+
+// --- Starting, continuing and moving work ------------------------------------
+
+export type ToolId = "claude-code" | "codex";
+
+/** Start a thread: a name, an optional goal, and its folder on this computer. */
+export async function createThread(title: string, cwd: string, goal?: string): Promise<string | null> {
+  const data = await rpc<{ id: string | null }>({ op: "thread_create", title, cwd, ...(goal ? { goal } : {}) });
+  return data.id;
+}
+
+/** Open a terminal here running `tool`, continuing the thread. */
+export async function continueThread(
+  id: string,
+  device: string | null | undefined,
+  tool: ToolId,
+  fresh = false,
+): Promise<string> {
+  const data = await rpc<{ text: string }>({
+    op: "thread_continue",
+    id,
+    tool,
+    fresh,
+    ...(device ? { device } : {}),
+  });
+  return data.text;
+}
+
+/** Send a thread to another device to continue there (null `to` clears it). */
+export const moveThread = (
+  id: string,
+  device: string | null | undefined,
+  to: string | null,
+  tool?: ToolId,
+) =>
+  rpc<{ id: string | null }>({
+    op: "thread_move",
+    id,
+    to,
+    ...(tool ? { tool } : {}),
+    ...(device ? { device } : {}),
+  });
+
+/** Have your model write where a thread stands now (this device's threads). */
+export async function summarizeThread(id: string): Promise<Standing> {
+  const data = await rpc<{ standing: Standing }>({ op: "thread_summarize", id });
+  return data.standing;
+}
+
+export async function recentFolders(): Promise<string[]> {
+  const data = await rpc<{ folders: string[] }>({ op: "recent_folders" });
+  return data.folders ?? [];
+}
+
+export const setAutoStanding = (on: boolean) => rpc<{ ok: boolean }>({ op: "set_auto_standing", on });
 
 export const setAgentContext = (on: boolean) => rpc<{ ok: boolean }>({ op: "set_agent_context", on });
 

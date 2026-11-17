@@ -473,6 +473,20 @@ shared with the user's other devices; one piece of work can span devices
   `{"type":"shared","state":{threads,parts,notes,upto}}`. Each field is
   last-writer-wins by (time, device).
 
+### 7.5b Managing work from a client
+
+Local clients only (not phones, not peers):
+
+- `{"op":"thread_create","title","goal"?,"cwd"}` → `thread_id`.
+- `{"op":"thread_continue","id","device"?,"tool":"claude-code"|"codex","fresh"?}`
+  → `{"type":"text","text"}`: opens a terminal here (see SPEC §6.9).
+- `{"op":"thread_move","id","device"?,"to"|null,"tool"?}` → `thread_id`.
+- `{"op":"thread_summarize","id"}` → `{"type":"standing","standing":{summary,next,blocked,last_ask,by_model,upto}}`.
+- `{"op":"recent_folders"}` → `{"type":"folders","folders":[…]}`.
+- `{"op":"set_auto_standing","on"}`.
+
+`ThreadSummary` now carries `standing`, `moved_to` and `moved_tool`.
+
 ### 7.6 Rooms
 
 Agents and the human exchange messages in a **room** ([SPEC.md](SPEC.md) §6.4).
