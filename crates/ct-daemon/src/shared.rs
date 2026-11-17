@@ -248,11 +248,8 @@ impl Daemon {
             bail!("that's already the same thread");
         }
         if part_dev == into_dev && part_dev == me {
-            // Both here: an ordinary local link does it.
-            let a = self.first_session(part)?;
-            let b = self.first_session(&into)?;
-            let store = self.write_lock();
-            let id = store.link_sessions(&a, &b, "manual", "manual")?;
+            // Both here: move the sessions across.
+            let id = self.write_lock().merge_threads(part, &into)?;
             return Ok(Response::ThreadId { id });
         }
         {
@@ -295,13 +292,6 @@ impl Daemon {
         };
         self.sync_soon();
         Ok(Response::Ok { ok: changed })
-    }
-
-    /// The conversation id of a local thread's first session.
-    fn first_session(&self, thread: &str) -> Result<String> {
-        let t = self.read_lock().thread(thread)?;
-        t.and_then(|t| t.sessions.first().map(|s| s.conversation_id.clone()))
-            .ok_or_else(|| anyhow::anyhow!("no thread or session with id {thread} on this device"))
     }
 
     /// The thread an agent means: the one named, else the one for `cwd`.

@@ -198,6 +198,84 @@ pub struct DetectReport {
     pub suggested: usize,
 }
 
+/// Branches that say nothing about which piece of work a session is.
+pub const GENERIC_BRANCHES: &[&str] = &["main", "master", "trunk", "develop", "dev", "HEAD"];
+/// On a generic branch (or none), sessions in one repository belong to the
+/// same thread while you keep working: a gap longer than this starts a new one.
+const WORK_GAP_HOURS: i64 = 3;
+
+/// The thread a set of sessions forms on its own (SPEC §6.1, "work key"):
+/// - on a feature branch, every session in that repository and branch, in any
+///   tool, is one thread, and its id is derived from the repository and
+///   branch alone, so every device arrives at the same id;
+/// - otherwise, sessions in the same repository (or folder) chain into one
+///   thread while each starts within [`WORK_GAP_HOURS`] of the last one ending.
+///
+/// Sessions with neither a repository nor a folder stay on their own.
+fn auto_ids(sessions: &[&SessionRef]) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut chains: BTreeMap<(String, String), Vec<&SessionRef>> = BTreeMap::new();
+    for s in sessions {
+        let Some(place) = s
+            .repo_key
+            .clone()
+            .or_else(|| s.project.clone().filter(|p| !p.is_empty()))
+        else {
+            continue;
+        };
+        let branch = s.branch.clone().unwrap_or_default();
+        if !branch.is_empty() && !GENERIC_BRANCHES.contains(&branch.as_str()) {
+            out.insert(s.session_key.clone(), work_id(&[&place, &branch]));
+        } else {
+            chains.entry((place, branch)).or_default().push(s);
+        }
+    }
+    let gap = Duration::hours(WORK_GAP_HOURS);
+    for ((place, branch), mut list) in chains {
+        list.sort_by(|a, b| {
+            (a.started_at.is_none(), &a.started_at, &a.session_key).cmp(&(
+                b.started_at.is_none(),
+                &b.started_at,
+                &b.session_key,
+            ))
+        });
+        let mut current: Option<(String, Option<DateTime<Utc>>)> = None;
+        for s in list {
+            let start = parse_ts(&s.started_at);
+            let end = parse_ts(&s.last_activity).or(start);
+            let joins = match (&current, start) {
+                (Some((_, Some(last))), Some(start)) => start - *last <= gap,
+                _ => false,
+            };
+            if !joins {
+                current = Some((work_id(&[&place, &branch, &s.session_key]), end));
+            }
+            let entry = current.as_mut().expect("set above");
+            if end > entry.1 {
+                entry.1 = end;
+            }
+            out.insert(s.session_key.clone(), entry.0.clone());
+        }
+    }
+    out
+}
+
+/// A thread id from the parts that identify a piece of work.
+fn work_id(parts: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"crossthreads-work-v1");
+    for p in parts {
+        h.update([0u8]);
+        h.update(p.as_bytes());
+    }
+    let d = h.finalize();
+    format!(
+        "th_w{}",
+        d.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>()
+    )
+}
+
 /// The id of the thread a session forms on its own.
 fn implicit_id(session_key: &str) -> String {
     format!(
@@ -311,8 +389,16 @@ impl Store {
     fn grouped(&self) -> Result<Grouped> {
         let mut members: BTreeMap<String, Vec<SessionRef>> = BTreeMap::new();
         let mut thread_of = HashMap::new();
-        for (session, thread_id) in self.session_rows()? {
-            let id = thread_id.unwrap_or_else(|| implicit_id(&session.session_key));
+        let rows = self.session_rows()?;
+        let auto = {
+            let unplaced: Vec<&SessionRef> =
+                rows.iter().filter(|(_, t)| t.is_none()).map(|(s, _)| s).collect();
+            auto_ids(&unplaced)
+        };
+        for (session, thread_id) in rows {
+            let id = thread_id
+                .or_else(|| auto.get(&session.session_key).cloned())
+                .unwrap_or_else(|| implicit_id(&session.session_key));
             thread_of.insert(session.session_key.clone(), id.clone());
             members.entry(id).or_default().push(session);
         }
@@ -592,7 +678,13 @@ impl Store {
         if let Some(id) = self.explicit_thread(session_key)? {
             return Ok(id);
         }
-        let id = implicit_id(session_key);
+        // The thread it is in now, automatically grouped or on its own.
+        let id = self
+            .grouped()?
+            .thread_of
+            .get(session_key)
+            .cloned()
+            .unwrap_or_else(|| implicit_id(session_key));
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "INSERT OR IGNORE INTO threads (id, status, created_at, updated_at)
@@ -751,6 +843,48 @@ impl Store {
         self.put_link(&ka, &kb, kind, origin, 1.0, true)
     }
 
+    /// Move every session of thread `part` into thread `into` (both on this
+    /// device). The kept thread keeps its id; a custom title moves across when
+    /// it has none. Returns the thread id, or `None` if either is unknown.
+    pub fn merge_threads(&self, part: &str, into: &str) -> Result<Option<String>> {
+        let g = self.grouped()?;
+        let resolve = |id: &str| -> Result<Option<String>> {
+            if g.members.contains_key(id) {
+                return Ok(Some(id.to_string()));
+            }
+            Ok(self
+                .session_key_of(id)?
+                .and_then(|k| g.thread_of.get(&k).cloned()))
+        };
+        let (Some(part), Some(into)) = (resolve(part)?, resolve(into)?) else {
+            return Ok(None);
+        };
+        if part == into {
+            return Ok(Some(into));
+        }
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT OR IGNORE INTO threads (id, status, created_at, updated_at)
+             VALUES (?1, 'active', ?2, ?2)",
+            params![into, now],
+        )?;
+        tx.execute(
+            "UPDATE threads SET title = COALESCE(title,
+                (SELECT title FROM threads WHERE id = ?2)), updated_at = ?3 WHERE id = ?1",
+            params![into, part, now],
+        )?;
+        for s in &g.members[&part] {
+            tx.execute(
+                "INSERT OR REPLACE INTO thread_sessions (session_key, thread_id) VALUES (?1, ?2)",
+                params![s.session_key, into],
+            )?;
+        }
+        tx.execute("DELETE FROM threads WHERE id = ?1", [&part])?;
+        tx.commit()?;
+        Ok(Some(into))
+    }
+
     /// Dismiss a suggested link and remember it, so it is never proposed again.
     /// An applied link is left alone (use [`Store::unlink_session`]).
     pub fn reject_link(&self, a: &str, b: &str) -> Result<bool> {
@@ -782,8 +916,23 @@ impl Store {
         let Some(key) = self.session_key_of(conversation_id)? else {
             return Ok(false);
         };
+        let alone = implicit_id(&key);
+        {
+            let g = self.grouped()?;
+            let Some(current) = g.thread_of.get(&key) else {
+                return Ok(false);
+            };
+            if g.members.get(current).map_or(0, Vec::len) <= 1 {
+                return Ok(false);
+            }
+        }
         let Some(thread) = self.explicit_thread(&key)? else {
-            return Ok(false);
+            // Grouped automatically: pin it on its own, so it stays out.
+            self.conn.execute(
+                "INSERT OR REPLACE INTO thread_sessions (session_key, thread_id) VALUES (?1, ?2)",
+                params![key, alone],
+            )?;
+            return Ok(true);
         };
         let tx = self.conn.unchecked_transaction()?;
 
@@ -852,6 +1001,11 @@ impl Store {
                 params![thread, renamed],
             )?;
         }
+        // Keep it on its own: without a row it would rejoin its work's thread.
+        tx.execute(
+            "INSERT OR REPLACE INTO thread_sessions (session_key, thread_id) VALUES (?1, ?2)",
+            params![key, alone],
+        )?;
         tx.commit()?;
         Ok(true)
     }
@@ -874,7 +1028,15 @@ impl Store {
             .query_row("SELECT 1 FROM threads WHERE id = ?1", [id], |_| Ok(()))
             .optional()?
             .is_some();
-        if !exists {
+        if !exists && self.grouped()?.members.contains_key(id) {
+            // A thread formed automatically has no row until it is edited.
+            let now = Utc::now().to_rfc3339();
+            self.conn.execute(
+                "INSERT OR IGNORE INTO threads (id, status, created_at, updated_at)
+                 VALUES (?1, 'active', ?2, ?2)",
+                params![id, now],
+            )?;
+        } else if !exists {
             // A thread of one has no row yet. Its id names its session.
             let Some(suffix) = id.strip_prefix("th_") else {
                 return Ok(None);
