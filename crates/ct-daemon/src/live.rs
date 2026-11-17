@@ -80,7 +80,7 @@ impl State {
 }
 
 /// How pressing a state is, for picking one state to show for a whole thread.
-fn urgency(state: &str) -> u8 {
+pub(crate) fn urgency(state: &str) -> u8 {
     match state {
         "needs_you" => 3,
         "running" => 2,
@@ -277,6 +277,7 @@ mod tests {
             message_count: 1,
             source_path: path.into(),
             live: None,
+            device: None,
         }
     }
 
@@ -403,6 +404,8 @@ mod tests {
             pending_suggestions: 0,
             live: None,
             device: None,
+            devices: vec![],
+            related: vec![],
         };
         reg.annotate(&mut thread, &mut sessions, now);
         assert_eq!(thread.live.unwrap().state, "needs_you");

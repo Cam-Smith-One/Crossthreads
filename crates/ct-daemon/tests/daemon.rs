@@ -1048,6 +1048,7 @@ fn threads_link_edit_and_unlink_over_the_wire() {
             id: id.clone(),
             title: Some("OAuth refresh".into()),
             status: Some("done".into()),
+            device: None,
         })
         .unwrap()
     else {
@@ -1092,6 +1093,7 @@ fn threads_link_edit_and_unlink_over_the_wire() {
                 id: id.clone(),
                 title: None,
                 status: Some("archived".into()),
+                device: None,
             })
             .unwrap(),
         Response::Error { .. }
@@ -2212,4 +2214,196 @@ fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
             std::net::TcpStream::connect(&addr).is_err()
         }
     );
+}
+
+// ---- Threads across devices (SPEC §6.5) -------------------------------------
+
+#[test]
+fn a_thread_spans_devices_with_shared_name_status_and_notes() {
+    let mine = dated(
+        Tool::ClaudeCode,
+        "/acme-api",
+        "start the oauth refresh work",
+        "2026-11-01",
+    );
+    let theirs = dated(
+        Tool::Codex,
+        "/srv/acme-api",
+        "continue the oauth refresh work",
+        "2026-11-02",
+    );
+
+    let desk_store = seed(std::slice::from_ref(&theirs));
+    let desk = Daemon::new(desk_store, Box::new(HashEmbedder::default())).with_federation(
+        Federation::new(
+            "desk".into(),
+            Some("s3cret-token-for-tests".into()),
+            vec![],
+            Duration::from_secs(2),
+        ),
+    );
+    let desk_addr = serve(desk);
+    let desk_client = Client::new(desk_addr.clone());
+
+    let lap_store = seed(std::slice::from_ref(&mine));
+    let peers = vec![Peer {
+        name: "desk".into(),
+        addr: desk_addr,
+        rooms: false,
+    }];
+    let lap = Daemon::new(lap_store, Box::new(HashEmbedder::default())).with_federation(fed(
+        "lap",
+        "s3cret-token-for-tests",
+        peers,
+    ));
+    let lap_client = Client::new(serve(lap));
+
+    let list = |c: &Client| {
+        let Response::Threads { threads, .. } = c
+            .call(&Request::Threads {
+                filters: Default::default(),
+                devices: None,
+            })
+            .unwrap()
+        else {
+            panic!("expected threads");
+        };
+        threads
+    };
+    let before = list(&lap_client);
+    assert_eq!(before.len(), 2);
+    let lap_id = before
+        .iter()
+        .find(|t| t.device.as_deref() == Some("lap"))
+        .unwrap()
+        .id
+        .clone();
+    let desk_id = before
+        .iter()
+        .find(|t| t.device.as_deref() == Some("desk"))
+        .unwrap()
+        .id
+        .clone();
+
+    // Join the desk's thread to the laptop's: one row, two devices.
+    let r = lap_client
+        .call(&Request::ThreadJoin {
+            part: desk_id.clone(),
+            device: Some("desk".into()),
+            into: lap_id.clone(),
+            into_device: None,
+        })
+        .unwrap();
+    assert!(matches!(r, Response::ThreadId { .. }), "{r:?}");
+    let after = list(&lap_client);
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].id, lap_id);
+    assert_eq!(
+        after[0].devices,
+        vec!["desk".to_string(), "lap".to_string()]
+    );
+    assert_eq!(after[0].session_count, 2);
+
+    // The whole thread opens with both sessions, each tagged with its device.
+    let Response::Thread { thread: Some(t) } = lap_client
+        .call(&Request::Thread {
+            id: lap_id.clone(),
+            device: None,
+        })
+        .unwrap()
+    else {
+        panic!("expected a thread");
+    };
+    let devs: Vec<_> = t
+        .sessions
+        .iter()
+        .map(|s| s.device.clone().unwrap())
+        .collect();
+    assert_eq!(devs, vec!["lap", "desk"]);
+    assert_eq!(t.parts.len(), 1);
+
+    // Rename it and keep a note, from the laptop.
+    lap_client
+        .call(&Request::SetThread {
+            id: lap_id.clone(),
+            title: Some("OAuth refresh".into()),
+            status: None,
+            device: None,
+        })
+        .unwrap();
+    let Response::ThreadNote { note } = lap_client
+        .call(&Request::ThreadNoteAdd {
+            thread: None,
+            device: None,
+            cwd: Some("/acme-api/src".into()),
+            kind: "decision".into(),
+            text: "Retry refresh once, then sign out".into(),
+            author: Some("claude".into()),
+        })
+        .unwrap()
+    else {
+        panic!("expected a note");
+    };
+    assert_eq!(note.thread_id, lap_id);
+
+    // The desk hears about all of it: its own thread now shows as part of
+    // the laptop's, under the shared name.
+    let mut ok = false;
+    for _ in 0..50 {
+        let rows = list(&desk_client);
+        if rows.len() == 1 && rows[0].id == lap_id && rows[0].title == "OAuth refresh" {
+            ok = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        ok,
+        "desk never saw the shared thread: {:?}",
+        list(&desk_client)
+    );
+
+    // An agent on the laptop gets the shared context.
+    let Response::ThreadContext {
+        markdown,
+        thread_id,
+        ..
+    } = lap_client
+        .call(&Request::ThreadContext {
+            thread: None,
+            device: None,
+            cwd: Some("/acme-api".into()),
+            brief: true,
+        })
+        .unwrap()
+    else {
+        panic!("expected context");
+    };
+    assert_eq!(thread_id.as_deref(), Some(lap_id.as_str()));
+    assert!(markdown.contains("OAuth refresh"), "{markdown}");
+    assert!(markdown.contains("Retry refresh once"), "{markdown}");
+    assert!(markdown.contains("desk"), "{markdown}");
+
+    // Splitting undoes the join.
+    lap_client
+        .call(&Request::ThreadSplit {
+            part: desk_id,
+            device: Some("desk".into()),
+        })
+        .unwrap();
+    assert_eq!(list(&lap_client).len(), 2);
+
+    // A peer without the token learns nothing.
+    let r = Client::new(serve(Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    )))
+    .call(&Request::PeerShared {
+        token: Some("wrong".into()),
+        from: "x".into(),
+        since: 0,
+        push: None,
+    })
+    .unwrap();
+    assert!(matches!(r, Response::Error { .. }));
 }

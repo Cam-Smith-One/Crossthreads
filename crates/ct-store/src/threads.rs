@@ -78,6 +78,10 @@ pub struct SessionRef {
     /// Current state, when known. Filled in by the daemon.
     #[serde(default)]
     pub live: Option<Live>,
+    /// The device this session ran on, when the thread spans devices. Filled
+    /// in by the daemon.
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 /// A thread as shown in a list.
@@ -107,6 +111,23 @@ pub struct ThreadSummary {
     /// in by the daemon.
     #[serde(default)]
     pub device: Option<String>,
+    /// Every device with part of this thread, when it spans more than one.
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// Threads on other devices that look like the same work (same repository
+    /// and branch, active around the same time) and could be joined to this
+    /// one. Filled in by the daemon.
+    #[serde(default)]
+    pub related: Vec<PartRef>,
+}
+
+/// A thread on a particular device.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PartRef {
+    pub device: String,
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
 }
 
 /// An applied link between two sessions of a thread.
@@ -143,6 +164,13 @@ pub struct ThreadDetail {
     pub sessions: Vec<SessionRef>,
     pub links: Vec<ThreadLink>,
     pub suggestions: Vec<Suggestion>,
+    /// Notes kept on the thread by the user and by agents. Filled in by the
+    /// daemon.
+    #[serde(default)]
+    pub notes: Vec<crate::ThreadNote>,
+    /// This thread's parts on other devices. Filled in by the daemon.
+    #[serde(default)]
+    pub parts: Vec<PartRef>,
 }
 
 /// Filters for a thread list.
@@ -260,6 +288,7 @@ impl Store {
                         message_count: r.get(9)?,
                         source_path: r.get(11)?,
                         live: None,
+                        device: None,
                     },
                     r.get::<_, Option<String>>(10)?,
                 ))
@@ -374,6 +403,8 @@ impl Store {
             pending_suggestions: suggestions,
             live: None,
             device: None,
+            devices: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -526,6 +557,8 @@ impl Store {
             sessions,
             links,
             suggestions,
+            notes: Vec::new(),
+            parts: Vec::new(),
         }))
     }
 

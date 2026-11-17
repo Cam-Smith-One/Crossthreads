@@ -425,6 +425,77 @@ pub enum Request {
         title: Option<String>,
         #[serde(default)]
         status: Option<String>,
+        /// The device the thread lives on, when it isn't this one.
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// Make thread `part` (on `device`, default this one) part of thread
+    /// `into` (on `into_device`), so one piece of work spans devices
+    /// (SPEC §6.5). Both stay where they are; the board shows them as one.
+    ThreadJoin {
+        part: String,
+        #[serde(default)]
+        device: Option<String>,
+        into: String,
+        #[serde(default)]
+        into_device: Option<String>,
+    },
+    /// Undo [`Request::ThreadJoin`] for `part` on `device`.
+    ThreadSplit {
+        part: String,
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// Keep a note on a thread: a decision, a todo, or context worth keeping.
+    /// The thread is `thread` (on `device`), or else the one the most recent
+    /// session in `cwd` belongs to. Shared with the user's other devices.
+    ThreadNoteAdd {
+        #[serde(default)]
+        thread: Option<String>,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        kind: String,
+        text: String,
+        /// Who is writing: an agent's name. Empty means the user.
+        #[serde(default)]
+        author: Option<String>,
+    },
+    /// Change a note's kind (e.g. `todo` to `done`) or remove it.
+    ThreadNoteEdit {
+        id: String,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        removed: bool,
+    },
+    /// What an agent should know about the work it's in: the thread's
+    /// sessions across tools and devices, its notes, and who else is working
+    /// in the repository now. The thread is `thread` (on `device`) or the one
+    /// for `cwd`. `brief` keeps it short for a session-start hook, and returns
+    /// nothing when there is nothing worth saying.
+    ThreadContext {
+        #[serde(default)]
+        thread: Option<String>,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        brief: bool,
+    },
+    /// Turn session-start context for agents on or off.
+    SetAgentContext { on: bool },
+    /// Peer → peer: thread names, status, parts and notes changed after
+    /// `since`; `push` carries the sender's own recent changes.
+    PeerShared {
+        #[serde(default)]
+        token: Option<String>,
+        from: String,
+        since: i64,
+        #[serde(default)]
+        push: Option<ct_store::SharedState>,
     },
 }
 
@@ -441,6 +512,7 @@ impl Request {
                 | Request::PeerThread { .. }
                 | Request::PeerRoomPost { .. }
                 | Request::PeerRoomSync { .. }
+                | Request::PeerShared { .. }
         )
     }
 }
@@ -718,6 +790,19 @@ pub enum Response {
         claims: Vec<ct_store::Claim>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
+    /// Shared thread state, for a peer.
+    Shared {
+        state: ct_store::SharedState,
+    },
+    ThreadNote {
+        note: ct_store::ThreadNote,
+    },
+    /// Context for an agent: markdown, and the thread it is about.
+    ThreadContext {
+        thread_id: Option<String>,
+        device: Option<String>,
+        markdown: String,
+    },
     Ok {
         ok: bool,
     },

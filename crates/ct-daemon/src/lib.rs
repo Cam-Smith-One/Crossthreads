@@ -31,6 +31,7 @@ pub mod resume;
 pub mod rooms;
 pub mod schedule;
 pub mod setup;
+mod shared;
 pub mod weekly;
 pub use ct_store::{
     behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
@@ -598,9 +599,60 @@ impl Daemon {
                 .unwrap_or_else(err),
             Request::UnlinkSession { id } => self.unlink_session(&id).unwrap_or_else(err),
             Request::RejectLink { a, b } => self.reject_link(&a, &b).unwrap_or_else(err),
-            Request::SetThread { id, title, status } => self
-                .set_thread(&id, title.as_deref(), status.as_deref())
+            Request::SetThread {
+                id,
+                title,
+                status,
+                device,
+            } => self
+                .edit_thread(&id, device.as_deref(), title.as_deref(), status.as_deref())
                 .unwrap_or_else(err),
+            Request::ThreadJoin {
+                part,
+                device,
+                into,
+                into_device,
+            } => self
+                .join_thread(&part, device.as_deref(), &into, into_device.as_deref())
+                .unwrap_or_else(err),
+            Request::ThreadSplit { part, device } => self
+                .split_thread(&part, device.as_deref())
+                .unwrap_or_else(err),
+            Request::ThreadNoteAdd {
+                thread,
+                device,
+                cwd,
+                kind,
+                text,
+                author,
+            } => self
+                .add_note(
+                    thread.as_deref(),
+                    device.as_deref(),
+                    cwd.as_deref(),
+                    &kind,
+                    &text,
+                    author.as_deref(),
+                )
+                .unwrap_or_else(err),
+            Request::ThreadNoteEdit { id, kind, removed } => self
+                .edit_note(&id, kind.as_deref(), removed)
+                .unwrap_or_else(err),
+            Request::ThreadContext {
+                thread,
+                device,
+                cwd,
+                brief,
+            } => self
+                .thread_context(thread.as_deref(), device.as_deref(), cwd.as_deref(), brief)
+                .unwrap_or_else(err),
+            Request::SetAgentContext { on } => self.set_agent_context(on).unwrap_or_else(err),
+            Request::PeerShared {
+                token,
+                from,
+                since,
+                push,
+            } => self.peer_shared(token.as_deref(), &from, since, push.as_ref()),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -1271,7 +1323,7 @@ impl Daemon {
     ) -> Result<Response> {
         let Some(fed) = &self.federation else {
             return Ok(Response::Threads {
-                threads: self.local_threads(filters, None)?,
+                threads: self.fold_threads(self.local_threads(filters, None)?),
                 unreachable: Vec::new(),
             });
         };
@@ -1325,13 +1377,8 @@ impl Daemon {
                 Err(_) => {}
             }
         }
-        threads.sort_by(|a, b| {
-            (b.last_activity.is_some(), &b.last_activity, &b.id).cmp(&(
-                a.last_activity.is_some(),
-                &a.last_activity,
-                &a.id,
-            ))
-        });
+        // One row per piece of work, whichever devices it spans (sorted).
+        let mut threads = self.fold_threads(threads);
         if let Some(limit) = filters.limit {
             threads.truncate(limit);
         }
@@ -1353,8 +1400,20 @@ impl Daemon {
         }))
     }
 
-    /// One thread, from this device or from the peer it lives on.
+    /// One thread with all its parts and notes (see [`Daemon::whole_thread`]).
     fn thread(&self, id: &str, device: Option<&str>) -> Result<Response> {
+        Ok(Response::Thread {
+            thread: self.whole_thread(id, device)?,
+        })
+    }
+
+    /// One thread as one device has it, from this device or from the peer it
+    /// lives on.
+    pub(crate) fn thread_on(
+        &self,
+        id: &str,
+        device: Option<&str>,
+    ) -> Result<Option<ct_store::ThreadDetail>> {
         let local_name = self.federation.as_ref().map(|f| f.device());
         let remote = match (device, local_name.as_deref()) {
             (Some(d), Some(me)) if d != me => Some(d),
@@ -1365,7 +1424,7 @@ impl Daemon {
             if let (Some(t), Some(me)) = (&mut thread, local_name) {
                 t.summary.device = Some(me);
             }
-            return Ok(Response::Thread { thread });
+            return Ok(thread);
         };
         let fed = self.federation.as_ref().expect("checked above");
         let Some(peer) = fed.peers().into_iter().find(|p| p.name == remote) else {
@@ -1380,7 +1439,7 @@ impl Daemon {
                 if let Some(t) = &mut thread {
                     t.summary.device = Some(peer.name);
                 }
-                Ok(Response::Thread { thread })
+                Ok(thread)
             }
             Response::Error { message } => anyhow::bail!("{remote}: {message}"),
             other => anyhow::bail!("{remote}: unexpected response {other:?}"),
@@ -1393,16 +1452,35 @@ impl Daemon {
         let Response::Thread { thread: Some(t) } = self.thread(id, device)? else {
             anyhow::bail!("no thread or session with id {id}");
         };
-        let local_name = self.federation.as_ref().map(|f| f.device());
-        let remote = device.filter(|d| Some(*d) != local_name.as_deref());
+        let me = self.device_name();
+        let remote = |d: &Option<String>| d.clone().filter(|d| *d != me);
         let (Some(first), Some(last)) = (t.sessions.first(), t.sessions.last()) else {
             anyhow::bail!("thread {id} has no sessions");
         };
-        let first = self.fetch_conversation(&first.conversation_id, remote);
-        let Some(latest) = self.fetch_conversation(&last.conversation_id, remote) else {
+        let first =
+            self.fetch_conversation(&first.conversation_id, remote(&first.device).as_deref());
+        let Some(latest) =
+            self.fetch_conversation(&last.conversation_id, remote(&last.device).as_deref())
+        else {
             anyhow::bail!("couldn't load the latest session of thread {id}");
         };
-        let block = ct_store::threads::render_handoff(&t, first.as_ref(), &latest, max_chars);
+        let mut block = ct_store::threads::render_handoff(&t, first.as_ref(), &latest, max_chars);
+        // Say where this came from, so the session that picks it up on another
+        // device joins this thread (see `join_from_handoffs`), and pass on the
+        // thread's notes.
+        let home = t.summary.device.clone().unwrap_or_else(|| me.clone());
+        let mut extra = format!(
+            "\n---\n{}\n",
+            ct_store::shared::handoff_marker(&t.summary.id, &home)
+        );
+        if !t.notes.is_empty() {
+            extra.push_str("\n### Notes on this thread\n");
+            for n in t.notes.iter().filter(|n| n.kind != "done") {
+                extra.push_str(&format!("- {}: {}\n", n.kind, n.text.replace('\n', " ")));
+            }
+        }
+        block.markdown.push_str(&extra);
+        let _ = device;
         Ok(Response::Context {
             markdown: block.markdown,
             sources: block.sources,
@@ -1518,13 +1596,6 @@ impl Daemon {
         let store = self.write_lock();
         Ok(Response::Ok {
             ok: store.reject_link(a, b)?,
-        })
-    }
-
-    fn set_thread(&self, id: &str, title: Option<&str>, status: Option<&str>) -> Result<Response> {
-        let store = self.write_lock();
-        Ok(Response::ThreadId {
-            id: store.set_thread(id, title, status)?,
         })
     }
 

@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -194,6 +194,51 @@ CREATE TABLE IF NOT EXISTS room_agents (
     transcript_path TEXT,
     PRIMARY KEY (room, name)
 );
+
+-- v12: thread state shared with the user's other devices (SPEC §6.5). Only
+-- the organisation travels: names, status, which sessions belong together and
+-- notes. Transcripts stay on the device that has them. Each field carries the
+-- time it was set (epoch ms) and the device that set it; the latest wins.
+CREATE TABLE IF NOT EXISTS shared_threads (
+    id        TEXT PRIMARY KEY,
+    title     TEXT,
+    title_at  INTEGER NOT NULL DEFAULT 0,
+    title_by  TEXT NOT NULL DEFAULT '',
+    status    TEXT,
+    status_at INTEGER NOT NULL DEFAULT 0,
+    status_by TEXT NOT NULL DEFAULT '',
+    updated   INTEGER NOT NULL DEFAULT 0
+);
+
+-- "This device's thread `part` belongs to the shared thread `thread_id`."
+-- Lets one piece of work span machines. `removed` undoes it.
+CREATE TABLE IF NOT EXISTS shared_thread_parts (
+    device    TEXT NOT NULL,
+    part      TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    -- The device the thread it joins lives on.
+    thread_device TEXT NOT NULL DEFAULT '',
+    removed   INTEGER NOT NULL DEFAULT 0,
+    at        INTEGER NOT NULL,
+    by        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (device, part)
+);
+CREATE INDEX IF NOT EXISTS idx_shared_parts_thread ON shared_thread_parts(thread_id);
+
+-- Notes on a thread, written by the user or by agents: decisions, open todos,
+-- context worth keeping. Shared with the user's other devices.
+CREATE TABLE IF NOT EXISTS thread_notes (
+    id        TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    kind      TEXT NOT NULL,
+    text      TEXT NOT NULL,
+    author    TEXT NOT NULL DEFAULT '',
+    device    TEXT NOT NULL DEFAULT '',
+    created   INTEGER NOT NULL,
+    removed   INTEGER NOT NULL DEFAULT 0,
+    updated   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_thread_notes_thread ON thread_notes(thread_id);
 
 -- Time-limited reservations on files or folders (absolute paths on this device).
 CREATE TABLE IF NOT EXISTS claims (

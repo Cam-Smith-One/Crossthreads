@@ -274,6 +274,7 @@ fn run() -> Result<()> {
 
     // Rooms across devices: catch up with peers that may message.
     daemon.spawn_room_sync();
+    daemon.spawn_shared_sync();
 
     // The board from a phone, over the tailnet, if the user turned it on.
     daemon.start_phone_if_enabled();
