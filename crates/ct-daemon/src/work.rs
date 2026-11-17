@@ -63,7 +63,9 @@ impl Daemon {
         sessions.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
         let mut folders: Vec<String> = Vec::new();
         for s in sessions {
-            let Some(p) = s.project.filter(|p| !p.is_empty()) else { continue };
+            let Some(p) = s.project.filter(|p| !p.is_empty()) else {
+                continue;
+            };
             if !folders.contains(&p) && Path::new(&p).is_dir() {
                 folders.push(p);
             }
