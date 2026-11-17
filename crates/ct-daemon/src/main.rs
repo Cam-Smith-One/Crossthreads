@@ -35,6 +35,8 @@ OPTIONS:
                            tailnet host:port, e.g. --peer linux-desktop:47100
                            (env CROSSTHREADS_PEERS = comma-separated NAME=ADDR list)
     --fed-token <TOKEN>    Shared secret peers must present (env CROSSTHREADS_FED_TOKEN).
+    --relay <HOST:PORT>    Reach your devices through this end-to-end encrypted relay
+                           instead of Tailscale (env CROSSTHREADS_RELAY; docs/RELAY.md).
                            Stored in the OS keychain when available.
     --fed-timeout-ms <MS>  Per-peer timeout (default 1500)
     --serve-exclude-tool <TOOL>      Don't serve this tool's threads to peers; repeatable
@@ -61,7 +63,12 @@ fn run() -> Result<()> {
     let mut watch = true;
 
     let mut device_name: Option<String> = std::env::var("CROSSTHREADS_DEVICE_NAME").ok();
-    let mut token: Option<String> = std::env::var("CROSSTHREADS_FED_TOKEN").ok();
+    let mut token: Option<String> = std::env::var("CROSSTHREADS_FED_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    let mut relay: Option<String> = std::env::var("CROSSTHREADS_RELAY")
+        .ok()
+        .filter(|r| !r.is_empty());
     let mut peers: Vec<Peer> =
         parse_peers(&std::env::var("CROSSTHREADS_PEERS").unwrap_or_default())?;
     let mut fed_timeout_ms: u64 = 1500;
@@ -83,6 +90,7 @@ fn run() -> Result<()> {
                 device_name = Some(it.next().context("--device-name needs a value")?.clone())
             }
             "--fed-token" => token = Some(it.next().context("--fed-token needs a value")?.clone()),
+            "--relay" => relay = Some(it.next().context("--relay needs HOST:PORT")?.clone()),
             "--peer" => peers.push(parse_peer(it.next().context("--peer needs NAME=ADDR")?)?),
             "--fed-timeout-ms" => {
                 fed_timeout_ms = it
@@ -143,7 +151,7 @@ fn run() -> Result<()> {
         )))
         .with_ui_dir(ui.clone());
 
-    // Federation is always available so the Settings → Devices panel can set it
+    // Federation is always available so the Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is
     // loopback). Merge CLI/env with the persisted config (CLI/env win for
     // device; peers and scope are the union).
@@ -157,7 +165,15 @@ fn run() -> Result<()> {
     let file_token = saved.token.clone();
     let keyring_token = ct_daemon::federation::token_store::get();
     let from_keyring = token.is_none() && keyring_token.is_some();
-    let token = token.or(keyring_token).or(file_token.clone());
+    let mut token = token.or(keyring_token).or(file_token.clone());
+    // The app (`--addr auto`) makes its own strong token the first time, so
+    // adding a device is just a short code: nobody types or sees a token. The
+    // tailnet listener still serves only the token-checked peer protocol.
+    let made_token = addr == "auto" && token.is_none();
+    if made_token {
+        token = Some(ct_daemon::pairing::new_token());
+        eprintln!("crossthreadsd: created this device's shared token");
+    }
     let has_token = token.is_some();
     // Store the token in the keychain to encrypt at rest — but only when it isn't
     // already there, so we don't re-write (and re-prompt) on every startup.
@@ -184,7 +200,7 @@ fn run() -> Result<()> {
             (None, Some(_)) => {
                 eprintln!(
                     "crossthreadsd: tailnet detected but no token set — staying on \
-                     loopback. Set a token in Settings → Devices to enable pairing."
+                     loopback. Set a token in Devices to enable pairing."
                 );
                 DEFAULT_ADDR.to_string()
             }
@@ -220,9 +236,11 @@ fn run() -> Result<()> {
     .with_config_path(fed_config_path)
     .with_listen_addr(peer_addr)
     .with_scope(exclude_tools, exclude_projects)
-    .with_token_in_keyring(token_in_keyring);
+    .with_token_in_keyring(token_in_keyring)
+    .with_relay(relay.clone().or(saved.relay.clone()));
+    let relay = relay.or(saved.relay);
     // Migrate a plaintext file token into the keychain: rewrite the file w/o it.
-    if token_in_keyring && file_token.is_some() {
+    if (token_in_keyring && file_token.is_some()) || made_token {
         fed.persist();
     }
     daemon = daemon.with_federation(fed);
@@ -274,9 +292,25 @@ fn run() -> Result<()> {
 
     // Rooms across devices: catch up with peers that may message.
     daemon.spawn_room_sync();
+    daemon.spawn_shared_sync();
 
     // The board from a phone, over the tailnet, if the user turned it on.
     daemon.start_phone_if_enabled();
+
+    // Your devices through a relay instead of Tailscale, if one is set.
+    let _relay_listener = match &relay {
+        Some(addr) => {
+            let key = ct_daemon::local_auth::key_path().with_file_name("device.key");
+            match ct_daemon::relay::init(addr, &key) {
+                Ok(()) => daemon.start_relay_listener(),
+                Err(e) => {
+                    eprintln!("crossthreadsd: relay {addr} not used: {e:#}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
 
     if let Some(h) = &http {
         if !ct_daemon::local_auth::is_loopback(h) {
@@ -320,7 +354,7 @@ fn run() -> Result<()> {
     if !has_token {
         anyhow::bail!(
             "refusing to listen on {addr} without a shared token: anyone on that network could \
-             reach this device. Set one in Settings → Devices, or use a loopback --addr."
+             reach this device. Set one in Devices, or use a loopback --addr."
         );
     }
     if addr.starts_with("0.0.0.0") || addr.starts_with("[::]") {

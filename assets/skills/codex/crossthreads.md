@@ -13,6 +13,15 @@ Topic (optional): $ARGUMENTS
    model; if none is set they'll say so.)
 4. Summarize what's relevant to the task at hand and how it applies — do not
    paste raw results.
+5. Call `crossthreads_thread_context` (no arguments) to see this folder's
+   thread: decisions, open todos and notes left by other agents (Claude Code,
+   Codex, …) and on my other devices, and which sessions are running now.
+   Respect decisions already made; don't redo finished work.
+
+While you work, record what the next agent needs with `crossthreads_note`
+(`kind`: `decision`, `todo`, `context`; pass `me: "codex"`), and mark a todo
+finished by calling it with that note's `id` and `kind: "done"`. Only notes a
+person picking this up would need — not routine progress.
 
 Recall proactively: consult these tools before planning non-trivial work, even
 when I don't ask. It's cheap and avoids re-deriving past decisions.

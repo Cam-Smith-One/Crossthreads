@@ -427,6 +427,33 @@ fn hook_output(tool: &str, event: &str, payload: &Value, client: &Client) -> Opt
         }}));
     }
 
+    if event.eq_ignore_ascii_case("SessionStart") {
+        forward(event);
+        // Hand the agent what its own session can't know: the thread's
+        // decisions and todos, and work on it in other tools or on other
+        // devices. Nothing when there's nothing worth saying, or when the user
+        // turned it off.
+        let cwd = payload.get("cwd").and_then(Value::as_str)?;
+        let Ok(ct_daemon::Response::ThreadContext { markdown, .. }) = client.call_timeout(
+            &Request::ThreadContext {
+                thread: None,
+                device: None,
+                cwd: Some(cwd.to_string()),
+                brief: true,
+            },
+            Duration::from_secs(3),
+        ) else {
+            return None;
+        };
+        if markdown.trim().is_empty() {
+            return None;
+        }
+        return Some(json!({ "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": markdown,
+        }}));
+    }
+
     if event.eq_ignore_ascii_case("Stop") {
         let Some((me, room)) = room_identity(transcript) else {
             forward(event);

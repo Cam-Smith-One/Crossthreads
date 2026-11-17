@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  approvePeer,
   buildContext,
   getSession,
   getSetupStatus,
@@ -8,20 +7,15 @@ import {
   UnpairedError,
   type Session,
   type SetupStatus,
-  discoverDevices,
   forget,
   getConversation,
   getDevices,
   getFacets,
-  getFederationConfig,
   getSaved,
   getStatus,
   getResume,
   openSource,
-  pairWithCode,
   reindex,
-  removePeer,
-  setPeerRooms,
   search,
   getLlmConfig,
   getThemes,
@@ -32,15 +26,12 @@ import {
   getWeeklyReview,
   getOptimize,
   getFluency,
-  setFederationConfig,
   setFlags,
   setLlmKey,
   setLlmProvider,
   setNote,
   setTags,
   type Device,
-  type DiscoveredDevice,
-  type FederationConfig,
   type Filters,
   type LlmConfig,
   type ResumePlan,
@@ -59,8 +50,9 @@ import {
 } from "./api";
 import { Board } from "./Board";
 import { Rooms } from "./Rooms";
-import { PairPhone, PhoneSettings } from "./Phone";
-import { SetupChecklist, SetupNudge, staleClientRecently } from "./Setup";
+import { PairPhone } from "./Phone";
+import { Devices } from "./Devices";
+import { SetupChecklist, SetupNudge, setupSteps, staleClientRecently } from "./Setup";
 import { SignIn } from "./SignIn";
 import { toolIcon, toolLabel } from "./tools";
 
@@ -73,9 +65,9 @@ const MODE_LABELS: Record<Mode, string> = {
 
 type InsightsTab = "overview" | "weekly" | "themes" | "analyses";
 /** The app's places. Each is a page with its own address (#/search, …). */
-type Page = "threads" | "rooms" | "search" | "insights" | "settings";
-type SettingsTab = "start" | "devices" | "phone" | "models" | "index" | "help";
-const PAGES: Page[] = ["threads", "rooms", "search", "insights", "settings"];
+type Page = "threads" | "rooms" | "search" | "insights" | "devices" | "settings";
+type SettingsTab = "start" | "models" | "index" | "help";
+const PAGES: Page[] = ["threads", "rooms", "search", "insights", "devices", "settings"];
 
 const ANALYSIS_GROUPS: [string, [InsightKind, string, string][]][] = [
   [
@@ -377,15 +369,9 @@ export function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [federation, setFederation] = useState(false);
   const [deviceSel, setDeviceSel] = useState<Set<string>>(new Set());
-  const [discovered, setDiscovered] = useState<DiscoveredDevice[] | null>(null);
-  const [discovering, setDiscovering] = useState(false);
   const [unreachable, setUnreachable] = useState<string[]>([]);
   const [openDevice, setOpenDevice] = useState<string | null>(null);
   const [resumePlan, setResumePlan] = useState<ResumePlan | null>(null);
-  const [fedConfig, setFedConfig] = useState<FederationConfig | null>(null);
-  const [pairCode, setPairCode] = useState("");
-  const [tokenInput, setTokenInput] = useState("");
-  const [showPairing, setShowPairing] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   // Monotonic search id so a slow earlier response can't overwrite a newer one.
@@ -414,9 +400,6 @@ export function App() {
         setDeviceSel(new Set(devices.map((d) => d.name)));
       })
       .catch(() => {});
-  }, []);
-  const refreshFedConfig = useCallback(() => {
-    getFederationConfig().then(setFedConfig).catch(() => {});
   }, []);
   const refreshLlmConfig = useCallback(() => {
     getLlmConfig().then(setLlmConfig).catch(() => {});
@@ -458,9 +441,8 @@ export function App() {
 
   // Load the federation identity/scope lazily when the Devices tab is shown.
   useEffect(() => {
-    if (showSettings && settingsTab === "devices") refreshFedConfig();
     if (showSettings && settingsTab === "models") refreshLlmConfig();
-  }, [showSettings, settingsTab, refreshFedConfig, refreshLlmConfig]);
+  }, [showSettings, settingsTab, refreshLlmConfig]);
 
   // Follow the address: #/threads, #/rooms, #/search[/ask], #/insights/<tab>,
   // #/settings/<tab>. A ref so the listener always sees the latest state.
@@ -468,10 +450,17 @@ export function App() {
   routeRef.current = () => {
     const [p, sub] = window.location.hash.replace(/^#\/?/, "").split("/");
     let next: Page = PAGES.includes(p as Page) ? (p as Page) : "threads";
-    if (phone && (next === "insights" || next === "settings")) next = "threads";
+    // Devices and phones used to be settings tabs.
+    if (next === "settings" && (sub === "devices" || sub === "phone")) next = "devices";
+    if (phone && (next === "insights" || next === "settings" || next === "devices")) next = "threads";
     setPage(next);
     if (next === "insights") openInsights((sub as InsightsTab) || "overview");
-    if (next === "settings") setSettingsTab((sub as SettingsTab) || "start");
+    if (next === "settings")
+      setSettingsTab(
+        (["start", "models", "index", "help"] as string[]).includes(sub)
+          ? (sub as SettingsTab)
+          : "start",
+      );
     if (next === "search") setSearchMode(sub === "ask" ? "ask" : "find");
     window.scrollTo({ top: 0 });
   };
@@ -527,12 +516,7 @@ export function App() {
   const sessionCount = toolChips.reduce((n, [, sessions]) => n + sessions, 0);
   // Essential setup steps still to do (the sidebar and Settings show the count).
   const setupLeft = setup
-    ? [
-        sessionCount > 0,
-        setup.hooks_claude || setup.hooks_codex,
-        setup.mcp_claude || setup.mcp_codex,
-        setup.skill_claude || setup.skill_codex,
-      ].filter((done) => !done).length
+    ? setupSteps(setup, sessionCount, () => {}, () => {}).essentials.filter((st) => !st.done).length
     : 0;
   const activeFilters = [
     filters.kind,
@@ -556,52 +540,9 @@ export function App() {
       return next;
     });
 
-  async function runDiscover() {
-    setDiscovering(true);
-    setError(null);
-    try {
-      setDiscovered(await discoverDevices());
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setDiscovering(false);
-    }
-  }
 
-  async function approve(d: DiscoveredDevice) {
-    try {
-      const updated = await approvePeer(d.name, d.addr);
-      setDevices(updated);
-      setDeviceSel((sel) => new Set(sel).add(d.name));
-      setDiscovered((list) =>
-        (list ?? []).map((x) => (x.name === d.name ? { ...x, already_approved: true } : x)),
-      );
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
-  async function toggleRooms(name: string, rooms: boolean) {
-    try {
-      setDevices(await setPeerRooms(name, rooms));
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
-  async function removeDevice(name: string) {
-    try {
-      const updated = await removePeer(name);
-      setDevices(updated);
-      setDeviceSel((sel) => {
-        const next = new Set(sel);
-        next.delete(name);
-        return next;
-      });
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
   const runSearch = useCallback(
     async (e?: React.FormEvent, lim = PAGE, keepSelection = false) => {
@@ -666,26 +607,7 @@ export function App() {
     };
   }, [openId, openDevice]);
 
-  async function saveFedConfig(patch: Parameters<typeof setFederationConfig>[0]) {
-    try {
-      setFedConfig(await setFederationConfig(patch));
-      refreshDevices();
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
-  async function submitPairCode() {
-    const code = pairCode.trim();
-    if (!code) return;
-    try {
-      setDevices(await pairWithCode(code));
-      setPairCode("");
-      refreshFedConfig();
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
   async function showContext() {
     setLoading(true);
@@ -892,14 +814,14 @@ export function App() {
         <nav className="side-nav" aria-label="Main">
             {(
               [
-                ["threads", "🧵", "Threads", "Your work, one thread per piece of work"],
-                ["rooms", "🤝", "Rooms", "Where your agents talk to each other"],
-                ["search", "🔎", "Search", "Find any past session, or ask a question"],
+                ["threads", "🏠", "Home", "What needs you, and every piece of work"],
+                ...(phone ? [["rooms", "🤝", "Rooms", "Where your agents talk to each other"]] : []),
+                ["search", "🔎", "Search", "Find any past session, ask a question, see how you work"],
                 ...(phone
                   ? []
                   : [
-                      ["insights", "💡", "Insights", "How you work, your weekly review, themes"],
-                      ["settings", "⚙️", "Settings", "Set up, devices, phone, models"],
+                      ["devices", "💻", "Devices", "Your other computers and phones"],
+                      ["settings", "⚙️", "Settings", "Connect your tools, models, index, help"],
                     ]),
               ] as [Page, string, string, string][]
             ).map(([p, icon, label, hint]) => (
@@ -914,10 +836,10 @@ export function App() {
                   {icon}
                 </span>
                 <span className="side-label">{label}</span>
-                {p === "rooms" && roomsListening && (
+                {(p === "rooms" || p === "threads") && roomsListening && (
                   <span className="nav-dot live" aria-label="an agent is listening" />
                 )}
-                {p === "insights" && weeklyUnseen && (
+                {p === "search" && weeklyUnseen && (
                   <span className="nav-dot" aria-label="new weekly review" />
                 )}
                 {p === "settings" && setupLeft > 0 && (
@@ -964,12 +886,22 @@ export function App() {
       {page === "threads" && (
         <section className="page">
           <div className="page-head">
-            <h2>Threads</h2>
+            <h2>Home</h2>
             <p className="page-lede">
               Each thread is one piece of work: every session that touched it, across your tools
-              {federation && devices.length > 1 ? " and machines" : ""}. Open one to see its
-              history and pick it up where it left off.
+              {federation && devices.length > 1 ? " and computers" : ""}. Open one to see where it
+              stands, keep notes your agents read, and pick it up in any tool.
             </p>
+            {!phone && (
+              <div className="page-links">
+                <a href="#/rooms" title="Where your agents talk to each other">
+                  🤝 Rooms{roomsListening ? " · an agent is listening" : ""}
+                </a>
+                <a href="#/insights/weekly" title="How you worked this week, and one thing to try">
+                  📋 Weekly review{weeklyUnseen ? " · new" : ""}
+                </a>
+              </div>
+            )}
           </div>
           {!phone && setup && (!nudgeDismissed || staleClientRecently(setup)) && (
             <SetupNudge
@@ -1034,6 +966,19 @@ export function App() {
         onListening={setRoomsListening}
       />
 
+      {page === "devices" && !phone && (
+        <section className="page">
+          <div className="page-head">
+            <h2>Devices</h2>
+            <p className="page-lede">
+              Add your other computers and your phone. Then search, threads and agent rooms span
+              all of them, with nothing leaving your own devices.
+            </p>
+          </div>
+          <Devices onError={reportError} />
+        </section>
+      )}
+
       {page === "search" && (
         <section className="page">
           <div className="page-head">
@@ -1061,6 +1006,9 @@ export function App() {
                 onClick={() => go("search", "ask")}
               >
                 Ask a question
+              </button>
+              <button role="tab" aria-selected={false} onClick={() => go("insights")}>
+                How you work{weeklyUnseen ? " •" : ""}
               </button>
             </div>
           )}
@@ -1806,8 +1754,6 @@ export function App() {
             {(
               [
                 ["start", "Get started"],
-                ["devices", "Devices"],
-                ["phone", "Phone"],
                 ["models", "Models"],
                 ["index", "Index"],
                 ["help", "Help"],
@@ -1902,12 +1848,6 @@ export function App() {
               </div>
             )}
 
-            {settingsTab === "phone" && (
-              <div className="settings-body">
-                <PhoneSettings onError={reportError} />
-              </div>
-            )}
-
             {settingsTab === "models" && (
               <div className="settings-body">
                 <section className="settings-section">
@@ -1988,245 +1928,6 @@ export function App() {
               </div>
             )}
 
-            {settingsTab === "devices" && (
-              <div className="settings-body">
-                <section className="settings-section">
-                  <h3>Devices</h3>
-                  {!federation ? (
-                    <p className="settings-hint">
-                      Cross-device search isn't set up on this machine yet. Give this
-                      device a name and a shared token, and join your machines to one
-                      Tailscale network — then come back here to discover them. See the{" "}
-                      <a href={`${DOCS_BASE}MULTI_DEVICE_SETUP.md`} target="_blank" rel="noreferrer noopener">
-                        multi-device setup guide
-                      </a>
-                      .
-                    </p>
-                  ) : (
-                    <>
-                      <p className="settings-hint">
-                        Search spans these devices. Liveness is checked when this list
-                        loads — Crossthreads never scans your network in the background.
-                        Turn on <strong>Can message</strong> on both devices to let their
-                        agents talk to each other in Rooms.
-                      </p>
-                      <ul className="device-list">
-                        {devices.map((d) => (
-                          <li key={d.name} className="device-row">
-                            <span className={`device-dot ${d.online ? "online" : "offline"}`} />
-                            <span className="device-name">
-                              {d.name}
-                              {d.local && <span className="device-tag">this device</span>}
-                            </span>
-                            {d.addr && <code className="device-addr">{d.addr}</code>}
-                            {!d.local && (
-                              <label
-                                className="device-grant"
-                                title="Agents here and on this device can talk in Rooms. Turn it on on both devices."
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={!!d.rooms}
-                                  onChange={(e) => toggleRooms(d.name, e.target.checked)}
-                                />
-                                Can message
-                              </label>
-                            )}
-                            {!d.local && (
-                              <button className="linklike" onClick={() => removeDevice(d.name)}>
-                                remove
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="device-discover">
-                        <button className="secondary" onClick={runDiscover} disabled={discovering}>
-                          {discovering ? "Discovering…" : "Discover my devices"}
-                        </button>
-                        {discovered !== null && (
-                          <div className="discovered">
-                            {discovered.length === 0 ? (
-                              <p className="settings-hint">
-                                No other Crossthreads devices found on your tailnet. Make
-                                sure each is running with a tailnet <code>--addr</code> and
-                                that Tailscale is connected.
-                              </p>
-                            ) : (
-                              <ul className="device-list">
-                                {discovered.map((d) => (
-                                  <li key={d.addr} className="device-row">
-                                    <span className="device-name">{d.name}</span>
-                                    <code className="device-addr">{d.addr}</code>
-                                    {d.already_approved ? (
-                                      <span className="device-tag">added</span>
-                                    ) : (
-                                      <button className="secondary" onClick={() => approve(d)}>
-                                        Approve
-                                      </button>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </section>
-
-                {federation && fedConfig && (
-                  <>
-                    <section className="settings-section">
-                      <h3>This device</h3>
-                      <label className="fed-row">
-                        <span className="fed-label">name</span>
-                        <input
-                          defaultValue={fedConfig.device}
-                          key={`name-${fedConfig.device}`}
-                          onBlur={(e) => {
-                            const v = e.target.value.trim();
-                            if (v && v !== fedConfig.device) saveFedConfig({ device: v });
-                          }}
-                        />
-                      </label>
-                      <div className="fed-row">
-                        <span className="fed-label">token</span>
-                        <span className="fed-token-state">
-                          {fedConfig.has_token
-                            ? `set${fedConfig.token_in_keyring ? " · in keychain" : " · in config file"}`
-                            : "not set"}
-                        </span>
-                        <input
-                          type="password"
-                          placeholder="new shared token"
-                          value={tokenInput}
-                          onChange={(e) => setTokenInput(e.target.value)}
-                        />
-                        <button
-                          className="secondary"
-                          disabled={!tokenInput.trim()}
-                          onClick={() => {
-                            saveFedConfig({ token: tokenInput.trim() });
-                            setTokenInput("");
-                          }}
-                        >
-                          Set
-                        </button>
-                        <button
-                          className="linklike"
-                          title="Make a strong random token. Other devices then join with this device's pairing code."
-                          onClick={() => {
-                            const bytes = crypto.getRandomValues(new Uint8Array(24));
-                            const token = btoa(String.fromCharCode(...bytes))
-                              .replace(/\+/g, "-")
-                              .replace(/\//g, "_")
-                              .replace(/=+$/, "");
-                            saveFedConfig({ token });
-                          }}
-                        >
-                          generate
-                        </button>
-                        {fedConfig.has_token && (
-                          <button className="linklike" onClick={() => saveFedConfig({ token: "" })}>
-                            clear
-                          </button>
-                        )}
-                      </div>
-                      <div className="fed-row">
-                        <span className="fed-label">pairing</span>
-                        {fedConfig.pairing_code ? (
-                          <div className="fed-pairing">
-                            <code className="fed-pairing-code">
-                              {showPairing
-                                ? fedConfig.pairing_code
-                                : "•".repeat(28)}
-                            </code>
-                            <button
-                              className="linklike"
-                              onClick={() => setShowPairing((s) => !s)}
-                            >
-                              {showPairing ? "Hide" : "Show"}
-                            </button>
-                            <button
-                              className="secondary"
-                              title="Copy this device's code; paste it on another device's “Add a device by code”"
-                              onClick={() =>
-                                navigator.clipboard?.writeText(fedConfig.pairing_code!)
-                              }
-                            >
-                              Copy
-                            </button>
-                            <span className="doc-desc">
-                              This device's code — paste it on another device to join them.
-                              Treat it like a password.
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="doc-desc">
-                            Set a token (above) and run with Tailscale connected — the
-                            launcher binds to your tailnet automatically, and this
-                            device's pairing code appears here.
-                          </span>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="settings-section">
-                      <h3>Don't share with peers</h3>
-                      <p className="settings-hint">
-                        Tools or projects this device won't serve to your other devices.
-                        Comma-separated.
-                      </p>
-                      <label className="fed-row">
-                        <span className="fed-label">tools</span>
-                        <input
-                          defaultValue={fedConfig.exclude_tools.join(", ")}
-                          key={`et-${fedConfig.exclude_tools.join(",")}`}
-                          placeholder="e.g. cursor, codex"
-                          onBlur={(e) =>
-                            saveFedConfig({ exclude_tools: splitCsv(e.target.value) })
-                          }
-                        />
-                      </label>
-                      <label className="fed-row">
-                        <span className="fed-label">projects</span>
-                        <input
-                          defaultValue={fedConfig.exclude_projects.join(", ")}
-                          key={`ep-${fedConfig.exclude_projects.join(",")}`}
-                          placeholder="path substrings"
-                          onBlur={(e) =>
-                            saveFedConfig({ exclude_projects: splitCsv(e.target.value) })
-                          }
-                        />
-                      </label>
-                    </section>
-
-                    <section className="settings-section">
-                      <h3>Add a device by code</h3>
-                      <p className="settings-hint">
-                        Paste a pairing code from another device to adopt its token and add it.
-                      </p>
-                      <div className="fed-row">
-                        <input
-                          placeholder="pairing code…"
-                          value={pairCode}
-                          onChange={(e) => setPairCode(e.target.value)}
-                        />
-                        <button
-                          className="secondary"
-                          disabled={!pairCode.trim()}
-                          onClick={submitPairCode}
-                        >
-                          Add device
-                        </button>
-                      </div>
-                    </section>
-                  </>
-                )}
-              </div>
-            )}
         </section>
       )}
       </main>
@@ -2234,13 +1935,6 @@ export function App() {
   );
 }
 
-// Split a comma-separated input into trimmed, non-empty values.
-function splitCsv(s: string): string[] {
-  return s
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
 
 // GitHub base for the repo's docs, so in-app links resolve from the
 // locally-served UI. The daemon serves the UI from a file:// or 127.0.0.1

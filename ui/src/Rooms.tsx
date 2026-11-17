@@ -230,7 +230,7 @@ export function Rooms({
 
           {!canPost && (
             <p className="rooms-readonly">
-              Read-only on this phone. To step in from here, allow it in Settings → Phone on
+              Read-only on this phone. To step in from here, allow it in Devices → Phones on
               your computer.
             </p>
           )}

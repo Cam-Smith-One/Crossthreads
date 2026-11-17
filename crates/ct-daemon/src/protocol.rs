@@ -150,6 +150,10 @@ pub enum Request {
         exclude_tools: Option<Vec<String>>,
         #[serde(default)]
         exclude_projects: Option<Vec<String>>,
+        /// A relay (`host:port`) to reach devices through instead of
+        /// Tailscale; empty clears it. Used from the next start.
+        #[serde(default)]
+        relay: Option<String>,
     },
     /// Onboard a second device in one paste: decode a pairing code (from another
     /// device's `GetFederationConfig`), adopt its token if we have none, and
@@ -425,6 +429,104 @@ pub enum Request {
         title: Option<String>,
         #[serde(default)]
         status: Option<String>,
+        /// The device the thread lives on, when it isn't this one.
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// Make thread `part` (on `device`, default this one) part of thread
+    /// `into` (on `into_device`), so one piece of work spans devices
+    /// (SPEC §6.7). Both stay where they are; the board shows them as one.
+    ThreadJoin {
+        part: String,
+        #[serde(default)]
+        device: Option<String>,
+        into: String,
+        #[serde(default)]
+        into_device: Option<String>,
+    },
+    /// Undo [`Request::ThreadJoin`] for `part` on `device`.
+    ThreadSplit {
+        part: String,
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// Keep a note on a thread: a decision, a todo, or context worth keeping.
+    /// The thread is `thread` (on `device`), or else the one the most recent
+    /// session in `cwd` belongs to. Shared with the user's other devices.
+    ThreadNoteAdd {
+        #[serde(default)]
+        thread: Option<String>,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        kind: String,
+        text: String,
+        /// Who is writing: an agent's name. Empty means the user.
+        #[serde(default)]
+        author: Option<String>,
+    },
+    /// Change a note's kind (e.g. `todo` to `done`) or remove it.
+    ThreadNoteEdit {
+        id: String,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        removed: bool,
+    },
+    /// What an agent should know about the work it's in: the thread's
+    /// sessions across tools and devices, its notes, and who else is working
+    /// in the repository now. The thread is `thread` (on `device`) or the one
+    /// for `cwd`. `brief` keeps it short for a session-start hook, and returns
+    /// nothing when there is nothing worth saying.
+    ThreadContext {
+        #[serde(default)]
+        thread: Option<String>,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        brief: bool,
+    },
+    /// Turn session-start context for agents on or off.
+    SetAgentContext { on: bool },
+    /// Show a short code for adding another computer (SPEC §6.8).
+    DevicePairStart,
+    /// Stop showing the code.
+    DevicePairCancel,
+    /// On the new computer: the code the other computer is showing.
+    DevicePairJoin {
+        code: String,
+        /// The other computer's Tailscale address, when it can't be found
+        /// automatically (no Tailscale command on this computer).
+        #[serde(default)]
+        addr: Option<String>,
+    },
+    /// Peer → peer, inside Tailscale: "I have your code; I'm `name`,
+    /// listening on `port`." No token yet; the code is the proof.
+    PeerPairRequest {
+        code: String,
+        name: String,
+        port: u16,
+    },
+    /// Peer → peer, right after pairing: the new device already had devices
+    /// of its own, so this one (which had none) takes its token instead.
+    /// Authenticated with the token pairing just handed over.
+    PeerAdoptToken {
+        #[serde(default)]
+        token: Option<String>,
+        new_token: String,
+    },
+    /// Peer → peer: thread names, status, parts and notes changed after
+    /// `since`; `push` carries the sender's own recent changes.
+    PeerShared {
+        #[serde(default)]
+        token: Option<String>,
+        from: String,
+        since: i64,
+        #[serde(default)]
+        push: Option<ct_store::SharedState>,
     },
 }
 
@@ -441,6 +543,9 @@ impl Request {
                 | Request::PeerThread { .. }
                 | Request::PeerRoomPost { .. }
                 | Request::PeerRoomSync { .. }
+                | Request::PeerShared { .. }
+                | Request::PeerPairRequest { .. }
+                | Request::PeerAdoptToken { .. }
         )
     }
 }
@@ -561,6 +666,11 @@ pub enum Response {
         /// Copy-paste code another device can `PairWithCode` to join. `None` until
         /// both a token and a reachable address are known.
         pairing_code: Option<String>,
+        /// The relay saved for this device, and whether it is in use now.
+        #[serde(default)]
+        relay: Option<String>,
+        #[serde(default)]
+        relay_active: bool,
     },
     Conversation {
         conversation: Option<StoredConversation>,
@@ -718,6 +828,43 @@ pub enum Response {
         claims: Vec<ct_store::Claim>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
+    /// The code to type on the new computer.
+    DevicePairCode {
+        code: String,
+        expires_in: u64,
+        /// This computer's name, to show next to the code.
+        device: String,
+        /// This computer's Tailscale address, for typing in by hand when the
+        /// other computer can't find it.
+        addr: Option<String>,
+        /// Why the other computer won't be able to find this one, if so.
+        problem: Option<String>,
+    },
+    /// The new computer joined.
+    DevicePaired {
+        /// The computer it paired with.
+        name: String,
+        note: Option<String>,
+    },
+    /// Peer → peer: pairing accepted.
+    PeerPaired {
+        name: String,
+        token: String,
+        has_peers: bool,
+    },
+    /// Shared thread state, for a peer.
+    Shared {
+        state: ct_store::SharedState,
+    },
+    ThreadNote {
+        note: ct_store::ThreadNote,
+    },
+    /// Context for an agent: markdown, and the thread it is about.
+    ThreadContext {
+        thread_id: Option<String>,
+        device: Option<String>,
+        markdown: String,
+    },
     Ok {
         ok: bool,
     },

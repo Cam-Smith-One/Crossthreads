@@ -35,6 +35,12 @@ pub struct SetupStatus {
     /// seconds): an older `ct-mcp` or CLI is still in use somewhere.
     #[serde(default)]
     pub keyless_client_at: Option<i64>,
+    /// Agents get the thread's context when a session starts.
+    #[serde(default)]
+    pub agent_context: bool,
+    /// This computer is reachable on Tailscale, so other devices can pair.
+    #[serde(default)]
+    pub tailnet: bool,
 }
 
 fn home(env: &str, default: &str) -> PathBuf {

@@ -439,6 +439,40 @@ change when sessions join or leave; to hold on to a thread, hold a session's
 
 A pair the user unlinked or rejected is never proposed again.
 
+### 7.5a Shared context, and threads across devices
+
+A thread's **notes** (decisions, todos, context) and its name and status are
+shared with the user's other devices; one piece of work can span devices
+([SPEC.md](SPEC.md) §6.7).
+
+- **`thread_context`** (`crossthreads_thread_context`, CLI `crossthreads brief`,
+  daemon `{"op":"thread_context","thread"?,"device"?,"cwd"?,"brief"?}`) →
+  `{"type":"thread_context","thread_id","device","markdown"}`. The thread is the
+  one named, else the one the most recent session in `cwd` (or a folder
+  containing it) belongs to. The markdown lists decisions, open todos (with
+  their ids), context notes and the sessions across tools and devices with
+  their live state. `brief: true` returns an empty string unless there is
+  something the agent's own session can't know (notes, another tool or device,
+  someone else running), and caps it at 1,500 characters; it is what the
+  Claude Code `SessionStart` hook hands the agent as `additionalContext`, and
+  returns nothing when the user turned it off (`{"op":"set_agent_context","on"}`).
+- **`note`** (`crossthreads_note`, CLI `crossthreads note`) →
+  daemon `{"op":"thread_note_add","thread"?,"device"?,"cwd"?,"kind","text","author"?}`
+  or `{"op":"thread_note_edit","id","kind"?,"removed"?}` →
+  `{"type":"thread_note","note":ThreadNote}`. `kind` is `decision`, `todo`,
+  `done` or `context`; text is capped at 4,000 characters. `ThreadDetail.notes`
+  carries them.
+- **Joining across devices:** `{"op":"thread_join","part","device"?,"into","into_device"?}`
+  makes thread `part` (on `device`) part of `into`; `{"op":"thread_split","part","device"?}`
+  undoes it. `set_thread` takes `device` too. Lists fold joined threads into one
+  `ThreadSummary` with `devices[]`, and `related[]` names threads on other
+  devices that look like the same work. A handoff ends with
+  ``Crossthreads thread: `th_…@device` ``; a session that opens with it joins
+  that thread automatically.
+- **Between devices:** `{"op":"peer_shared","token","from","since","push"?}` →
+  `{"type":"shared","state":{threads,parts,notes,upto}}`. Each field is
+  last-writer-wins by (time, device).
+
 ### 7.6 Rooms
 
 Agents and the human exchange messages in a **room** ([SPEC.md](SPEC.md) §6.4).

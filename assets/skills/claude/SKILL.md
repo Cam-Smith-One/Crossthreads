@@ -27,6 +27,23 @@ Doing this early is cheap and routinely saves re-deriving a past decision. When
 in doubt, recall first. Don't announce that you're "checking memory" — just do
 it and fold what you learn into your work.
 
+## Shared context with other agents and devices
+
+The work you're doing usually belongs to a **thread**: one piece of work that
+may span tools (Claude Code, Codex, …) and the user's other machines. Keep it
+shared:
+
+1. **At the start of a task, call `crossthreads_thread_context`** (no arguments:
+   it finds the thread for your working directory). It returns the thread's
+   decisions, open todos and notes, and the other sessions in it — including
+   ones running right now in another tool or on another device. Respect
+   decisions already made there; don't redo work another session finished.
+2. **Record what the next agent needs with `crossthreads_note`**: a decision and
+   why (`kind: "decision"`), a todo you're leaving open (`"todo"`), or context
+   (`"context"`). When you finish a todo, call it again with that note's `id`
+   and `kind: "done"`. Pass `me` (your name). Keep notes to a sentence or two.
+3. Don't note routine progress — only what someone picking this up would need.
+
 ## When to use the higher-level tools
 
 - Starting a work session or unsure what's outstanding → `crossthreads_open_loops`

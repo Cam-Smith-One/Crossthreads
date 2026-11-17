@@ -50,7 +50,7 @@ pub struct Federation {
     /// This daemon's own peer-reachable address (the `--addr` it binds), used to
     /// build a pairing code. `None` when only loopback-bound.
     pub listen_addr: Option<String>,
-    /// Mutable identity + serve-scope, so the Settings → Devices panel can edit
+    /// Mutable identity + serve-scope, so the Devices panel can edit
     /// the device name, token, and what this device exposes at runtime.
     inner: Mutex<Identity>,
     /// Approved peers to fan a local search out to. Behind a lock so the panel
@@ -73,6 +73,8 @@ struct Identity {
     exclude_tools: Vec<String>,
     /// Project substrings this device will not serve to peers.
     exclude_projects: Vec<String>,
+    /// A relay to reach devices through instead of Tailscale (docs/RELAY.md).
+    relay: Option<String>,
 }
 
 impl Federation {
@@ -87,6 +89,7 @@ impl Federation {
                 token_in_keyring: false,
                 exclude_tools: Vec::new(),
                 exclude_projects: Vec::new(),
+                relay: None,
             }),
             peers: Mutex::new(peers),
             config_path: None,
@@ -121,6 +124,30 @@ impl Federation {
             .lock()
             .expect("identity mutex poisoned")
             .token_in_keyring = yes;
+        self
+    }
+
+    /// The relay set for this device, if any (used from the next start).
+    pub fn relay(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .expect("identity mutex poisoned")
+            .relay
+            .clone()
+    }
+
+    /// Set or (with an empty string) clear the relay. Persisted; takes effect
+    /// when the daemon next starts.
+    pub fn set_relay(&self, relay: &str) {
+        let relay = relay.trim();
+        self.inner.lock().expect("identity mutex poisoned").relay =
+            (!relay.is_empty()).then(|| relay.to_string());
+        self.save();
+    }
+
+    /// Builder form of [`Federation::set_relay`], without saving.
+    pub fn with_relay(self, relay: Option<String>) -> Self {
+        self.inner.lock().expect("identity mutex poisoned").relay = relay;
         self
     }
 
@@ -209,11 +236,11 @@ impl Federation {
             }
             if let Some(t) = token {
                 if t.is_empty() {
-                    token_store::delete();
+                    self.keep_token(None);
                     id.token = None;
                     id.token_in_keyring = false;
                 } else {
-                    id.token_in_keyring = token_store::set(&t);
+                    id.token_in_keyring = self.keep_token(Some(&t));
                     id.token = Some(t);
                 }
             }
@@ -235,7 +262,7 @@ impl Federation {
             if id.token.is_some() || token.is_empty() {
                 return false;
             }
-            id.token_in_keyring = token_store::set(token);
+            id.token_in_keyring = self.keep_token(Some(token));
             id.token = Some(token.to_string());
         }
         self.save();
@@ -309,6 +336,22 @@ impl Federation {
         removed
     }
 
+    /// Keep (or with `None`, delete) the token in the OS keychain. Only a real
+    /// daemon, one with a config file, touches the keychain; one built in a
+    /// test or embedded use keeps its token in memory.
+    fn keep_token(&self, token: Option<&str>) -> bool {
+        if self.config_path.is_none() {
+            return false;
+        }
+        match token {
+            Some(t) => token_store::set(t),
+            None => {
+                token_store::delete();
+                false
+            }
+        }
+    }
+
     /// Rewrite the config file now (e.g. to migrate a plaintext token into the
     /// keychain on startup).
     pub fn persist(&self) {
@@ -333,6 +376,7 @@ impl Federation {
             peers,
             exclude_tools: id.exclude_tools.clone(),
             exclude_projects: id.exclude_projects.clone(),
+            relay: id.relay.clone(),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&cfg) {
             if let Some(parent) = path.parent() {
@@ -360,7 +404,7 @@ pub fn check_token_strength(token: &str) -> std::result::Result<(), String> {
         .len();
     if token.chars().count() < MIN_TOKEN_LEN || distinct < 8 {
         return Err(format!(
-            "use a shared token of at least {MIN_TOKEN_LEN} varied characters (Settings → Devices \
+            "use a shared token of at least {MIN_TOKEN_LEN} varied characters (Devices \
              → Generate makes one)"
         ));
     }
@@ -415,6 +459,8 @@ pub struct PersistedConfig {
     pub exclude_tools: Vec<String>,
     #[serde(default)]
     pub exclude_projects: Vec<String>,
+    #[serde(default)]
+    pub relay: Option<String>,
 }
 
 impl PersistedConfig {

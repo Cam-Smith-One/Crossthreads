@@ -17,15 +17,17 @@ use serde::{Deserialize, Serialize};
 pub mod behavior;
 pub mod rooms;
 mod schema;
+pub mod shared;
 pub mod themes;
 pub mod threads;
 
 pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
 pub use rooms::{Claim, RoomMessage, RoomSummary};
 pub use schema::SCHEMA_VERSION;
+pub use shared::{SharedPart, SharedState, SharedThread, ThreadNote};
 pub use themes::{Theme, ThemeSample};
 pub use threads::{
-    DetectReport, Live, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink,
+    DetectReport, Live, PartRef, SessionRef, Suggestion, ThreadDetail, ThreadFilters, ThreadLink,
     ThreadSummary,
 };
 

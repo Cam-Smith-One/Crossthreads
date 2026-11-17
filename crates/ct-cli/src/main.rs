@@ -12,7 +12,9 @@ use anyhow::{Context, Result};
 
 mod activity;
 mod ask;
+mod connect;
 mod context;
+mod devices;
 mod fluency;
 mod glance;
 mod hooks;
@@ -49,6 +51,11 @@ COMMANDS:
                       --remote asks the daemon: live state + other devices)
     thread <ID>       Show one thread; or `thread link|unlink|reject|rename|
                       status …` to edit how sessions are grouped
+    note <TEXT>       Keep a note on this folder's thread (--kind decision|todo|
+                      context; `note done <ID>`); agents and devices see it
+    brief [THREAD]    What an agent is told about this folder's thread
+    devices [CMD]     Your other computers: list | add (show a code) |
+                      join <CODE> (on the new computer)
     resume <ID>       How to pick a session back up in its native tool
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
@@ -60,6 +67,8 @@ COMMANDS:
                       just print the one-time link)
     phone [CMD]       Open your board on your phone over Tailscale: on | off |
                       pair (QR code) | post <ID> on|off | revoke <ID>
+    connect           Connect Claude Code and Codex in one step: hooks, skill
+                      and MCP server (safe to re-run; fixes stale entries)
     hooks <CMD>       install | uninstall | status the hooks that report live
                       session state from Claude Code and Codex to the board
     status            Show index health (local, or --remote for the daemon)
@@ -137,8 +146,12 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("glance") => glance::run(&args[1..]),
         Some("room") => room::run(&args[1..]),
         Some("phone") => phone::run(&args[1..]),
+        Some("devices") => devices::run(&args[1..]),
+        Some("note") => devices::note(&args[1..]),
+        Some("brief") => devices::context(&args[1..]),
         Some("open") => open::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
+        Some("connect") => connect::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.
         Some("hook") => Ok(hooks::run_hook(&args[1..])),
         Some("status") => status::run(&args[1..]),

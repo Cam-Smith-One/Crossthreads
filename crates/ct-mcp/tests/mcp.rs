@@ -305,3 +305,51 @@ fn search_without_daemon_reports_tool_error() {
         .unwrap();
     assert_eq!(resp["result"]["isError"], true);
 }
+
+#[test]
+fn agents_keep_notes_and_read_the_shared_context() {
+    let s = server_with_daemon();
+    let call = |id: i64, name: &str, args: serde_json::Value| {
+        s.handle(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call",
+            "params":{"name":name,"arguments":args}}))
+            .unwrap()
+    };
+    let resp = call(
+        1,
+        "crossthreads_note",
+        json!({"text":"Backoff caps at 30s","kind":"decision","me":"claude","cwd":"/acme-api"}),
+    );
+    assert_eq!(resp["result"]["isError"], false, "{resp}");
+    let resp = call(
+        2,
+        "crossthreads_note",
+        json!({"text":"Add jitter","kind":"todo","me":"codex","cwd":"/acme-api/src"}),
+    );
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let todo = text
+        .split(['[', ']'])
+        .find(|w| w.starts_with("n_"))
+        .unwrap()
+        .to_string();
+
+    let resp = call(3, "crossthreads_thread_context", json!({"cwd":"/acme-api"}));
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Backoff caps at 30s"), "{text}");
+    assert!(text.contains("Add jitter"), "{text}");
+    assert!(text.contains(&todo), "{text}");
+
+    // Finish the todo.
+    let resp = call(4, "crossthreads_note", json!({"id": todo, "kind":"done"}));
+    assert_eq!(resp["result"]["isError"], false, "{resp}");
+    let resp = call(5, "crossthreads_thread_context", json!({"cwd":"/acme-api"}));
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(!text.contains("Open todos"), "{text}");
+
+    // Somewhere with no sessions is a clear error.
+    let resp = call(
+        6,
+        "crossthreads_note",
+        json!({"text":"x","cwd":"/elsewhere"}),
+    );
+    assert_eq!(resp["result"]["isError"], true);
+}

@@ -1,19 +1,28 @@
 name: Desktop app
 
-# Builds the macOS app (Crossthreads.app) as a .dmg: one universal build for
-# Apple Silicon and Intel, with crossthreadsd, crossthreads and ct-mcp inside
-# the bundle so installing the app is the whole setup.
+# Builds the desktop app, with crossthreadsd, crossthreads and ct-mcp inside
+# so installing the app is the whole setup:
+# - macOS: Crossthreads.app as a .dmg, one universal build for Apple Silicon
+#   and Intel.
+# - Windows: a per-user NSIS installer (no administrator needed), x64.
 #
-# - On a pull request that touches the app: builds it and keeps the .dmg as a
-#   workflow artifact, so the bundle is checked before it merges.
-# - On a release tag (or a manual run with a tag): also attaches the .dmg to
-#   that GitHub release.
+# - On a pull request that touches the app: builds both and keeps the .dmg and
+#   the installer as workflow artifacts, so the bundles are checked before they
+#   merge.
+# - On a release tag (or a manual run with a tag): also attaches them to that
+#   GitHub release.
 #
-# Signing: without Apple credentials the app is ad-hoc signed, and macOS asks
-# you to confirm the first time you open it. To ship a signed, notarized app,
-# add these repository secrets and the build uses them:
+# Signing (macOS): without Apple credentials the app is ad-hoc signed, and
+# macOS asks you to confirm the first time you open it. To ship a signed,
+# notarized app, add these repository secrets and the build uses them:
 #   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
 #   APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID
+#
+# Signing (Windows): without a certificate the installer and the programs are
+# unsigned, and SmartScreen warns the first time ("More info" -> "Run anyway").
+# To sign them, add these repository secrets and the build uses them:
+#   WINDOWS_CERTIFICATE (base64 .pfx code-signing certificate),
+#   WINDOWS_CERTIFICATE_PASSWORD
 on:
   push:
     tags: ["v*"]
@@ -24,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the .dmg to (e.g. v0.22.0); empty for an artifact only"
+        description: "Release tag to attach the .dmg and the Windows installer to (e.g. v0.22.0); empty for artifacts only"
         required: false
 
 permissions:
@@ -195,3 +204,183 @@ jobs:
           files: |
             Crossthreads-*.dmg
             Crossthreads-*.dmg.sha256
+
+  windows:
+    name: Windows app (NSIS installer, x64)
+    runs-on: windows-latest
+    env:
+      # Secrets can't be tested in a step's `if`, so say here whether one is set.
+      HAS_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          [[ -z "$tag" && "${{ github.ref_type }}" == "tag" ]] && tag="${{ github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./ui/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-windows
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the bundled programs
+        run: cargo build --release --target x86_64-pc-windows-msvc --bin crossthreadsd --bin crossthreads --bin ct-mcp
+
+      - name: Hand them to the bundler
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          for b in crossthreadsd crossthreads ct-mcp; do
+            cp "target/x86_64-pc-windows-msvc/release/$b.exe" \
+               "src-tauri/binaries/$b-x86_64-pc-windows-msvc.exe"
+          done
+          ls -la src-tauri/binaries
+
+      - name: Import the code-signing certificate (only if configured)
+        id: cert
+        if: env.HAS_WINDOWS_CERTIFICATE == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password |
+            Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+          Remove-Item $pfx
+          if (-not $cert) { throw "the certificate has no private key" }
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Build the app and the installer
+        working-directory: src-tauri
+        shell: bash
+        env:
+          THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
+        run: |
+          # The UI was built above; don't build it again.
+          config='{"build":{"beforeBuildCommand":""}}'
+          if [[ -n "$THUMBPRINT" ]]; then
+            # Sign with the imported certificate (the bundler runs signtool).
+            config='{"build":{"beforeBuildCommand":""},"bundle":{"windows":{"certificateThumbprint":"'"$THUMBPRINT"'","digestAlgorithm":"sha256","timestampUrl":"http://timestamp.digicert.com"}}}'
+          fi
+          npx --yes @tauri-apps/cli@2 build \
+            --target x86_64-pc-windows-msvc --bundles nsis \
+            --config "$config"
+
+      - name: Check the bundle
+        shell: bash
+        run: |
+          rel="src-tauri/target/x86_64-pc-windows-msvc/release"
+          ls -la "$rel/bundle/nsis"
+          setup=$(ls "$rel"/bundle/nsis/*-setup.exe | head -1)
+          test -f "$setup"
+          test -f "$rel/ct-desktop.exe"
+          # What the installer puts on disk (7-Zip reads NSIS installers).
+          # Informational: 7-Zip's view of an NSIS script isn't guaranteed.
+          if 7z l "$setup" > "$RUNNER_TEMP/setup-contents.txt" 2>&1; then
+            for f in ct-desktop.exe crossthreadsd.exe crossthreads.exe ct-mcp.exe index.html; do
+              grep -q "$f" "$RUNNER_TEMP/setup-contents.txt" \
+                && echo "installer contains $f" \
+                || echo "::warning::7-Zip doesn't list $f in the installer"
+            done
+          fi
+          # The bundled CLI runs.
+          "src-tauri/binaries/crossthreads-x86_64-pc-windows-msvc.exe" help > "$RUNNER_TEMP/help.txt"
+          head -3 "$RUNNER_TEMP/help.txt"
+
+      - name: Smoke test (launch the app; it should start its own daemon)
+        shell: bash
+        run: |
+          rel="src-tauri/target/x86_64-pc-windows-msvc/release"
+          # Run the app as built, with the bundled programs beside it, as the
+          # installer lays them out. The bundler normally copies them there.
+          for b in crossthreadsd crossthreads ct-mcp; do
+            [[ -f "$rel/$b.exe" ]] || cp "src-tauri/binaries/$b-x86_64-pc-windows-msvc.exe" "$rel/$b.exe"
+          done
+          ls -la "$rel"/*.exe
+          cli="$rel/crossthreads.exe"
+          want="${{ steps.ver.outputs.version }}"
+          # Reproduce an upgrade: an older daemon (from an earlier terminal
+          # install) is already running. The app must replace it with its own.
+          old="$(cygpath -u "$RUNNER_TEMP")/old-daemon"
+          mkdir -p "$old"
+          curl -fsSL -o "$old/old.zip" \
+            https://github.com/Cam-Smith-One/Crossthreads/releases/download/v0.21.0/crossthreads-v0.21.0-x86_64-pc-windows-msvc.zip
+          7z x "$(cygpath -w "$old/old.zip")" -o"$(cygpath -w "$old")" > /dev/null
+          "$(find "$old" -name crossthreadsd.exe -type f | head -1)" --addr 127.0.0.1:47100 --no-watch \
+            > "$old/old.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            "$cli" status --remote >/dev/null 2>&1 && break
+            sleep 1
+          done
+          echo "before launching the app:"
+          "$cli" status --remote | head -2 || true
+          "$rel/ct-desktop.exe" &
+          ok=0
+          for _ in $(seq 1 60); do
+            if "$cli" status --remote 2>/dev/null | grep -q "version $want"; then
+              "$cli" status --remote; ok=1; break
+            fi
+            sleep 2
+          done
+          # The web app answers too, and needs signing in.
+          curl -s -o /dev/null -w "web app: HTTP %{http_code}\n" -X POST \
+            -H 'Content-Type: application/json' -d '{"op":"status"}' http://127.0.0.1:47101/api/rpc || true
+          "$cli" open --print || true
+          # Stop everything. Killed this way the app can't stop its daemon (it
+          # does on Quit), so stop that too. `//` keeps Git Bash from turning
+          # the switches into paths.
+          taskkill //IM ct-desktop.exe //F || true
+          taskkill //IM crossthreadsd.exe //F || true
+          sleep 2
+          tail -20 "$(cygpath -u "$LOCALAPPDATA")/Crossthreads/Logs/crossthreadsd.log" 2>/dev/null || true
+          [[ "$ok" == 1 ]] || { echo "the app didn't bring up a daemon of its version $want"; exit 1; }
+          echo "the app replaced the older daemon with its own $want"
+
+      - name: Name the installer
+        shell: bash
+        run: |
+          setup=$(ls src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe | head -1)
+          out="Crossthreads-${{ steps.ver.outputs.version }}-windows-x64-setup.exe"
+          cp "$setup" "$out"
+          sha256sum "$out" | tee "$out.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Crossthreads-windows-setup
+          path: |
+            Crossthreads-*-setup.exe
+            Crossthreads-*-setup.exe.sha256
+
+      - name: Attach to the release
+        if: steps.ver.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          files: |
+            Crossthreads-*-setup.exe
+            Crossthreads-*-setup.exe.sha256

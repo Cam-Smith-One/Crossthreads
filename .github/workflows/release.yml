@@ -68,7 +68,7 @@ jobs:
       - name: Build binaries (release)
         run: >
           cargo build --release --target ${{ matrix.target }}
-          --bin crossthreadsd --bin crossthreads --bin ct-mcp
+          --bin crossthreadsd --bin crossthreads --bin ct-mcp --bin crossthreads-relay
 
       - name: Assemble package
         shell: bash
@@ -80,7 +80,8 @@ jobs:
           # Binaries carry a .exe suffix on Windows; copy whichever exists.
           ext=""
           [[ "$RUNNER_OS" == "Windows" ]] && ext=".exe"
-          for b in crossthreadsd crossthreads ct-mcp; do
+          # crossthreads-relay is for self-hosting a relay (docs/RELAY.md).
+          for b in crossthreadsd crossthreads ct-mcp crossthreads-relay; do
             cp "target/${{ matrix.target }}/release/${b}${ext}" "$stage/bin/"
           done
           cp -R ui/dist/. "$stage/ui/"

@@ -368,6 +368,65 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_thread_context",
+                    "description": "What you should know about the work you're in: the thread \
+                        this folder's sessions belong to, across tools (Claude Code, Codex, …) and \
+                        across the user's devices — its decisions, open todos, notes, and the \
+                        other sessions in it (who did what, which are running now). Call it at \
+                        the start of a task, or before picking up work another agent started. \
+                        Defaults to the thread for your working directory.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "thread": {
+                                "type": "string",
+                                "description": "A thread id (th_…) or session id. Omit for the thread of your working directory."
+                            },
+                            "cwd": {
+                                "type": "string",
+                                "description": "Working directory to find the thread for (default: this server's)."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "crossthreads_note",
+                    "description": "Keep a note on the current thread so other agents (in any \
+                        tool) and the user's other devices see it: a decision and why, a todo \
+                        left open, context someone picking this up needs. Mark a todo done by \
+                        passing its id with kind \"done\". Keep notes short and factual.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "The note (one or two sentences)."
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": ["decision", "todo", "done", "context"],
+                                "description": "What sort of note (default: context)."
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "An existing note's id (n_…) to change its kind, e.g. a todo to done. Then text is ignored."
+                            },
+                            "me": {
+                                "type": "string",
+                                "description": "Your name, e.g. claude or codex."
+                            },
+                            "thread": {
+                                "type": "string",
+                                "description": "A thread id. Omit for the thread of your working directory."
+                            },
+                            "cwd": {
+                                "type": "string",
+                                "description": "Working directory (default: this server's)."
+                            }
+                        }
+                    }
+                },
+                {
                     "name": "crossthreads_room_send",
                     "description": "Post a message to another AI agent in this project's room, \
                         then block until the reply arrives and return it. The main room tool: \
@@ -606,6 +665,8 @@ impl Server {
             "crossthreads_ask" => Ok(self.call_ask(&args)),
             "crossthreads_threads" => Ok(self.call_threads(&args)),
             "crossthreads_thread" => Ok(self.call_thread(&args)),
+            "crossthreads_thread_context" => Ok(self.call_thread_context(&args)),
+            "crossthreads_note" => Ok(self.call_note(&args)),
             "crossthreads_room_send"
             | "crossthreads_room_wait"
             | "crossthreads_room_history"
@@ -952,12 +1013,17 @@ impl Server {
                 );
                 for sess in &t.sessions {
                     out.push_str(&format!(
-                        "\n- {} {} {} — {}",
+                        "\n- {} {}{} {} — {}",
                         sess.started_at
                             .as_deref()
                             .map(|d| &d[..d.len().min(10)])
                             .unwrap_or("undated"),
                         sess.tool,
+                        sess.device
+                            .as_deref()
+                            .filter(|_| !t.parts.is_empty())
+                            .map(|d| format!(" on {d}"))
+                            .unwrap_or_default(),
                         sess.conversation_id,
                         sess.title.as_deref().unwrap_or("(untitled)"),
                     ));
@@ -967,6 +1033,15 @@ impl Server {
                         "\n\n{} → {}: {} ({})",
                         l.from, l.to, l.kind, l.origin
                     ));
+                }
+                if !t.notes.is_empty() {
+                    out.push_str("\n\nNotes:");
+                    for n in &t.notes {
+                        out.push_str(&format!(
+                            "\n- [{}] {} {}: {}",
+                            n.id, n.kind, n.author, n.text
+                        ));
+                    }
                 }
                 if !t.suggestions.is_empty() {
                     out.push_str(&format!(
@@ -979,6 +1054,65 @@ impl Server {
             Ok(Response::Error { message }) => tool_error(message),
             Ok(other) => tool_error(format!("unexpected response: {other:?}")),
             Err(e) => tool_error(format!("thread failed ({e:#}). Is crossthreadsd running?")),
+        }
+    }
+
+    fn call_thread_context(&self, args: &Value) -> Value {
+        let thread = args
+            .get("thread")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        match self.client.call(&Request::ThreadContext {
+            thread,
+            device: None,
+            cwd: cwd_from(args),
+            brief: false,
+        }) {
+            Ok(Response::ThreadContext { markdown, .. }) => tool_text(markdown),
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!(
+                "thread context failed ({e:#}). Is crossthreadsd running?"
+            )),
+        }
+    }
+
+    fn call_note(&self, args: &Value) -> Value {
+        let kind = args
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("context")
+            .to_string();
+        let req = if let Some(id) = args.get("id").and_then(Value::as_str) {
+            Request::ThreadNoteEdit {
+                id: id.to_string(),
+                kind: Some(kind),
+                removed: false,
+            }
+        } else {
+            let Some(text) = args.get("text").and_then(Value::as_str) else {
+                return tool_error("missing required argument: text");
+            };
+            Request::ThreadNoteAdd {
+                thread: args
+                    .get("thread")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                device: None,
+                cwd: cwd_from(args),
+                kind,
+                text: text.to_string(),
+                author: args.get("me").and_then(Value::as_str).map(str::to_string),
+            }
+        };
+        match self.client.call(&req) {
+            Ok(Response::ThreadNote { note }) => tool_text(format!(
+                "Noted on thread {} as {} [{}]. Other agents and devices will see it.",
+                note.thread_id, note.kind, note.id
+            )),
+            Ok(Response::Error { message }) => tool_error(message),
+            Ok(other) => tool_error(format!("unexpected response: {other:?}")),
+            Err(e) => tool_error(format!("note failed ({e:#}). Is crossthreadsd running?")),
         }
     }
 
@@ -1163,6 +1297,19 @@ fn filters_from(args: &Value) -> Filters {
 }
 
 /// A successful tool result with a single text block.
+/// The working directory a tool call is about: the `cwd` argument, else
+/// this server's own (agents start their MCP servers in the project).
+fn cwd_from(args: &Value) -> Option<String> {
+    args.get("cwd")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        })
+}
+
 fn tool_text(text: String) -> Value {
     json!({ "content": [ { "type": "text", "text": text } ], "isError": false })
 }

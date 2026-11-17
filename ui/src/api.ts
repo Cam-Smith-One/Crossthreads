@@ -150,6 +150,8 @@ export interface SetupStatus {
   model: boolean;
   devices: number;
   devices_can_message: number;
+  /** Agents get the thread's context when a session starts. */
+  agent_context?: boolean;
   phone_enabled: boolean;
   phones: number;
   claude_present: boolean;
@@ -294,6 +296,9 @@ export interface FederationConfig {
   exclude_tools: string[];
   exclude_projects: string[];
   pairing_code?: string | null;
+  /** The relay saved for this device, and whether it's in use now. */
+  relay?: string | null;
+  relay_active?: boolean;
 }
 
 export function getFederationConfig(): Promise<FederationConfig> {
@@ -305,6 +310,7 @@ export function setFederationConfig(patch: {
   token?: string;
   exclude_tools?: string[];
   exclude_projects?: string[];
+  relay?: string;
 }): Promise<FederationConfig> {
   return rpc<FederationConfig>({ op: "set_federation_config", ...patch });
 }
@@ -706,6 +712,31 @@ export interface SessionRef {
   branch?: string | null;
   message_count: number;
   live?: Live | null;
+  /** The device this session ran on, when the thread spans devices. */
+  device?: string | null;
+}
+
+/** A thread on a particular device. */
+export interface PartRef {
+  device: string;
+  id: string;
+  title: string;
+}
+
+export type NoteKind = "decision" | "todo" | "done" | "context";
+
+/** A note kept on a thread by you or an agent; shared with your devices. */
+export interface ThreadNote {
+  id: string;
+  thread_id: string;
+  kind: NoteKind;
+  text: string;
+  author: string;
+  device: string;
+  /** Epoch milliseconds. */
+  created: number;
+  removed: boolean;
+  updated: number;
 }
 
 export interface ThreadSummary {
@@ -725,6 +756,10 @@ export interface ThreadSummary {
   live?: Live | null;
   /** The device the thread is on, when the list spans devices. */
   device?: string | null;
+  /** Every device with part of this thread, when it spans more than one. */
+  devices?: string[];
+  /** Threads on other devices that look like the same work. */
+  related?: PartRef[];
 }
 
 export interface ThreadLink {
@@ -751,6 +786,9 @@ export interface ThreadDetail extends ThreadSummary {
   sessions: SessionRef[];
   links: ThreadLink[];
   suggestions: ThreadSuggestion[];
+  notes?: ThreadNote[];
+  /** This thread's parts on other devices. */
+  parts?: PartRef[];
 }
 
 /** Threads on this device and, with federation set up, on every reachable
@@ -796,13 +834,84 @@ export async function rejectLink(a: string, b: string): Promise<boolean> {
   return data.ok;
 }
 
+/** Rename a thread or set its status, on whichever device it lives; the
+ * change reaches your other devices too. */
 export async function setThread(
   id: string,
   change: { title?: string; status?: ThreadStatus },
+  device?: string | null,
 ): Promise<string | null> {
-  const data = await rpc<{ id: string | null }>({ op: "set_thread", id, ...change });
+  const data = await rpc<{ id: string | null }>({
+    op: "set_thread",
+    id,
+    ...change,
+    ...(device ? { device } : {}),
+  });
   return data.id;
 }
+
+/** Make thread `part` (on `device`) part of thread `into` (on `intoDevice`). */
+export async function joinThread(
+  part: string,
+  device: string | null | undefined,
+  into: string,
+  intoDevice: string | null | undefined,
+): Promise<string | null> {
+  const data = await rpc<{ id: string | null }>({
+    op: "thread_join",
+    part,
+    into,
+    ...(device ? { device } : {}),
+    ...(intoDevice ? { into_device: intoDevice } : {}),
+  });
+  return data.id;
+}
+
+/** Undo a join. */
+export const splitThread = (part: string, device?: string | null) =>
+  rpc<{ ok: boolean }>({ op: "thread_split", part, ...(device ? { device } : {}) });
+
+export async function addNote(
+  thread: string,
+  device: string | null | undefined,
+  kind: NoteKind,
+  text: string,
+): Promise<ThreadNote> {
+  const data = await rpc<{ note: ThreadNote }>({
+    op: "thread_note_add",
+    thread,
+    kind,
+    text,
+    ...(device ? { device } : {}),
+  });
+  return data.note;
+}
+
+export async function editNote(id: string, change: { kind?: NoteKind; removed?: boolean }) {
+  const data = await rpc<{ note: ThreadNote }>({ op: "thread_note_edit", id, ...change });
+  return data.note;
+}
+
+export const setAgentContext = (on: boolean) => rpc<{ ok: boolean }>({ op: "set_agent_context", on });
+
+// --- Adding a device (a short code) ------------------------------------------
+
+export interface DevicePairCode {
+  code: string;
+  expires_in: number;
+  device: string;
+  addr?: string | null;
+  problem?: string | null;
+}
+
+export const devicePairStart = () => rpc<DevicePairCode>({ op: "device_pair_start" });
+export const devicePairCancel = () => rpc<{ ok: boolean }>({ op: "device_pair_cancel" });
+export const devicePairJoin = (code: string, addr?: string) =>
+  rpc<{ name: string; note?: string | null }>({
+    op: "device_pair_join",
+    code,
+    ...(addr ? { addr } : {}),
+  });
 
 // --- Rooms (agents and you, talking in one place) -------------------------
 

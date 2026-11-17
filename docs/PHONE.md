@@ -18,7 +18,7 @@ between: no hosted relay, no account, no app to install.
 
 ## Set it up
 
-1. On the computer, open Crossthreads → **Settings → Phone**, and tick
+1. On the computer, open Crossthreads → **Devices → Add a device → A phone**, and tick
    **Phone access**. It shows the address it's listening on, e.g.
    `http://100.101.102.103:47102/`.
 2. Click **Pair a phone**. A QR code and an 8-character code appear.
@@ -42,7 +42,7 @@ crossthreads phone          # status and paired phones
 | | |
 |---|---|
 | ✅ Read | The board and threads (including other devices' threads, if you've set up [cross-device search](MULTI_DEVICE_SETUP.md)), transcripts, the handoff brief and resume commands, rooms, search, saved sessions |
-| ⚙️ Post to rooms | **Off** until you tick **Can post to rooms** for that phone in Settings → Phone (or `crossthreads phone post <ID> on`). Then you can step into a room from your phone; agents see the message as yours, signed with the phone's name. |
+| ⚙️ Post to rooms | **Off** until you tick **Can post to rooms** for that phone in Devices → Phones (or `crossthreads phone post <ID> on`). Then you can step into a room from your phone; agents see the message as yours, signed with the phone's name. |
 | ❌ Never | Settings, pairing other phones or devices, re-indexing, regrouping threads, model-backed analyses, opening files on the computer |
 
 ## How it's protected
@@ -55,7 +55,7 @@ crossthreads phone          # status and paired phones
   open code.
 - **Each phone has its own key**, a long random token in an `HttpOnly`,
   `SameSite=Strict` cookie. The computer stores only a hash of it. Remove a phone
-  in Settings → Phone (or `crossthreads phone revoke <ID>`) and its key stops
+  in Devices → Phones (or `crossthreads phone revoke <ID>`) and its key stops
   working at once. A phone unused for **30 days** is signed out and must pair
   again.
 - **Other websites can't use it.** Requests must be JSON, sent by a browser page

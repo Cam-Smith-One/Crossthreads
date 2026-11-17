@@ -25,12 +25,15 @@ pub mod insights;
 pub mod live;
 pub mod local_auth;
 pub mod optimize;
+pub mod pairing;
 pub mod phone;
 pub mod protocol;
+pub mod relay;
 pub mod resume;
 pub mod rooms;
 pub mod schedule;
 pub mod setup;
+mod shared;
 pub mod weekly;
 pub use ct_store::{
     behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
@@ -85,6 +88,8 @@ pub struct Daemon {
     /// seconds): almost always an older `ct-mcp` or `crossthreads` still
     /// running in an agent. Shown in Settings → Get started.
     keyless_client_at: Arc<Mutex<Option<i64>>>,
+    /// The code shown for adding another computer (SPEC §6.8).
+    device_pairing: Arc<pairing::DevicePairing>,
 }
 
 impl Daemon {
@@ -108,6 +113,7 @@ impl Daemon {
             login_tickets: Arc::new(local_auth::Tickets::default()),
             http_addr: None,
             keyless_client_at: Arc::new(Mutex::new(None)),
+            device_pairing: Arc::new(pairing::DevicePairing::default()),
         }
     }
 
@@ -388,6 +394,9 @@ impl Daemon {
                     }
                 }
                 Ok(Request::LoginTicket) => self.login_ticket(),
+                Ok(Request::PeerPairRequest { code, name, port }) => {
+                    self.peer_pair_request(&code, &name, port, peer)
+                }
                 Ok(req) => self.handle(req),
                 Err(e) => Response::Error {
                     message: format!("bad request: {e}"),
@@ -484,7 +493,13 @@ impl Daemon {
                 token,
                 exclude_tools,
                 exclude_projects,
-            } => self.set_federation_config(device, token, exclude_tools, exclude_projects),
+                relay,
+            } => {
+                if let (Some(r), Some(fed)) = (relay.as_deref(), &self.federation) {
+                    fed.set_relay(r);
+                }
+                self.set_federation_config(device, token, exclude_tools, exclude_projects)
+            }
             Request::PairWithCode { code } => self.pair_with_code(&code),
             Request::GetLlmConfig => llm_config(),
             Request::SetLlmKey { provider, key } => set_llm_key(&provider, &key),
@@ -598,9 +613,72 @@ impl Daemon {
                 .unwrap_or_else(err),
             Request::UnlinkSession { id } => self.unlink_session(&id).unwrap_or_else(err),
             Request::RejectLink { a, b } => self.reject_link(&a, &b).unwrap_or_else(err),
-            Request::SetThread { id, title, status } => self
-                .set_thread(&id, title.as_deref(), status.as_deref())
+            Request::SetThread {
+                id,
+                title,
+                status,
+                device,
+            } => self
+                .edit_thread(&id, device.as_deref(), title.as_deref(), status.as_deref())
                 .unwrap_or_else(err),
+            Request::ThreadJoin {
+                part,
+                device,
+                into,
+                into_device,
+            } => self
+                .join_thread(&part, device.as_deref(), &into, into_device.as_deref())
+                .unwrap_or_else(err),
+            Request::ThreadSplit { part, device } => self
+                .split_thread(&part, device.as_deref())
+                .unwrap_or_else(err),
+            Request::ThreadNoteAdd {
+                thread,
+                device,
+                cwd,
+                kind,
+                text,
+                author,
+            } => self
+                .add_note(
+                    thread.as_deref(),
+                    device.as_deref(),
+                    cwd.as_deref(),
+                    &kind,
+                    &text,
+                    author.as_deref(),
+                )
+                .unwrap_or_else(err),
+            Request::ThreadNoteEdit { id, kind, removed } => self
+                .edit_note(&id, kind.as_deref(), removed)
+                .unwrap_or_else(err),
+            Request::ThreadContext {
+                thread,
+                device,
+                cwd,
+                brief,
+            } => self
+                .thread_context(thread.as_deref(), device.as_deref(), cwd.as_deref(), brief)
+                .unwrap_or_else(err),
+            Request::SetAgentContext { on } => self.set_agent_context(on).unwrap_or_else(err),
+            Request::DevicePairStart => self.device_pair_start(),
+            Request::DevicePairCancel => {
+                self.device_pairing.cancel();
+                Response::Ok { ok: true }
+            }
+            Request::DevicePairJoin { code, addr } => self.device_pair_join(&code, addr.as_deref()),
+            Request::PeerPairRequest { .. } => Response::Error {
+                message: "pairing requests come over the network".into(),
+            },
+            Request::PeerAdoptToken { token, new_token } => {
+                self.peer_adopt_token(token.as_deref(), &new_token)
+            }
+            Request::PeerShared {
+                token,
+                from,
+                since,
+                push,
+            } => self.peer_shared(token.as_deref(), &from, since, push.as_ref()),
             Request::SetFlags {
                 id,
                 bookmarked,
@@ -879,7 +957,7 @@ impl Daemon {
     }
 
     /// List this host + approved peers, pinging peers for current liveness
-    /// (ADR-010). Powers the device picker and Settings → Devices.
+    /// (ADR-010). Powers the device picker and Devices.
     fn devices_list(&self) -> Response {
         let Some(fed) = &self.federation else {
             return Response::Devices {
@@ -975,7 +1053,9 @@ impl Daemon {
             let peers = fed.peers();
             s.devices = peers.len();
             s.devices_can_message = peers.iter().filter(|p| p.rooms).count();
+            s.tailnet = fed.listen_addr.is_some();
         }
+        s.agent_context = self.agent_context_on();
         s.keyless_client_at = *self.keyless_client_at.lock().expect("poisoned");
         s.phone_enabled = self.phone.enabled();
         s.phones = self.phone.phones().len();
@@ -1271,7 +1351,7 @@ impl Daemon {
     ) -> Result<Response> {
         let Some(fed) = &self.federation else {
             return Ok(Response::Threads {
-                threads: self.local_threads(filters, None)?,
+                threads: self.fold_threads(self.local_threads(filters, None)?),
                 unreachable: Vec::new(),
             });
         };
@@ -1325,13 +1405,8 @@ impl Daemon {
                 Err(_) => {}
             }
         }
-        threads.sort_by(|a, b| {
-            (b.last_activity.is_some(), &b.last_activity, &b.id).cmp(&(
-                a.last_activity.is_some(),
-                &a.last_activity,
-                &a.id,
-            ))
-        });
+        // One row per piece of work, whichever devices it spans (sorted).
+        let mut threads = self.fold_threads(threads);
         if let Some(limit) = filters.limit {
             threads.truncate(limit);
         }
@@ -1353,8 +1428,20 @@ impl Daemon {
         }))
     }
 
-    /// One thread, from this device or from the peer it lives on.
+    /// One thread with all its parts and notes (see [`Daemon::whole_thread`]).
     fn thread(&self, id: &str, device: Option<&str>) -> Result<Response> {
+        Ok(Response::Thread {
+            thread: self.whole_thread(id, device)?,
+        })
+    }
+
+    /// One thread as one device has it, from this device or from the peer it
+    /// lives on.
+    pub(crate) fn thread_on(
+        &self,
+        id: &str,
+        device: Option<&str>,
+    ) -> Result<Option<ct_store::ThreadDetail>> {
         let local_name = self.federation.as_ref().map(|f| f.device());
         let remote = match (device, local_name.as_deref()) {
             (Some(d), Some(me)) if d != me => Some(d),
@@ -1365,7 +1452,7 @@ impl Daemon {
             if let (Some(t), Some(me)) = (&mut thread, local_name) {
                 t.summary.device = Some(me);
             }
-            return Ok(Response::Thread { thread });
+            return Ok(thread);
         };
         let fed = self.federation.as_ref().expect("checked above");
         let Some(peer) = fed.peers().into_iter().find(|p| p.name == remote) else {
@@ -1380,7 +1467,7 @@ impl Daemon {
                 if let Some(t) = &mut thread {
                     t.summary.device = Some(peer.name);
                 }
-                Ok(Response::Thread { thread })
+                Ok(thread)
             }
             Response::Error { message } => anyhow::bail!("{remote}: {message}"),
             other => anyhow::bail!("{remote}: unexpected response {other:?}"),
@@ -1393,16 +1480,35 @@ impl Daemon {
         let Response::Thread { thread: Some(t) } = self.thread(id, device)? else {
             anyhow::bail!("no thread or session with id {id}");
         };
-        let local_name = self.federation.as_ref().map(|f| f.device());
-        let remote = device.filter(|d| Some(*d) != local_name.as_deref());
+        let me = self.device_name();
+        let remote = |d: &Option<String>| d.clone().filter(|d| *d != me);
         let (Some(first), Some(last)) = (t.sessions.first(), t.sessions.last()) else {
             anyhow::bail!("thread {id} has no sessions");
         };
-        let first = self.fetch_conversation(&first.conversation_id, remote);
-        let Some(latest) = self.fetch_conversation(&last.conversation_id, remote) else {
+        let first =
+            self.fetch_conversation(&first.conversation_id, remote(&first.device).as_deref());
+        let Some(latest) =
+            self.fetch_conversation(&last.conversation_id, remote(&last.device).as_deref())
+        else {
             anyhow::bail!("couldn't load the latest session of thread {id}");
         };
-        let block = ct_store::threads::render_handoff(&t, first.as_ref(), &latest, max_chars);
+        let mut block = ct_store::threads::render_handoff(&t, first.as_ref(), &latest, max_chars);
+        // Say where this came from, so the session that picks it up on another
+        // device joins this thread (see `join_from_handoffs`), and pass on the
+        // thread's notes.
+        let home = t.summary.device.clone().unwrap_or_else(|| me.clone());
+        let mut extra = format!(
+            "\n---\n{}\n",
+            ct_store::shared::handoff_marker(&t.summary.id, &home)
+        );
+        if !t.notes.is_empty() {
+            extra.push_str("\n### Notes on this thread\n");
+            for n in t.notes.iter().filter(|n| n.kind != "done") {
+                extra.push_str(&format!("- {}: {}\n", n.kind, n.text.replace('\n', " ")));
+            }
+        }
+        block.markdown.push_str(&extra);
+        let _ = device;
         Ok(Response::Context {
             markdown: block.markdown,
             sources: block.sources,
@@ -1431,7 +1537,7 @@ impl Daemon {
         let fed = self.peer_auth(token)?;
         if fed.room_peer(from).is_none() {
             return Err(format!(
-                "`{}` hasn't allowed `{from}` to message (Settings → Devices → Can message)",
+                "`{}` hasn't allowed `{from}` to message (Devices → Agents can message)",
                 fed.device()
             ));
         }
@@ -1518,13 +1624,6 @@ impl Daemon {
         let store = self.write_lock();
         Ok(Response::Ok {
             ok: store.reject_link(a, b)?,
-        })
-    }
-
-    fn set_thread(&self, id: &str, title: Option<&str>, status: Option<&str>) -> Result<Response> {
-        let store = self.write_lock();
-        Ok(Response::ThreadId {
-            id: store.set_thread(id, title, status)?,
         })
     }
 
@@ -1671,6 +1770,8 @@ impl Daemon {
                 exclude_tools: Vec::new(),
                 exclude_projects: Vec::new(),
                 pairing_code: None,
+                relay: None,
+                relay_active: false,
             };
         };
         let (device, has_token, token_in_keyring, exclude_tools, exclude_projects) =
@@ -1683,6 +1784,8 @@ impl Daemon {
             exclude_tools,
             exclude_projects,
             pairing_code: fed.pairing_code(),
+            relay: fed.relay(),
+            relay_active: relay::ctx().is_some(),
         }
     }
 
@@ -1728,7 +1831,7 @@ impl Daemon {
 }
 
 /// Longest request line accepted (a request is a few KB; this is generous).
-const MAX_LINE: u64 = 8 * 1024 * 1024;
+pub(crate) const MAX_LINE: u64 = 8 * 1024 * 1024;
 
 /// Read one `\n`-terminated line of at most [`MAX_LINE`] bytes. `None` at end
 /// of stream; an error for a longer line, which closes the connection.
@@ -1869,6 +1972,9 @@ impl Client {
 
     /// Send one request and read one response.
     pub fn call(&self, req: &Request) -> Result<Response> {
+        if self.addr.starts_with(relay::PREFIX) {
+            return relay::call(&self.addr, req, Duration::from_secs(30));
+        }
         let stream = TcpStream::connect(&self.addr)
             .with_context(|| format!("connecting to daemon at {}", self.addr))?;
         self.exchange(stream, req)
@@ -1879,6 +1985,10 @@ impl Client {
     /// (ADR-010). Resolves the address (so MagicDNS / hostnames work) and
     /// connects to the first candidate.
     pub fn call_timeout(&self, req: &Request, timeout: Duration) -> Result<Response> {
+        if self.addr.starts_with(relay::PREFIX) {
+            // Through the relay: a little longer, for the extra hop and handshake.
+            return relay::call(&self.addr, req, timeout + Duration::from_secs(3));
+        }
         let sock = self
             .addr
             .to_socket_addrs()
