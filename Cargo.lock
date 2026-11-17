@@ -597,6 +597,7 @@ dependencies = [
  "ct-index",
  "ct-llm",
  "ct-store",
+ "ct-tunnel",
  "dirs 5.0.1",
  "getrandom 0.3.4",
  "if-addrs",

@@ -141,6 +141,7 @@ fn weak_tokens_are_refused() {
             token: Some(t.into()),
             exclude_tools: None,
             exclude_projects: None,
+            relay: None,
         })
     };
     assert!(matches!(set("hunter2"), Response::Error { .. }));

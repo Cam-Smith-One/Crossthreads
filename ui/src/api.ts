@@ -296,6 +296,9 @@ export interface FederationConfig {
   exclude_tools: string[];
   exclude_projects: string[];
   pairing_code?: string | null;
+  /** The relay saved for this device, and whether it's in use now. */
+  relay?: string | null;
+  relay_active?: boolean;
 }
 
 export function getFederationConfig(): Promise<FederationConfig> {
@@ -307,6 +310,7 @@ export function setFederationConfig(patch: {
   token?: string;
   exclude_tools?: string[];
   exclude_projects?: string[];
+  relay?: string;
 }): Promise<FederationConfig> {
   return rpc<FederationConfig>({ op: "set_federation_config", ...patch });
 }

@@ -289,7 +289,7 @@ export function Devices({ onError }: { onError: (message: string) => void }) {
 
       {config && (
         <details className="settings-section">
-          <summary>This computer's name and privacy</summary>
+          <summary>This computer's name, privacy and connection</summary>
           <label className="fed-row">
             <span className="fed-label">name</span>
             <input
@@ -335,9 +335,34 @@ export function Devices({ onError }: { onError: (message: string) => void }) {
             />
           </label>
           <p className="settings-hint">
+            No Tailscale? Devices can meet through a relay instead: it forwards only encrypted
+            traffic it can't read. Run your own with <code>crossthreads-relay</code> (see the relay
+            guide), enter its address here on each computer, and reopen Crossthreads.
+          </p>
+          <label className="fed-row">
+            <span className="fed-label">relay</span>
+            <input
+              defaultValue={config.relay ?? ""}
+              key={`relay-${config.relay ?? ""}`}
+              placeholder="host:47200 (optional)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== (config.relay ?? ""))
+                  setFederationConfig({ relay: v })
+                    .then(setConfig)
+                    .catch((err) => onError(String(err)));
+              }}
+            />
+          </label>
+          {config.relay && !config.relay_active && (
+            <p className="settings-hint">Saved. Quit and reopen Crossthreads to start using it.</p>
+          )}
+          <p className="settings-hint">
             {config.listen_addr
               ? `Reachable on Tailscale at ${config.listen_addr}, only by your paired devices.`
-              : "Not on Tailscale: install it and sign in, then reopen Crossthreads to add devices."}
+              : config.relay_active
+                ? `Reachable through the relay at ${config.relay}, only by your paired devices.`
+                : "Not on Tailscale: install it and sign in (or set a relay), then reopen Crossthreads to add devices."}
           </p>
         </details>
       )}

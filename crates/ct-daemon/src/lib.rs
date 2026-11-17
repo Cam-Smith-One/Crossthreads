@@ -28,6 +28,7 @@ pub mod optimize;
 pub mod pairing;
 pub mod phone;
 pub mod protocol;
+pub mod relay;
 pub mod resume;
 pub mod rooms;
 pub mod schedule;
@@ -492,7 +493,13 @@ impl Daemon {
                 token,
                 exclude_tools,
                 exclude_projects,
-            } => self.set_federation_config(device, token, exclude_tools, exclude_projects),
+                relay,
+            } => {
+                if let (Some(r), Some(fed)) = (relay.as_deref(), &self.federation) {
+                    fed.set_relay(r);
+                }
+                self.set_federation_config(device, token, exclude_tools, exclude_projects)
+            }
             Request::PairWithCode { code } => self.pair_with_code(&code),
             Request::GetLlmConfig => llm_config(),
             Request::SetLlmKey { provider, key } => set_llm_key(&provider, &key),
@@ -1763,6 +1770,8 @@ impl Daemon {
                 exclude_tools: Vec::new(),
                 exclude_projects: Vec::new(),
                 pairing_code: None,
+                relay: None,
+                relay_active: false,
             };
         };
         let (device, has_token, token_in_keyring, exclude_tools, exclude_projects) =
@@ -1775,6 +1784,8 @@ impl Daemon {
             exclude_tools,
             exclude_projects,
             pairing_code: fed.pairing_code(),
+            relay: fed.relay(),
+            relay_active: relay::ctx().is_some(),
         }
     }
 
@@ -1820,7 +1831,7 @@ impl Daemon {
 }
 
 /// Longest request line accepted (a request is a few KB; this is generous).
-const MAX_LINE: u64 = 8 * 1024 * 1024;
+pub(crate) const MAX_LINE: u64 = 8 * 1024 * 1024;
 
 /// Read one `\n`-terminated line of at most [`MAX_LINE`] bytes. `None` at end
 /// of stream; an error for a longer line, which closes the connection.
@@ -1961,6 +1972,9 @@ impl Client {
 
     /// Send one request and read one response.
     pub fn call(&self, req: &Request) -> Result<Response> {
+        if self.addr.starts_with(relay::PREFIX) {
+            return relay::call(&self.addr, req, Duration::from_secs(30));
+        }
         let stream = TcpStream::connect(&self.addr)
             .with_context(|| format!("connecting to daemon at {}", self.addr))?;
         self.exchange(stream, req)
@@ -1971,6 +1985,10 @@ impl Client {
     /// (ADR-010). Resolves the address (so MagicDNS / hostnames work) and
     /// connects to the first candidate.
     pub fn call_timeout(&self, req: &Request, timeout: Duration) -> Result<Response> {
+        if self.addr.starts_with(relay::PREFIX) {
+            // Through the relay: a little longer, for the extra hop and handshake.
+            return relay::call(&self.addr, req, timeout + Duration::from_secs(3));
+        }
         let sock = self
             .addr
             .to_socket_addrs()

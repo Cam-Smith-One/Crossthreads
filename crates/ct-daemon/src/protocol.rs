@@ -150,6 +150,10 @@ pub enum Request {
         exclude_tools: Option<Vec<String>>,
         #[serde(default)]
         exclude_projects: Option<Vec<String>>,
+        /// A relay (`host:port`) to reach devices through instead of
+        /// Tailscale; empty clears it. Used from the next start.
+        #[serde(default)]
+        relay: Option<String>,
     },
     /// Onboard a second device in one paste: decode a pairing code (from another
     /// device's `GetFederationConfig`), adopt its token if we have none, and
@@ -662,6 +666,11 @@ pub enum Response {
         /// Copy-paste code another device can `PairWithCode` to join. `None` until
         /// both a token and a reachable address are known.
         pairing_code: Option<String>,
+        /// The relay saved for this device, and whether it is in use now.
+        #[serde(default)]
+        relay: Option<String>,
+        #[serde(default)]
+        relay_active: bool,
     },
     Conversation {
         conversation: Option<StoredConversation>,

@@ -73,6 +73,8 @@ struct Identity {
     exclude_tools: Vec<String>,
     /// Project substrings this device will not serve to peers.
     exclude_projects: Vec<String>,
+    /// A relay to reach devices through instead of Tailscale (docs/RELAY.md).
+    relay: Option<String>,
 }
 
 impl Federation {
@@ -87,6 +89,7 @@ impl Federation {
                 token_in_keyring: false,
                 exclude_tools: Vec::new(),
                 exclude_projects: Vec::new(),
+                relay: None,
             }),
             peers: Mutex::new(peers),
             config_path: None,
@@ -121,6 +124,30 @@ impl Federation {
             .lock()
             .expect("identity mutex poisoned")
             .token_in_keyring = yes;
+        self
+    }
+
+    /// The relay set for this device, if any (used from the next start).
+    pub fn relay(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .expect("identity mutex poisoned")
+            .relay
+            .clone()
+    }
+
+    /// Set or (with an empty string) clear the relay. Persisted; takes effect
+    /// when the daemon next starts.
+    pub fn set_relay(&self, relay: &str) {
+        let relay = relay.trim();
+        self.inner.lock().expect("identity mutex poisoned").relay =
+            (!relay.is_empty()).then(|| relay.to_string());
+        self.save();
+    }
+
+    /// Builder form of [`Federation::set_relay`], without saving.
+    pub fn with_relay(self, relay: Option<String>) -> Self {
+        self.inner.lock().expect("identity mutex poisoned").relay = relay;
         self
     }
 
@@ -349,6 +376,7 @@ impl Federation {
             peers,
             exclude_tools: id.exclude_tools.clone(),
             exclude_projects: id.exclude_projects.clone(),
+            relay: id.relay.clone(),
         };
         if let Ok(json) = serde_json::to_vec_pretty(&cfg) {
             if let Some(parent) = path.parent() {
@@ -431,6 +459,8 @@ pub struct PersistedConfig {
     pub exclude_tools: Vec<String>,
     #[serde(default)]
     pub exclude_projects: Vec<String>,
+    #[serde(default)]
+    pub relay: Option<String>,
 }
 
 impl PersistedConfig {

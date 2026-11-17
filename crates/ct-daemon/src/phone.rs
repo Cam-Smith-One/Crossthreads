@@ -458,7 +458,8 @@ mod tests {
                 device: None,
                 token: None,
                 exclude_tools: None,
-                exclude_projects: None
+                exclude_projects: None,
+                relay: None,
             },
             &phone
         )

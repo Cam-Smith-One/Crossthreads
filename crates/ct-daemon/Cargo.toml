@@ -25,6 +25,7 @@ ct-store = { path = "../ct-store" }
 ct-embed = { path = "../ct-embed" }
 ct-index = { path = "../ct-index" }
 ct-llm = { workspace = true }
+ct-tunnel = { path = "../ct-tunnel" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
