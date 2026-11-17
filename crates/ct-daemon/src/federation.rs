@@ -209,11 +209,11 @@ impl Federation {
             }
             if let Some(t) = token {
                 if t.is_empty() {
-                    token_store::delete();
+                    self.keep_token(None);
                     id.token = None;
                     id.token_in_keyring = false;
                 } else {
-                    id.token_in_keyring = token_store::set(&t);
+                    id.token_in_keyring = self.keep_token(Some(&t));
                     id.token = Some(t);
                 }
             }
@@ -235,7 +235,7 @@ impl Federation {
             if id.token.is_some() || token.is_empty() {
                 return false;
             }
-            id.token_in_keyring = token_store::set(token);
+            id.token_in_keyring = self.keep_token(Some(token));
             id.token = Some(token.to_string());
         }
         self.save();
@@ -307,6 +307,22 @@ impl Federation {
         };
         self.save();
         removed
+    }
+
+    /// Keep (or with `None`, delete) the token in the OS keychain. Only a real
+    /// daemon, one with a config file, touches the keychain; one built in a
+    /// test or embedded use keeps its token in memory.
+    fn keep_token(&self, token: Option<&str>) -> bool {
+        if self.config_path.is_none() {
+            return false;
+        }
+        match token {
+            Some(t) => token_store::set(t),
+            None => {
+                token_store::delete();
+                false
+            }
+        }
     }
 
     /// Rewrite the config file now (e.g. to migrate a plaintext token into the

@@ -25,6 +25,7 @@ pub mod insights;
 pub mod live;
 pub mod local_auth;
 pub mod optimize;
+pub mod pairing;
 pub mod phone;
 pub mod protocol;
 pub mod resume;
@@ -86,6 +87,8 @@ pub struct Daemon {
     /// seconds): almost always an older `ct-mcp` or `crossthreads` still
     /// running in an agent. Shown in Settings → Get started.
     keyless_client_at: Arc<Mutex<Option<i64>>>,
+    /// The code shown for adding another computer (SPEC §6.6).
+    device_pairing: Arc<pairing::DevicePairing>,
 }
 
 impl Daemon {
@@ -109,6 +112,7 @@ impl Daemon {
             login_tickets: Arc::new(local_auth::Tickets::default()),
             http_addr: None,
             keyless_client_at: Arc::new(Mutex::new(None)),
+            device_pairing: Arc::new(pairing::DevicePairing::default()),
         }
     }
 
@@ -389,6 +393,9 @@ impl Daemon {
                     }
                 }
                 Ok(Request::LoginTicket) => self.login_ticket(),
+                Ok(Request::PeerPairRequest { code, name, port }) => {
+                    self.peer_pair_request(&code, &name, port, peer)
+                }
                 Ok(req) => self.handle(req),
                 Err(e) => Response::Error {
                     message: format!("bad request: {e}"),
@@ -647,6 +654,18 @@ impl Daemon {
                 .thread_context(thread.as_deref(), device.as_deref(), cwd.as_deref(), brief)
                 .unwrap_or_else(err),
             Request::SetAgentContext { on } => self.set_agent_context(on).unwrap_or_else(err),
+            Request::DevicePairStart => self.device_pair_start(),
+            Request::DevicePairCancel => {
+                self.device_pairing.cancel();
+                Response::Ok { ok: true }
+            }
+            Request::DevicePairJoin { code, addr } => self.device_pair_join(&code, addr.as_deref()),
+            Request::PeerPairRequest { .. } => Response::Error {
+                message: "pairing requests come over the network".into(),
+            },
+            Request::PeerAdoptToken { token, new_token } => {
+                self.peer_adopt_token(token.as_deref(), &new_token)
+            }
             Request::PeerShared {
                 token,
                 from,

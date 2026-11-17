@@ -157,7 +157,15 @@ fn run() -> Result<()> {
     let file_token = saved.token.clone();
     let keyring_token = ct_daemon::federation::token_store::get();
     let from_keyring = token.is_none() && keyring_token.is_some();
-    let token = token.or(keyring_token).or(file_token.clone());
+    let mut token = token.or(keyring_token).or(file_token.clone());
+    // The app (`--addr auto`) makes its own strong token the first time, so
+    // adding a device is just a short code: nobody types or sees a token. The
+    // tailnet listener still serves only the token-checked peer protocol.
+    let made_token = addr == "auto" && token.is_none();
+    if made_token {
+        token = Some(ct_daemon::pairing::new_token());
+        eprintln!("crossthreadsd: created this device's shared token");
+    }
     let has_token = token.is_some();
     // Store the token in the keychain to encrypt at rest — but only when it isn't
     // already there, so we don't re-write (and re-prompt) on every startup.
@@ -222,7 +230,7 @@ fn run() -> Result<()> {
     .with_scope(exclude_tools, exclude_projects)
     .with_token_in_keyring(token_in_keyring);
     // Migrate a plaintext file token into the keychain: rewrite the file w/o it.
-    if token_in_keyring && file_token.is_some() {
+    if (token_in_keyring && file_token.is_some()) || made_token {
         fed.persist();
     }
     daemon = daemon.with_federation(fed);

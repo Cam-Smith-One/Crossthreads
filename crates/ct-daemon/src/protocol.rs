@@ -487,6 +487,33 @@ pub enum Request {
     },
     /// Turn session-start context for agents on or off.
     SetAgentContext { on: bool },
+    /// Show a short code for adding another computer (SPEC §6.6).
+    DevicePairStart,
+    /// Stop showing the code.
+    DevicePairCancel,
+    /// On the new computer: the code the other computer is showing.
+    DevicePairJoin {
+        code: String,
+        /// The other computer's Tailscale address, when it can't be found
+        /// automatically (no Tailscale command on this computer).
+        #[serde(default)]
+        addr: Option<String>,
+    },
+    /// Peer → peer, inside Tailscale: "I have your code; I'm `name`,
+    /// listening on `port`." No token yet; the code is the proof.
+    PeerPairRequest {
+        code: String,
+        name: String,
+        port: u16,
+    },
+    /// Peer → peer, right after pairing: the new device already had devices
+    /// of its own, so this one (which had none) takes its token instead.
+    /// Authenticated with the token pairing just handed over.
+    PeerAdoptToken {
+        #[serde(default)]
+        token: Option<String>,
+        new_token: String,
+    },
     /// Peer → peer: thread names, status, parts and notes changed after
     /// `since`; `push` carries the sender's own recent changes.
     PeerShared {
@@ -513,6 +540,8 @@ impl Request {
                 | Request::PeerRoomPost { .. }
                 | Request::PeerRoomSync { .. }
                 | Request::PeerShared { .. }
+                | Request::PeerPairRequest { .. }
+                | Request::PeerAdoptToken { .. }
         )
     }
 }
@@ -790,6 +819,30 @@ pub enum Response {
         claims: Vec<ct_store::Claim>,
     },
     /// Generic acknowledgement for mutating ops (set flags, open source).
+    /// The code to type on the new computer.
+    DevicePairCode {
+        code: String,
+        expires_in: u64,
+        /// This computer's name, to show next to the code.
+        device: String,
+        /// This computer's Tailscale address, for typing in by hand when the
+        /// other computer can't find it.
+        addr: Option<String>,
+        /// Why the other computer won't be able to find this one, if so.
+        problem: Option<String>,
+    },
+    /// The new computer joined.
+    DevicePaired {
+        /// The computer it paired with.
+        name: String,
+        note: Option<String>,
+    },
+    /// Peer → peer: pairing accepted.
+    PeerPaired {
+        name: String,
+        token: String,
+        has_peers: bool,
+    },
     /// Shared thread state, for a peer.
     Shared {
         state: ct_store::SharedState,

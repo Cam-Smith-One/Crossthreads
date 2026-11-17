@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 mod activity;
 mod ask;
 mod context;
+mod devices;
 mod fluency;
 mod glance;
 mod hooks;
@@ -49,6 +50,11 @@ COMMANDS:
                       --remote asks the daemon: live state + other devices)
     thread <ID>       Show one thread; or `thread link|unlink|reject|rename|
                       status …` to edit how sessions are grouped
+    note <TEXT>       Keep a note on this folder's thread (--kind decision|todo|
+                      context; `note done <ID>`); agents and devices see it
+    brief [THREAD]    What an agent is told about this folder's thread
+    devices [CMD]     Your other computers: list | add (show a code) |
+                      join <CODE> (on the new computer)
     resume <ID>       How to pick a session back up in its native tool
                       (runnable command where one exists; --run to exec it)
     glance            At-a-glance status: per-tool usage, live quota (if a
@@ -137,6 +143,9 @@ fn run(args: &[String]) -> Result<ExitCode> {
         Some("glance") => glance::run(&args[1..]),
         Some("room") => room::run(&args[1..]),
         Some("phone") => phone::run(&args[1..]),
+        Some("devices") => devices::run(&args[1..]),
+        Some("note") => devices::note(&args[1..]),
+        Some("brief") => devices::context(&args[1..]),
         Some("open") => open::run(&args[1..]),
         Some("hooks") => hooks::run(&args[1..]),
         // Called by the tools' hooks. Must never fail or print.

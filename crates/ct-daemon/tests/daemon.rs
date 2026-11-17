@@ -2407,3 +2407,87 @@ fn a_thread_spans_devices_with_shared_name_status_and_notes() {
     .unwrap();
     assert!(matches!(r, Response::Error { .. }));
 }
+
+// ---- Adding a device with a short code (SPEC §6.6) --------------------------
+
+#[test]
+fn a_short_code_pairs_a_new_computer_once() {
+    let host = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(
+        Federation::new("studio".into(), None, vec![], Duration::from_secs(2))
+            .with_listen_addr(Some("100.64.0.1:47100".into())),
+    );
+    let addr = serve(host);
+    let client = Client::new(addr.clone());
+
+    // No code showing: refused.
+    let ask = |code: &str, name: &str| {
+        client
+            .call(&Request::PeerPairRequest {
+                code: code.into(),
+                name: name.into(),
+                port: 47100,
+            })
+            .unwrap()
+    };
+    assert!(matches!(ask("AAAAAAAA", "laptop"), Response::Error { .. }));
+
+    let Response::DevicePairCode {
+        code,
+        device,
+        problem,
+        ..
+    } = client.call(&Request::DevicePairStart).unwrap()
+    else {
+        panic!("expected a code");
+    };
+    assert_eq!(device, "studio");
+    assert!(problem.is_none());
+
+    // A wrong code is refused; a bad name too.
+    let Response::Error { message } = ask("AAAA-AAAA", "laptop") else {
+        panic!("wrong code accepted");
+    };
+    assert!(message.contains("wrong code"));
+    assert!(matches!(ask(&code, "bad name!"), Response::Error { .. }));
+
+    // The right one hands over a strong token and adds the computer, with
+    // messaging on, at the address the request came from.
+    let Response::PeerPaired {
+        name,
+        token,
+        has_peers,
+    } = ask(&code.to_lowercase(), "laptop")
+    else {
+        panic!("right code refused");
+    };
+    assert_eq!(name, "studio");
+    assert!(!has_peers);
+    assert!(token.len() >= 40);
+    let Response::Devices { devices, .. } = client.call(&Request::Devices).unwrap() else {
+        panic!("expected devices");
+    };
+    let laptop = devices
+        .iter()
+        .find(|d| d.name == "laptop")
+        .expect("laptop added");
+    assert!(laptop.rooms);
+    assert!(laptop.addr.as_deref().unwrap().starts_with("127.0.0.1:"));
+
+    // Used once.
+    assert!(matches!(ask(&code, "intruder"), Response::Error { .. }));
+
+    // The token works for the peer protocol now.
+    let r = client
+        .call(&Request::PeerShared {
+            token: Some(token),
+            from: "laptop".into(),
+            since: 0,
+            push: None,
+        })
+        .unwrap();
+    assert!(matches!(r, Response::Shared { .. }), "{r:?}");
+}
