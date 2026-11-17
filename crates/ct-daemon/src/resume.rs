@@ -76,6 +76,19 @@ fn shell_quote(s: &str) -> String {
     }
 }
 
+/// The native argv (after the program) that resumes session `id` in `program`
+/// (`claude` or `codex`), or `None` for a program without a known resume CLI.
+/// Shared with [`crate::launch`], which opens it in a terminal.
+pub(crate) fn resume_args(program: &str, id: &str) -> Option<Vec<String>> {
+    match program {
+        // Claude Code: `claude --resume <session-id>`.
+        "claude" => Some(vec!["--resume".to_string(), id.to_string()]),
+        // Codex: `codex resume <uuid>`.
+        "codex" => Some(vec!["resume".to_string(), id.to_string()]),
+        _ => None,
+    }
+}
+
 /// Build the resume plan for a conversation from its `tool`, `source_path`, and
 /// (optional) `project` working directory.
 pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resume {
@@ -97,19 +110,11 @@ pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resum
         Some((program, id)) => {
             // Run from the project dir so the resumed session lands in the right
             // workspace; the display command is copy-paste complete.
-            let subcmd = if program == "claude" {
-                format!("{program} --resume {id}")
-            } else {
-                format!("{program} resume {id}")
-            };
+            let args = resume_args(program, &id).expect("claude and codex both resume");
+            let subcmd = format!("{program} {}", args.join(" "));
             let display = match project {
                 Some(p) if !p.is_empty() => format!("cd {} && {subcmd}", shell_quote(p)),
                 _ => subcmd,
-            };
-            let args = if program == "claude" {
-                vec!["--resume".to_string(), id]
-            } else {
-                vec!["resume".to_string(), id]
             };
             Action::Resume {
                 program: program.to_string(),
