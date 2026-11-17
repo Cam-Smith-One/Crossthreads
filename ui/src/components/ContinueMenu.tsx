@@ -23,11 +23,12 @@ import { cn } from "@/lib/utils";
 const TOOLS: [ToolId, string][] = [
   ["claude-code", "Claude Code"],
   ["codex", "Codex"],
+  ["grok-build", "Grok Build"],
 ];
 
 /** The tool to offer first: the one the thread was last worked in, when it can continue. */
 function preferredTool(t: ThreadSummary): ToolId {
-  const last = [...t.tools].reverse().find((x) => x === "claude-code" || x === "codex");
+  const last = [...t.tools].reverse().find((x) => TOOLS.some(([id]) => id === x));
   return (last as ToolId) ?? "claude-code";
 }
 
@@ -74,7 +75,7 @@ export function ContinueMenu({
   const go = (t: ToolId, fresh = false) =>
     run(async () => {
       await continueThread(thread.id, thread.device, t, fresh);
-      return `Opened ${t === "codex" ? "Codex" : "Claude Code"} in a terminal`;
+      return `Opened ${TOOLS.find(([id]) => id === t)![1]} in a terminal`;
     });
 
   return (

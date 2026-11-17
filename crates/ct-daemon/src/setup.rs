@@ -31,6 +31,13 @@ pub struct SetupStatus {
     /// Which tools have their data on this machine at all.
     pub claude_present: bool,
     pub codex_present: bool,
+    /// Grok Build (xAI's `grok`) is on this computer, and is connected.
+    #[serde(default)]
+    pub grok_present: bool,
+    #[serde(default)]
+    pub mcp_grok: bool,
+    #[serde(default)]
+    pub skill_grok: bool,
     /// When a local client last connected without the local key (epoch
     /// seconds): an older `ct-mcp` or CLI is still in use somewhere.
     #[serde(default)]
@@ -68,6 +75,7 @@ fn has_hook(path: &Path, tool: &str) -> bool {
 pub fn local_checks() -> SetupStatus {
     let claude = home("CLAUDE_CONFIG_DIR", ".claude");
     let codex = home("CODEX_HOME", ".codex");
+    let grok = home("GROK_HOME", ".grok");
     // `claude mcp add -s user` writes ~/.claude.json, next to (not inside)
     // ~/.claude, unless CLAUDE_CONFIG_DIR moves it.
     let claude_json = match std::env::var_os("CLAUDE_CONFIG_DIR") {
@@ -86,6 +94,9 @@ pub fn local_checks() -> SetupStatus {
         skill_codex: codex.join("prompts/crossthreads.md").is_file(),
         claude_present: claude.is_dir(),
         codex_present: codex.is_dir(),
+        grok_present: grok.is_dir(),
+        mcp_grok: contains(&grok.join("config.toml"), "mcp_servers.crossthreads"),
+        skill_grok: grok.join("skills/crossthreads/SKILL.md").is_file(),
         model: ct_llm::available(),
         ..Default::default()
     }

@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.25.0] - 2026-11-17
+
+### Added
+- **Grok Build (xAI's `grok` CLI).** Its sessions are indexed from
+  `~/.grok/sessions` (or `GROK_HOME`) and join threads with Claude Code and
+  Codex. `crossthreads connect` (or Connect in Get started) registers the MCP
+  server in `~/.grok/config.toml` and installs a `/crossthreads` skill, so Grok
+  can lead or listen in rooms with Claude and Codex, on this computer or
+  another. **Continue in Grok Build** and **New thread → Open Grok Build** open
+  it in a terminal (`grok --prompt=…`, or `grok --resume <id>`). The session
+  format isn't formally documented, so the connector reads it forgivingly; the
+  hooks (room auto-wake, claim guard, session-start brief) aren't wired for
+  Grok yet.
+
 ## [0.24.0] - 2026-11-17
 
 Threads you can manage, not just look at.

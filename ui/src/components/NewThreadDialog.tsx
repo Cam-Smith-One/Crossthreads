@@ -51,7 +51,7 @@ export function NewThreadDialog({
       let message = `Started “${title.trim()}”`;
       if (tool !== "none") {
         await continueThread(id, null, tool);
-        message += ` and opened ${tool === "codex" ? "Codex" : "Claude Code"}`;
+        message += ` and opened ${{ "claude-code": "Claude Code", codex: "Codex", "grok-build": "Grok Build" }[tool]}`;
       }
       onCreated(id, message);
       setTitle("");
@@ -105,6 +105,7 @@ export function NewThreadDialog({
             <NativeSelect id="nt-tool" value={tool} onChange={(e) => setTool(e.target.value as ToolId | "none")}>
               <option value="claude-code">Open Claude Code on it</option>
               <option value="codex">Open Codex on it</option>
+              <option value="grok-build">Open Grok Build on it</option>
               <option value="none">Just add it to my board</option>
             </NativeSelect>
           </div>

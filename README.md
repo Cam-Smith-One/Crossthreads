@@ -31,7 +31,7 @@ From there you can:
 - **Pick work back up anywhere.** Reopen the latest session in its own tool, or copy a handoff brief that another tool or agent can continue from.
 - **Give your agents shared context.** Agents in any tool, on any of your computers, read a thread's decisions and open todos when they start and leave notes for the next one.
 - **Let your agents talk to each other.** Claude and Codex hand work back and forth in a room for their repository, even on different computers, while you watch and step in.
-- **Search everything you've ever discussed with an AI**, across nine tools and all your machines, by keyword or by meaning.
+- **Search everything you've ever discussed with an AI**, across ten tools and all your machines, by keyword or by meaning.
 - **Check on it from your phone.** Open the board over your private Tailscale network, read-only unless you allow more.
 - **Understand how you work.** Get cited answers from your own history, open loops, decisions, a weekly review, and measured habits.
 - **Give it all to your agents.** 30 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
@@ -172,7 +172,7 @@ Devices talk directly over [Tailscale](https://tailscale.com). No Tailscale? Run
 ### 🔎 Search everything
 
 - **Hybrid search.** FTS5 keyword (BM25) plus semantic embeddings, fused with Reciprocal Rank Fusion, so it finds threads by meaning and not just by exact words.
-- **Nine tools, one index:** Claude Code, Codex, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf and Antigravity, auto-detected and deduplicated, plus your Claude skills and Codex prompts.
+- **Ten tools, one index:** Claude Code, Codex, Grok Build, Cursor, Aider, Cline, Copilot Chat, Gemini CLI, Windsurf and Antigravity, auto-detected and deduplicated, plus your Claude skills and Codex prompts.
 - **Filters** by tool, kind (session, skill, room exchange), project and date. A **Save** star keeps sessions you'll want again; notes and tags too.
 - **Actionable results.** Open the transcript, reveal the original file, copy the resume command, or build a paste-ready context block for a fresh agent.
 - **Always current.** The daemon watches each tool's storage and indexes new sessions as they land.
@@ -379,11 +379,14 @@ the next index.
 | **Cline** | Agentic VS Code extension | `…/<editor>/globalStorage/saoudrizwan.claude-dev/tasks/**` | ✅ High |
 | **GitHub Copilot Chat** | Copilot's chat in VS Code | `…/<editor>/**/chatSessions/*.{json,jsonl}` | ✅ High |
 | **Gemini CLI** | Google's terminal coding agent | `~/.gemini/tmp/*/chats/session-*.{json,jsonl}` | ✅ High |
+| **Grok Build** | xAI's terminal coding agent (`grok`) | `~/.grok/sessions/<folder>/<id>/{chat_history,updates}.jsonl` (`GROK_HOME` respected) | 🟡 Medium² |
 | **Windsurf** | Codeium's agentic editor (Cascade) | `…/Windsurf/User/**/state.vscdb` | 🟡 Medium |
 | **Antigravity** | Google's agentic IDE | Markdown artifacts under `~/.gemini/antigravity/` (best-effort)¹ | 🟠 Low |
 | **Skills / prompts** | Reusable Claude `SKILL.md` + Codex prompts | `~/.claude/skills/**/SKILL.md`, `~/.codex/prompts/*.md` | ✅ High |
 
 <sub>¹ Antigravity's full conversation lives in an undocumented protobuf format; Crossthreads scans the Antigravity home and indexes the readable Markdown task/plan artifacts (wherever they sit under it) until that format is documented. Connectors detect-and-skip gracefully and are stamped with a versioned fingerprint, so a format change degrades to "missed a session," never a crash.</sub>
+
+<sub>² Grok Build's on-disk format isn't formally documented, so the connector reads it forgivingly. `crossthreads connect` gives Grok the MCP server and a `/crossthreads` skill, so it can lead or follow Claude Code and Codex in rooms and continue threads ("Continue in Grok Build"). The hooks (room auto-wake, the claim guard, the session-start brief) aren't wired for Grok yet.</sub>
 
 ## 🔒 Security and privacy
 
@@ -466,7 +469,7 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (30 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ Connectors for 10 tools + skills/prompts, hybrid search, daemon, web UI, MCP (30 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring), theme map, temporal view, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification

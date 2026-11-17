@@ -131,14 +131,18 @@ export function setupSteps(
         title: "Connect your AI tools",
         why: "Your agents get Crossthreads: they see what's running, read a thread's decisions and todos before they start, leave notes for the next agent, search your past work, and talk to each other in rooms.",
         done: anyOf(hooks) && anyOf(mcp) && anyOf(skill),
-        perTool: tools(
-          s.hooks_claude && s.mcp_claude && s.skill_claude,
-          s.hooks_codex && s.mcp_codex && s.skill_codex,
-        ),
+        perTool: [
+          ...tools(
+            s.hooks_claude && s.mcp_claude && s.skill_claude,
+            s.hooks_codex && s.mcp_codex && s.skill_codex,
+          ),
+          // Grok Build: the MCP server and /crossthreads skill (no hooks yet).
+          ...(s.grok_present ? ([["Grok Build", !!s.mcp_grok && !!s.skill_grok]] as [string, boolean][]) : []),
+        ],
         commands: desktop ? undefined : ["crossthreads connect"],
         action: desktop
           ? {
-              label: anyOf(hooks) || anyOf(mcp) ? "Connect again" : "Connect Claude Code and Codex",
+              label: anyOf(hooks) || anyOf(mcp) ? "Connect again" : s.grok_present ? "Connect my AI tools" : "Connect Claude Code and Codex",
               run: () =>
                 desktop.run("connect").then((out) => {
                   done();
@@ -146,7 +150,7 @@ export function setupSteps(
                 }),
             }
           : undefined,
-        note: "Restart Claude Code and Codex afterwards. Codex asks you to trust the new hooks once.",
+        note: "Restart your AI tools afterwards. Codex asks you to trust the new hooks once.",
       },
     ],
     optional: [
