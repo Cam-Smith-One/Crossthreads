@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS room_agents (
     PRIMARY KEY (room, name)
 );
 
--- v12: thread state shared with the user's other devices (SPEC §6.5). Only
+-- v12: thread state shared with the user's other devices (SPEC §6.7). Only
 -- the organisation travels: names, status, which sessions belong together and
 -- notes. Transcripts stay on the device that has them. Each field carries the
 -- time it was set (epoch ms) and the device that set it; the latest wins.

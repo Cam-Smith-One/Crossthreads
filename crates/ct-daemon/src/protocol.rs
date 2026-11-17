@@ -435,7 +435,7 @@ pub enum Request {
     },
     /// Make thread `part` (on `device`, default this one) part of thread
     /// `into` (on `into_device`), so one piece of work spans devices
-    /// (SPEC §6.5). Both stay where they are; the board shows them as one.
+    /// (SPEC §6.7). Both stay where they are; the board shows them as one.
     ThreadJoin {
         part: String,
         #[serde(default)]
@@ -491,7 +491,7 @@ pub enum Request {
     },
     /// Turn session-start context for agents on or off.
     SetAgentContext { on: bool },
-    /// Show a short code for adding another computer (SPEC §6.6).
+    /// Show a short code for adding another computer (SPEC §6.8).
     DevicePairStart,
     /// Stop showing the code.
     DevicePairCancel,

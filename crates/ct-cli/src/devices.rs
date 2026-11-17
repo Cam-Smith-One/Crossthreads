@@ -1,5 +1,5 @@
 //! `crossthreads devices …` — add your other computers with a short code
-//! (SPEC §6.6). The same as Devices → Add a device in the app.
+//! (SPEC §6.8). The same as Devices → Add a device in the app.
 
 use std::process::ExitCode;
 

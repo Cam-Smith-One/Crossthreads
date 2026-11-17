@@ -1,4 +1,4 @@
-//! Adding a device with a short code (SPEC §6.6).
+//! Adding a device with a short code (SPEC §6.8).
 //!
 //! On the computer you already use, "Add a device" shows a code like
 //! `K7PQ-4XMN` for ten minutes. On the new computer you type it in. The new

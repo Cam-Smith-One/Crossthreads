@@ -5,15 +5,53 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
-## [Unreleased]
+## [0.23.0] - 2026-11-17
+
+A simpler Crossthreads, after an end-to-end review: fewer places, one way to
+add a device, threads that follow you across computers, and agents that share
+context.
 
 ### Added
+- **Add a device with a short code.** Devices → Add a device shows a code like
+  `K7PQ-4XMN` on the computer you already use; type it on the new one
+  (`crossthreads devices add` / `devices join`). It finds the other computer on
+  your Tailscale network, they exchange the shared token, and each adds the
+  other with agent messaging on. No token to make up or paste, no approve step,
+  no boxes to tick on both sides. The app makes its own strong token on first
+  run. Phones are added from the same button.
+- **Threads across computers.** Work that moved between computers is one
+  thread: a session started from a handoff joins the thread it came from by
+  itself, a hint suggests threads on the same branch elsewhere, and you can join
+  or separate threads by hand. Names, status and notes are shared and editable
+  from any computer (synced every 15 seconds, and at once after a change).
+- **Notes on threads, and shared context for agents.** Keep decisions, todos
+  and context on a thread. Agents read them with `crossthreads_thread_context`
+  and write them with `crossthreads_note` (30 MCP tools now); Claude Code gets
+  a short brief at session start when a thread has something its session can't
+  know (switch in Settings → Get started); handoffs carry the notes. Also
+  `crossthreads note` and `crossthreads brief` from a shell.
+- **`crossthreads connect`**: hooks, skill and MCP server for Claude Code and
+  Codex in one step, safe to re-run, fixing an MCP entry that points at an old
+  `ct-mcp`. The app's Get started is now two steps, with one button for this.
+- **Devices without Tailscale.** `crossthreads-relay`, a small relay you host,
+  forwards end-to-end encrypted traffic between your devices (Noise tunnels,
+  device keys pinned when you add a device, SPAKE2 for the code). Set it per
+  computer in Devices; see [RELAY.md](docs/RELAY.md).
 - **A Windows app.** The desktop app now also ships for Windows as
   `Crossthreads-<version>-windows-x64-setup.exe`, a per-user installer (no
   administrator needed) with the daemon, CLI and MCP server inside. Like the
   Mac app it starts the daemon (replacing an older running one), here without
   a console window, and **Settings → Get started** puts the commands on your PATH. It
   isn't code-signed yet, so SmartScreen may warn the first time.
+
+### Changed
+- **Four places instead of five plus tabs:** Home (the board, with Rooms and
+  the weekly review a click away), Search (find, ask, how you work), Devices
+  (computers and phones together) and Settings (Get started, Models, Index,
+  Help). Old addresses still work.
+- Threads on another computer are no longer read-only: rename them, change
+  their status and keep notes from here.
+- Tests and embedded daemons no longer touch the OS keychain.
 
 ## [0.22.3] - 2026-11-17
 

@@ -2216,7 +2216,7 @@ fn a_paired_phone_reads_the_board_and_posts_only_when_allowed() {
     );
 }
 
-// ---- Threads across devices (SPEC §6.5) -------------------------------------
+// ---- Threads across devices (SPEC §6.7) -------------------------------------
 
 #[test]
 fn a_thread_spans_devices_with_shared_name_status_and_notes() {
@@ -2408,7 +2408,7 @@ fn a_thread_spans_devices_with_shared_name_status_and_notes() {
     assert!(matches!(r, Response::Error { .. }));
 }
 
-// ---- Adding a device with a short code (SPEC §6.6) --------------------------
+// ---- Adding a device with a short code (SPEC §6.8) --------------------------
 
 #[test]
 fn a_short_code_pairs_a_new_computer_once() {

@@ -1,4 +1,4 @@
-//! Thread state shared across the user's devices (SPEC §6.5).
+//! Thread state shared across the user's devices (SPEC §6.7).
 //!
 //! A thread's sessions live on the machines that ran them, but the way the
 //! user organises the work should be the same everywhere: its name, its status,

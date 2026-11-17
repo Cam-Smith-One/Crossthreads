@@ -1,5 +1,5 @@
 //! `crossthreads phone …` — the board on your phone, over your tailnet
-//! (SPEC FR-BRD-04). The same settings as Settings → Phone in the web app.
+//! (SPEC FR-BRD-04). The same settings as Devices → Phones in the web app.
 
 use std::process::ExitCode;
 

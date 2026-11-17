@@ -1,5 +1,5 @@
 //! Threads that span devices, and the shared context agents get from them
-//! (SPEC §6.5).
+//! (SPEC §6.7).
 //!
 //! The store keeps the shared state (names, status, parts, notes) and merges
 //! it; this module decides what that means for the board and for agents, and

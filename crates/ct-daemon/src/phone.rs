@@ -342,7 +342,7 @@ pub fn allowed(req: &Request, phone: &PhoneInfo) -> Result<(), &'static str> {
         | R::Resume { .. } => Ok(()),
         R::RoomPost { .. } if phone.can_post => Ok(()),
         R::RoomPost { .. } => Err(
-            "this phone can read rooms but not post; allow it in Settings → Phone on the desktop",
+            "this phone can read rooms but not post; allow it in Devices → Phones on the desktop",
         ),
         _ => Err("not available from a phone"),
     }

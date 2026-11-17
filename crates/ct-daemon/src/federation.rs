@@ -50,7 +50,7 @@ pub struct Federation {
     /// This daemon's own peer-reachable address (the `--addr` it binds), used to
     /// build a pairing code. `None` when only loopback-bound.
     pub listen_addr: Option<String>,
-    /// Mutable identity + serve-scope, so the Settings → Devices panel can edit
+    /// Mutable identity + serve-scope, so the Devices panel can edit
     /// the device name, token, and what this device exposes at runtime.
     inner: Mutex<Identity>,
     /// Approved peers to fan a local search out to. Behind a lock so the panel
@@ -404,7 +404,7 @@ pub fn check_token_strength(token: &str) -> std::result::Result<(), String> {
         .len();
     if token.chars().count() < MIN_TOKEN_LEN || distinct < 8 {
         return Err(format!(
-            "use a shared token of at least {MIN_TOKEN_LEN} varied characters (Settings → Devices \
+            "use a shared token of at least {MIN_TOKEN_LEN} varied characters (Devices \
              → Generate makes one)"
         ));
     }

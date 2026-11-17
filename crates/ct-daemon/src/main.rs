@@ -151,7 +151,7 @@ fn run() -> Result<()> {
         )))
         .with_ui_dir(ui.clone());
 
-    // Federation is always available so the Settings → Devices panel can set it
+    // Federation is always available so the Devices panel can set it
     // up; with no peers/token it just answers locally (the default bind is
     // loopback). Merge CLI/env with the persisted config (CLI/env win for
     // device; peers and scope are the union).
@@ -200,7 +200,7 @@ fn run() -> Result<()> {
             (None, Some(_)) => {
                 eprintln!(
                     "crossthreadsd: tailnet detected but no token set — staying on \
-                     loopback. Set a token in Settings → Devices to enable pairing."
+                     loopback. Set a token in Devices to enable pairing."
                 );
                 DEFAULT_ADDR.to_string()
             }
@@ -354,7 +354,7 @@ fn run() -> Result<()> {
     if !has_token {
         anyhow::bail!(
             "refusing to listen on {addr} without a shared token: anyone on that network could \
-             reach this device. Set one in Settings → Devices, or use a loopback --addr."
+             reach this device. Set one in Devices, or use a loopback --addr."
         );
     }
     if addr.starts_with("0.0.0.0") || addr.starts_with("[::]") {

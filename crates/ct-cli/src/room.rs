@@ -207,7 +207,7 @@ fn devices(args: &[String]) -> Result<ExitCode> {
             if !federation {
                 println!(
                     "Cross-device search is off on this device. Set a device name and \
-                     shared token in Settings → Devices first."
+                     shared token in Devices first."
                 );
                 return Ok(ExitCode::SUCCESS);
             }

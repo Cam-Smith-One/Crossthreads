@@ -304,6 +304,34 @@ loop or instruction, and the sender's device and session.
 Same-machine dispatch (Claude Code to Codex in a sibling workspace) uses the
 same path with no network involved, and ships first.
 
+### 6.7 Threads across devices, and shared context
+
+Status: built in 0.23.
+
+- A thread on one device can be **joined** to a thread on another; lists and
+  the board show them as one, opening it fetches each part from its device,
+  and a handoff marker (`Crossthreads thread: th_…@device`) joins a session
+  started from a handoff automatically. Threads on the same repository and
+  non-generic branch, active within 48 hours, are suggested.
+- A thread's **name, status, parts and notes** are shared state, kept on every
+  device and merged per field, last writer wins by (time, device). Devices
+  compare it every 15 seconds and push a change at once (`peer_shared`).
+  Transcripts never move.
+- **Notes** (`decision`, `todo`, `done`, `context`) are written by the user or
+  by agents (`crossthreads_note`) and read by agents (`crossthreads_thread_context`,
+  and a session-start brief for Claude Code that is empty unless there is
+  something the agent's own session can't know).
+
+### 6.8 Adding a device
+
+Status: built in 0.23. One flow for computers and phones (Devices → Add a
+device). A computer shows a short code (8 characters, 10 minutes, one use,
+cancelled after 5 wrong tries); the new computer finds it on the tailnet,
+proves the code, receives the shared token, and both add each other with
+messaging on. The app creates the token itself on first run. Without Tailscale,
+devices meet through a self-hosted relay (`crossthreads-relay`) with
+end-to-end encryption and SPAKE2 for the code ([RELAY.md](RELAY.md)).
+
 ## 7. Architecture
 
 ### 7.1 Shape

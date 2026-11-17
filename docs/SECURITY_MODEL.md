@@ -52,8 +52,13 @@ never reaches the browser). The cookie lasts 30 days.
   key.
 - **Tailnet** (your Tailscale IP, only with a token) serves **only** the peer
   protocol: `ping`, `peer_search`, `peer_get_conversation`, `peer_threads`,
-  `peer_thread`, `peer_room_post`, `peer_room_sync`. Anything else is refused,
-  whoever asks.
+  `peer_thread`, `peer_room_post`, `peer_room_sync`, `peer_shared`,
+  `peer_adopt_token`, and `peer_pair_request`. Anything else is refused,
+  whoever asks. Every one of them checks the token, except
+  `peer_pair_request`, which needs the code currently on screen (below).
+- **The relay** (only when you set one): the same peer protocol, inside an
+  end-to-end encrypted tunnel, accepted only from the device keys of devices
+  you added. See [RELAY.md](RELAY.md).
 - **The web app** (`127.0.0.1:47101`) must be loopback; the daemon won't start
   with anything else.
 - **The phone listener** (your Tailscale IP, port `47102`) is off until you turn
@@ -63,15 +68,27 @@ never reaches the browser). The cookie lasts 30 days.
 
 | Grant | Where | Effect |
 |---|---|---|
-| Pairing (shared token) | Settings → Devices | Search, threads and transcripts between your devices, within each device's serve-scope |
-| **Can message** | Settings → Devices, per device, on both sides | Agents on that device join your rooms |
-| Phone access | Settings → Phone | The phone listener runs |
-| Pairing a phone | Settings → Phone → Pair a phone | That phone can read |
-| **Can post to rooms** | Settings → Phone, per phone | That phone can step into rooms |
+| Adding a computer | Devices → Add a device | Search, threads (including names, status and notes) and transcripts between your devices, within each device's serve-scope |
+| **Agents can message** | Devices, per computer; on when you add one | Agents on that device join your rooms |
+| Phone access and pairing a phone | Devices → Add a device → A phone | The phone listener runs; that phone can read |
+| **Can post to rooms** | Devices → Phones, per phone | That phone can step into rooms |
 
-The shared token must be at least 20 varied characters; **Generate** in Settings
-→ Devices makes a strong one, and other devices then join with this device's
-pairing code. It's kept in your OS keychain where one is available.
+**The shared token.** The app makes a random 256-bit token the first time it
+runs, and keeps it in your OS keychain where one is available (otherwise in the
+owner-only config file). Nobody types or sees it. A token you set yourself must
+be at least 20 varied characters.
+
+**Adding a computer with a code.** Devices → Add a device shows an 8-character
+code (40 bits, from 31 unambiguous characters) on the computer you already
+use. It lasts 10 minutes, works once, is compared in constant time, and is
+cancelled after 5 wrong tries, so it can't be guessed online. The new computer
+sends it to the Crossthreads daemons it finds on your tailnet; only the one
+showing it answers, with the token. The exchange never leaves Tailscale
+(WireGuard), and the new computer is added at the address its request came
+from, not one it claims. Whichever computer already has other devices keeps its
+token. Through a relay, the code is the password for a SPAKE2 exchange instead,
+so the relay can't learn the token or brute-force the code offline (it does see
+the first 4 characters, which name the meeting point).
 
 ### 4. Data at rest
 
@@ -83,8 +100,10 @@ at any time; `crossthreads` rebuilds it from your tools' own files.
 ### 5. In transit
 
 Between devices and to a phone, traffic goes over Tailscale, which encrypts it
-end to end (WireGuard); it never crosses the internet unencrypted, and nothing
-goes through a Crossthreads server, because there isn't one. On the machine
+end to end (WireGuard), or, if you set one, through your relay inside a Noise
+tunnel whose keys were fixed when you added the device. Either way it never
+crosses the internet unencrypted, and nothing goes through a Crossthreads
+server, because there isn't one: a relay is one you run. On the machine
 itself, traffic stays on loopback.
 
 ### 6. The web app

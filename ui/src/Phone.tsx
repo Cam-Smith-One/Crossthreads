@@ -1,5 +1,5 @@
 // The board on a phone (SPEC FR-BRD-04): the pairing screen a phone sees
-// first, and the Settings → Phone panel on the computer.
+// first, and the Devices → Phones panel on the computer.
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -57,7 +57,7 @@ export function PairPhone() {
       <form className="pair-card" onSubmit={submit}>
         <h2>Pair this phone</h2>
         <p className="settings-hint">
-          On your computer, open Crossthreads → Settings → Phone →{" "}
+          On your computer, open Crossthreads → Devices → Add a device → A phone →{" "}
           <strong>Pair a phone</strong>, then scan the QR code or type the code
           it shows.
         </p>
@@ -98,7 +98,7 @@ function ago(ts: number): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
-/** Settings → Phone, on the computer. */
+/** Devices → Phones, on the computer. */
 export function PhoneSettings({
   onError,
 }: {

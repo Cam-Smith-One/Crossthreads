@@ -27,15 +27,16 @@ Crossthreads is a **local-first home for all your AI coding work**. You start so
 
 From there you can:
 
-- **See your work as a board.** Threads grouped by repository show what's running and what's waiting on you, across your tools and machines.
+- **See your work as one board.** One thread per piece of work, whichever tools and computers it spans, with what's running and what's waiting on you. Rename it, mark it done or leave notes from any of your computers.
 - **Pick work back up anywhere.** Reopen the latest session in its own tool, or copy a handoff brief that another tool or agent can continue from.
+- **Give your agents shared context.** Agents in any tool, on any of your computers, read a thread's decisions and open todos when they start and leave notes for the next one.
 - **Let your agents talk to each other.** Claude and Codex hand work back and forth in a room for their repository, even on different computers, while you watch and step in.
 - **Search everything you've ever discussed with an AI**, across nine tools and all your machines, by keyword or by meaning.
 - **Check on it from your phone.** Open the board over your private Tailscale network, read-only unless you allow more.
 - **Understand how you work.** Get cited answers from your own history, open loops, decisions, a weekly review, and measured habits.
-- **Give it all to your agents.** 28 MCP tools let agents recall prior work, read threads and use rooms.
+- **Give it all to your agents.** 30 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
 
-Everything runs on your machines. There's no account, no telemetry and no hosted service; devices talk to each other only over your own Tailscale network.
+Everything runs on your machines. There's no account, no telemetry and no hosted service. Adding a computer is a short code typed on it; devices then talk directly over your own Tailscale network, or through an end-to-end encrypted relay you host yourself.
 
 > **Where's the thread where we fixed the OAuth refresh retry?** One query, every tool and machine.
 >
@@ -49,7 +50,7 @@ Everything runs on your machines. There's no account, no telemetry and no hosted
 
 ## 🚀 Quick start
 
-**On a Mac, the easiest way is the app.** Download `Crossthreads-<version>-macos-universal.dmg` from the [latest release](https://github.com/Cam-Smith-One/Crossthreads/releases/latest) (one download for Apple Silicon and Intel), open it, and drag **Crossthreads** to Applications. Open it, and it indexes your sessions and shows the app; it lives in your menu bar too. Then **Settings → Get started** sets up the rest with one click per step.
+**On a Mac, the easiest way is the app.** Download `Crossthreads-<version>-macos-universal.dmg` from the [latest release](https://github.com/Cam-Smith-One/Crossthreads/releases/latest) (one download for Apple Silicon and Intel), open it, and drag **Crossthreads** to Applications. Open it, and it indexes your sessions and shows the app; it lives in your menu bar too. Then **Settings → Get started → Connect Claude Code and Codex** is the one click left.
 
 > The app isn't notarized by Apple yet, so the first time, **right-click it → Open → Open** (or run `xattr -dr com.apple.quarantine /Applications/Crossthreads.app`).
 
@@ -75,15 +76,13 @@ The app is private to your account: it opens signed in, and if you open `http://
 
 > On macOS the downloads aren't code-signed yet. If macOS refuses to open them, run `xattr -dr com.apple.quarantine ~/.crossthreads` and try again. Other snags: [**Troubleshooting**](docs/TROUBLESHOOTING.md).
 
-Then, once, to get the most out of it:
+Then, once, connect your AI tools:
 
 ```sh
-crossthreads hooks install                                        # live state on the board, room auto-wake, the edit guard
-claude mcp add crossthreads -s user -- "$(command -v ct-mcp)"     # give Claude Code the 28 tools
-crossthreads skill install                                        # teach Claude Code and Codex when to use them
+crossthreads connect     # hooks, the agent skill and the MCP server, for Claude Code and Codex
 ```
 
-Restart Claude Code and Codex afterwards (Codex asks you to trust the new hooks once). You don't need to remember any of this: **Settings → Get started** in the app checks what's installed and shows the command for anything still missing. For Codex's MCP setup and everything else, see [Set up](#-set-up).
+Restart Claude Code and Codex afterwards (Codex asks you to trust the new hooks once). It's safe to run again whenever you update or move Crossthreads. **Settings → Get started** in the app shows what's connected. Details: [Set up](#-set-up).
 
 <details>
 <summary><b>Build from source</b> (Rust + Node)</summary>
@@ -109,7 +108,7 @@ CT_ONNX=1 scripts/demo.sh
 
 ## ✨ What it does
 
-The app has five places, in a sidebar (a tab bar on a phone): **Threads** (home), **Rooms**, **Search**, **Insights** and **Settings**. Each has its own address, so Back works and you can bookmark `#/rooms`.
+The app has four places: **Home** (your threads, with Rooms and the weekly review a click away), **Search** (find, ask, and how you work), **Devices** (your computers and phones) and **Settings** (connect your tools, models, index, help). Each has its own address, so Back works and you can bookmark it.
 
 ### 🧵 Threads and the board
 
@@ -119,7 +118,8 @@ The home screen is your work as **threads**. A thread is one piece of work: ever
 - **Linked automatically** when a session continues another: a transcript transfer, a resume, or copied context. A session started in another tool around the same time is only **suggested**; you accept or dismiss it, and a dismissal is remembered.
 - **Status** (active, parked, done), rename, merge and split. Your edits survive a full re-index.
 - **Live state.** With `crossthreads hooks install`, Claude Code and Codex report what each session is doing. The board marks what's **running** and pins what **needs you** at the top. Without hooks, a session written to in the last 45 seconds shows as running (marked "inferred").
-- **Across machines.** With cross-device search set up, the board also lists your other computers' threads, each with a device chip. Offline devices are named rather than silently dropped.
+- **Across computers.** With your devices added, the board lists every computer's threads. Work that moved between computers is **one thread**: a session started from a handoff joins the thread it came from automatically, and you can join or separate threads by hand. Its name, status and notes are the same everywhere, and you can change them from any computer. Offline devices are named rather than silently dropped.
+- **Notes.** Keep decisions, todos and context on a thread. Your agents read them and add their own.
 
 Offline and deterministic: no model is involved. Available in the web app, `crossthreads threads`, and MCP.
 
@@ -130,6 +130,14 @@ Every thread has **Pick this up**:
 - **Copy resume command.** The native way back into the latest session, for example `cd ~/work/api && claude --resume <id>` or `codex resume <uuid>`.
 - **Copy handoff.** A Markdown brief with the repository, branch, every session, the original request, and where the latest session left off. Paste it into a different tool or agent to carry on without re-explaining. The same brief comes from `crossthreads thread <ID> --handoff` and the `crossthreads_thread` MCP tool with `handoff: true`.
 
+### 🧠 Shared context for your agents
+
+Agents forget everything between sessions, and they never knew what the other tool did. Crossthreads gives them the thread:
+
+- **At the start of a session**, Claude Code gets a short brief through its session-start hook when there's something its own session can't know: decisions already made, open todos, and work on the same thread in another tool or on another computer, including what's running right now. (Turn it off in **Settings → Get started**.)
+- **Any agent can ask** with `crossthreads_thread_context`, and **leave notes** with `crossthreads_note`: a decision and why, a todo left open, context the next agent needs. Notes travel to your other computers with the thread, and you see and edit them in the app.
+- **Handoffs carry them too**, so pasting a handoff into another tool hands over the decisions as well as the transcript.
+
 ### 🤝 Rooms: your agents talk to each other
 
 Stop being the copy-paste layer between your agents. Two agents working in the same repository share a **room** and hand work to each other directly: brief, implement, review, done.
@@ -139,23 +147,23 @@ Stop being the copy-paste layer between your agents. Two agents working in the s
 - **Auto-wake.** If an agent ends its turn mid-conversation, a hook hands it the next message instead of letting it stop.
 - **You're in charge.** Watch every room live in the **Rooms** view and type into it; your messages override the agents. A message starting `DONE` ends the exchange, and an optional turn cap bounds unattended runs.
 - **Remembered.** A finished exchange is indexed for search, and the two agents' sessions are linked into one thread.
-- **Across your devices.** Tick **Can message** for a device on both machines, and agents there join the same repository's room as `name@device`, e.g. `codex@linux-desktop`. Messages arrive immediately, and a device that was offline catches up within about 10 seconds of reconnecting.
+- **Across your devices.** Once a computer is added, agents there join the same repository's room as `name@device`, e.g. `codex@linux-desktop` (you can switch this off per device). Messages arrive immediately, and a device that was offline catches up within about 10 seconds of reconnecting.
 
 Works with Claude Code and Codex (any MCP-capable agent can use the tools), or two of the same. A shell fallback, `crossthreads room send|wait|history|claim|release`, covers chats opened before the tools were installed. Rooms replace the standalone Meat Proxy tool (`crossthreads room import` brings its history across).
 
 ### 🖥️ Across your devices
 
-Pair your computers over [Tailscale](https://tailscale.com) and one Crossthreads spans them all, with no index copying and no central server:
+Add a computer in a few seconds: **Devices → Add a device** shows a code like `K7PQ-4XMN` on one computer; type it on the other. That's it: no token to make up, nothing to approve on both sides. Then one Crossthreads spans them all, with no index copying and no central server:
 
 - **Search** fans out to every device and merges the results, tagged by device. Opening a result from another machine fetches it on demand.
-- **The board** lists every device's threads.
-- **Rooms** connect agents on different machines (with the *Can message* grant).
+- **Threads** are shared: one row per piece of work across computers, with the same name, status and notes everywhere.
+- **Rooms** connect agents on different machines.
 
-Each device keeps its own index and decides what it shares: you can keep tools or projects private per device. [Set up →](docs/MULTI_DEVICE_SETUP.md)
+Devices talk directly over [Tailscale](https://tailscale.com). No Tailscale? Run the small `crossthreads-relay` somewhere you control and devices meet through it, end-to-end encrypted, so the relay can't read anything ([RELAY.md](docs/RELAY.md)). Each device keeps its own index and decides what it shares: you can keep tools or projects private per device. [Set up →](docs/MULTI_DEVICE_SETUP.md)
 
 ### 📱 Your board on your phone
 
-Turn on **Settings → Phone** (or `crossthreads phone on`). Your computer then serves the board to your phone's browser over Tailscale. Scan the QR code it shows, and that phone is paired.
+**Devices → Add a device → A phone** (or `crossthreads phone on` then `crossthreads phone pair`). Your computer then serves the board to your phone's browser over Tailscale. Scan the QR code it shows, and that phone is paired.
 
 - Read threads, rooms, transcripts and search from anywhere on your tailnet.
 - **Read-only by default.** Letting a phone post to rooms (to steer your agents) is a separate switch per phone.
@@ -181,7 +189,7 @@ On top of the same index: **Ask** a question and get a cited answer from your ow
 
 ### 🖥️ A Mac app (and a Windows one)
 
-`Crossthreads.app` (built with Tauri) is the web app in a native window, with the daemon, CLI and MCP server inside. The same app ships for Windows as a per-user installer (`Crossthreads-<version>-windows-x64-setup.exe`). It starts the daemon itself, stays in your menu bar with a glance popover (usage against your baseline, next to the current insight), and in **Settings → Get started** installs the hooks, the agent skill and the terminal commands at a click. See [`src-tauri/`](src-tauri/README.md).
+`Crossthreads.app` (built with Tauri) is the web app in a native window, with the daemon, CLI and MCP server inside. The same app ships for Windows as a per-user installer (`Crossthreads-<version>-windows-x64-setup.exe`). It starts the daemon itself (replacing an older one), stays in your menu bar with a glance popover (usage against your baseline, next to the current insight), and in **Settings → Get started** connects Claude Code and Codex and adds the terminal commands at a click. See [`src-tauri/`](src-tauri/README.md).
 
 ## 📸 Screenshots
 
@@ -199,7 +207,7 @@ On top of the same index: **Ask** a question and get a cited answer from your ow
 <br/><br/>
 <img src=".github/assets/screenshot-phone.png" alt="The board on a phone, read-only" width="24%" />
 <img src=".github/assets/screenshot-phone-pairing.png" alt="Settings, Phone: pair a phone with a QR code" width="60%" />
-<br/><sub>The board on a phone, and pairing one from Settings → Phone.</sub>
+<br/><sub>The board on a phone, and pairing one from Devices → Phones.</sub>
 </div>
 
 ## 🧰 Set up
@@ -208,13 +216,9 @@ Each of these is optional and takes a minute. Crossthreads is useful as soon as 
 
 | To get | Do this | Guide |
 |---|---|---|
-| **Live state** on the board, room auto-wake and the claim guard | `crossthreads hooks install`, then restart Claude Code and Codex | [AGENT_API §7.5](docs/AGENT_API.md) |
-| **The tools in Claude Code** | `claude mcp add crossthreads -s user -- "$(command -v ct-mcp)"` | [For agents](#-for-agents-mcp) |
-| **The tools in Codex** | add `[mcp_servers.crossthreads]` with `command = "<path to ct-mcp>"` to `~/.codex/config.toml` | [For agents](#-for-agents-mcp) |
-| **Agents that know when to use them** | `crossthreads skill install` (a Claude Code skill and a Codex `/crossthreads` prompt) | |
-| **Your other computers** in search, the board and rooms | Install on each, join one Tailscale network, then pair them in Settings → Devices | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) |
-| **Agents talking across computers** | Tick **Can message** for the other device in Settings → Devices, on both | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md#more-in-settings--devices) |
-| **The board on your phone** | Settings → Phone → turn it on → **Pair a phone** and scan the QR code | [PHONE](docs/PHONE.md) |
+| **Claude Code and Codex connected**: live state, session-start briefs, room auto-wake, the claim guard, the 30 tools and the skill | `crossthreads connect` (or the one button in Settings → Get started), then restart them | [For agents](#-for-agents-mcp) |
+| **Your other computers** in search, threads and rooms | Devices → **Add a device** on one, type the code on the other (both on Tailscale, or both using your relay) | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) |
+| **The board on your phone** | Devices → **Add a device → A phone**, and scan the QR code | [PHONE](docs/PHONE.md) |
 | **Model-backed insights** (Ask, weekly review, analyses) | Nothing, if Claude Code, Codex or Gemini CLI is signed in; or paste an API key in Settings → Models | [Beyond search](#-beyond-search--understand-how-you-work) |
 | **A weekly review delivered to you** | `crossthreads schedule install --day mon --hour 9` | |
 
@@ -234,18 +238,20 @@ crossthreads threads --remote                                    # ask the daemo
 crossthreads thread <ID>                                         # one thread: every session that touched it
 crossthreads thread <ID> --handoff                               # a brief to continue it in another tool or agent
 crossthreads thread link|unlink|reject|rename|status …           # regroup and organise threads
+crossthreads note --kind decision "Keep the v1 API until mobile ships"   # a note on this folder's thread
+crossthreads brief                                               # what an agent is told about this folder's thread
 
 # Rooms
 crossthreads room history --me claude                            # who is here, claims, recent messages
 crossthreads room send --me claude --to codex "review src/auth?" # post and wait for the reply
-crossthreads room devices linux-desktop on                       # let another device's agents join your rooms
 crossthreads room import                                         # bring in a Meat Proxy database
 
-# The app, devices, phone, hooks
+# The app, devices, phone, your tools
 crossthreads open                                                # open the web app, signed in (--print for the link)
+crossthreads devices add                                         # show a code to type on your other computer
+crossthreads devices join K7PQ-4XMN                              # …on that computer
 crossthreads phone on | pair | off                               # the board on your phone (pair shows a QR code)
-crossthreads hooks install | status | uninstall                  # live state, room auto-wake, the claim guard
-crossthreads skill install                                       # the agent skill for Claude Code and Codex
+crossthreads connect                                             # hooks, skill and MCP for Claude Code and Codex
 
 # Understand how you work
 crossthreads metrics                                             # how you work, by the numbers (no model)
@@ -262,7 +268,7 @@ crossthreads index | status | glance | llm-auth
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary and your agent gets 28 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
+Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for Claude Code and Codex) and your agent gets 30 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
 
 | Tool | Purpose |
 |---|---|
@@ -275,6 +281,8 @@ Point any MCP client at the `ct-mcp` binary and your agent gets 28 tools. Your h
 | `crossthreads_themes` | cluster the user's sessions into themes (`name` for AI labels) |
 | `crossthreads_threads` | the user's threads: pieces of work, each one or more sessions linked across tools |
 | `crossthreads_thread` | one thread in full: every session that touched the work, in time order; `handoff: true` returns a brief to continue it |
+| `crossthreads_thread_context` | what to know before working here: the thread's decisions, open todos and notes, and its sessions across tools and devices (who is running now) |
+| `crossthreads_note` | keep a decision, todo or context on the thread for other agents and devices; mark a todo done |
 | `crossthreads_room_send` | message another agent in this project's room (on this machine or `name@device`) and wait for the reply |
 | `crossthreads_room_wait` | listen for the next room message |
 | `crossthreads_room_history` | who is in the room, claims, and recent messages |
@@ -381,15 +389,16 @@ the next index.
 
 Crossthreads holds your whole AI coding history and can pass messages to agents that run commands, so it's built to be locked down by default. The full threat model is in [**docs/SECURITY_MODEL.md**](docs/SECURITY_MODEL.md).
 
-- **Local-first, no telemetry, no account, no hosted service.** Your index is one SQLite file on your machine. Nothing leaves it unless you turn something on: devices you pair (over Tailscale), a phone you pair, or a model provider you configure for insights.
+- **Local-first, no telemetry, no account, no hosted service.** Your index is one SQLite file on your machine. Nothing leaves it unless you turn something on: devices you add (over Tailscale, or a relay you host that only sees encrypted traffic), a phone you pair, or a model provider you configure for insights.
 - **Private to your account, even on a shared computer.** Every local client presents a random key that only your account can read, and the web app signs in with a one-time link from `crossthreads open`. The index, key and config files are owner-only.
-- **Nothing on your network can reach it by default.** The daemon listens on loopback. To reach your other devices it also listens on your Tailscale address, but only with a shared token, and that listener serves only the token-checked peer protocol, never settings or anything else. It refuses to listen on every interface.
+- **Nothing on your network can use it.** The daemon serves your own clients on loopback only. The app also listens on your Tailscale address so you can add devices, but that listener serves only the peer protocol, and every peer request needs the device's shared token: a random 256-bit secret the app makes for itself and only ever hands to a device you add. It refuses to listen on every interface.
 - **Every reach beyond this computer is a separate switch that starts off:**
 
 | Capability | Off until | Notes |
 |---|---|---|
-| Search, the board and transcripts from your other computers | You pair them with a shared token (at least 20 characters; **Generate** makes one) | Tailscale only. Each device can keep tools or projects private. |
-| Agents on another computer joining your rooms | You tick **Can message** for that device, on both devices | Claims stay per device. |
+| Search, threads and transcripts from your other computers | You add the computer with a short code (8 characters, 10 minutes, one use, cancelled after 5 wrong tries) | The code exchange travels only inside Tailscale, or through your relay with SPAKE2, so the relay can't learn the token. Each device can keep tools or projects private. |
+| Agents on another computer joining your rooms | On for a computer you add; untick **Agents can message** to stop it | Claims stay per device. |
+| Devices meeting through a relay instead of Tailscale | You run `crossthreads-relay` and set it on each computer | End-to-end encrypted (Noise, keys pinned when you add the device). The relay sees addresses and timing, never content. |
 | The board on a phone | You turn on phone access and pair the phone | Tailscale address only. One-time pairing code; a revocable per-phone key, stored only as a hash; signed out after 30 days unused. |
 | A phone posting to rooms | You tick **Can post to rooms** for that phone | Posts are signed with the phone's name. |
 
@@ -403,7 +412,7 @@ Crossthreads holds your whole AI coding history and can pass messages to agents 
    AI coding tools                 crossthreadsd (one per machine)                  You and your agents
  ┌───────────────────┐          ┌────────────────────────────────────┐          ┌─────────────────────────┐
  │ Claude Code       │  watch   │ connectors → normalize → SQLite    │  RPC     │ Web app (board, rooms)  │
- │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (28 tools)    │
+ │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (30 tools)    │
  │ Cline · Copilot   │          │  • threads, links, repo keys       │          │ Menu-bar app (Tauri)    │
  │ Gemini · Windsurf │  hooks   │  • live state · rooms · claims     │          │ Phone (tailnet, paired) │
  │ Aider · Antigrav. │ ───────► │  • insights and metrics            │          └─────────────────────────┘
@@ -457,7 +466,7 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (28 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ Connectors for 9 tools + skills/prompts, hybrid search, daemon, web UI, MCP (30 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring), theme map, temporal view, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification

@@ -88,7 +88,7 @@ pub struct Daemon {
     /// seconds): almost always an older `ct-mcp` or `crossthreads` still
     /// running in an agent. Shown in Settings → Get started.
     keyless_client_at: Arc<Mutex<Option<i64>>>,
-    /// The code shown for adding another computer (SPEC §6.6).
+    /// The code shown for adding another computer (SPEC §6.8).
     device_pairing: Arc<pairing::DevicePairing>,
 }
 
@@ -957,7 +957,7 @@ impl Daemon {
     }
 
     /// List this host + approved peers, pinging peers for current liveness
-    /// (ADR-010). Powers the device picker and Settings → Devices.
+    /// (ADR-010). Powers the device picker and Devices.
     fn devices_list(&self) -> Response {
         let Some(fed) = &self.federation else {
             return Response::Devices {
@@ -1537,7 +1537,7 @@ impl Daemon {
         let fed = self.peer_auth(token)?;
         if fed.room_peer(from).is_none() {
             return Err(format!(
-                "`{}` hasn't allowed `{from}` to message (Settings → Devices → Can message)",
+                "`{}` hasn't allowed `{from}` to message (Devices → Agents can message)",
                 fed.device()
             ));
         }

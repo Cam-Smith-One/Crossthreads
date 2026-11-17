@@ -275,7 +275,7 @@ impl Daemon {
                     None => error_json(
                         403,
                         "that code didn't work: it may have expired or been used. Make a new one \
-                         on the desktop (Settings → Phone).",
+                         on the desktop (Devices → Phones).",
                     ),
                 }
             }
