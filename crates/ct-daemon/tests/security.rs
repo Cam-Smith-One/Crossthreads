@@ -337,3 +337,11 @@ fn an_endless_request_line_is_cut_off() {
     }
     assert!(failed, "the daemon kept reading an endless line");
 }
+
+#[test]
+fn reports_its_version() {
+    match daemon().handle(Request::Version) {
+        Response::Version { version } => assert_eq!(version, env!("CARGO_PKG_VERSION")),
+        other => panic!("{other:?}"),
+    }
+}

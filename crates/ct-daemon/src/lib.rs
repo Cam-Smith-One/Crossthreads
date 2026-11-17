@@ -394,6 +394,9 @@ impl Daemon {
     pub fn handle(&self, req: Request) -> Response {
         match req {
             Request::Ping => Response::Pong,
+            Request::Version => Response::Version {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            },
             Request::Status => self.status().unwrap_or_else(err),
             Request::Facets => self.facets().unwrap_or_else(err),
             Request::Reindex => self

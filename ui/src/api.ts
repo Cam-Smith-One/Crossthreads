@@ -212,6 +212,13 @@ async function rpc<T>(body: unknown): Promise<T> {
     }
   }
   if (data && data.type === "error") {
+    // An older daemon answers newer requests with a serde "unknown variant"
+    // error; say what that means instead of showing it raw.
+    if (/unknown variant `/.test(data.message ?? "")) {
+      throw new Error(
+        "The Crossthreads service running on this computer is older than this app. Quit Crossthreads, run `pkill crossthreadsd` in Terminal, and open Crossthreads again. If it comes back, update the terminal install too (see Help).",
+      );
+    }
     throw new Error(data.message ?? "daemon error");
   }
   return data as T;

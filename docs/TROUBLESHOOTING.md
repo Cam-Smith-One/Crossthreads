@@ -237,6 +237,18 @@ machine.
 
 ---
 
+## "unknown variant" or "older than this app"
+
+A Crossthreads daemon from an earlier version is still running, and the app or
+command is newer. The Mac app replaces an older daemon on launch from 0.22.1 on.
+Otherwise: quit Crossthreads, run `pkill crossthreadsd`, and start it again. If
+it comes back, Claude Code's MCP server is starting an old copy: update the
+terminal install (`curl -fsSL
+https://raw.githubusercontent.com/Cam-Smith-One/Crossthreads/main/scripts/install.sh | bash`).
+`crossthreads status --remote` shows which version is running.
+
+---
+
 ## Signing in and "unauthorized"
 
 ### The browser shows "Open Crossthreads from your computer"

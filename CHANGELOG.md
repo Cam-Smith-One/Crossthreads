@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.22.1] - 2026-11-17
+
+### Fixed
+- **The Mac app could talk to an older daemon.** If a daemon from an earlier
+  terminal install was already running (or Claude Code's MCP server had started
+  one), the app reused it, and the window showed `unknown variant` errors for
+  anything newer, such as phone access. The app now asks the running daemon its
+  version and replaces one older than itself with its own.
+- The web app explains an older daemon in plain words instead of showing the
+  raw error.
+
+### Added
+- A `version` request; `crossthreads status --remote` shows the daemon's
+  version and says when it differs from the command's.
+
 ## [0.22.0] - 2026-11-16
 
 The Mac app.
