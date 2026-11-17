@@ -10,6 +10,8 @@ members = [
     "crates/ct-cli",
     "crates/ct-mcp",
     "crates/ct-llm",
+    "crates/ct-tunnel",
+    "crates/ct-relay",
 ]
 # The native Tauri shell lives in `src-tauri/` and is intentionally EXCLUDED
 # from the workspace: it needs platform webview libs (e.g. webkit2gtk) that

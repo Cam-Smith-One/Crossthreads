@@ -1,0 +1,22 @@
+[package]
+name = "ct-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.85"
+description = "Self-hostable Crossthreads relay: forwards end-to-end encrypted traffic between paired devices."
+
+[lib]
+name = "ct_relay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crossthreads-relay"
+path = "src/main.rs"
+
+[dependencies]
+ct-tunnel = { path = "../ct-tunnel" }
+snow = "0.10"
+getrandom = "0.3"
+
