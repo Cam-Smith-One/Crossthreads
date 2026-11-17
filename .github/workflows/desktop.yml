@@ -1,0 +1,176 @@
+name: Desktop app
+
+# Builds the macOS app (Crossthreads.app) as a .dmg: one universal build for
+# Apple Silicon and Intel, with crossthreadsd, crossthreads and ct-mcp inside
+# the bundle so installing the app is the whole setup.
+#
+# - On a pull request that touches the app: builds it and keeps the .dmg as a
+#   workflow artifact, so the bundle is checked before it merges.
+# - On a release tag (or a manual run with a tag): also attaches the .dmg to
+#   that GitHub release.
+#
+# Signing: without Apple credentials the app is ad-hoc signed, and macOS asks
+# you to confirm the first time you open it. To ship a signed, notarized app,
+# add these repository secrets and the build uses them:
+#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
+#   APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the .dmg to (e.g. v0.22.0); empty for an artifact only"
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS app (.dmg, universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          [[ -z "$tag" && "${{ github.ref_type }}" == "tag" ]] && tag="${{ github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./ui/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-universal
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the bundled programs (both architectures)
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --target "$t" --bin crossthreadsd --bin crossthreads --bin ct-mcp
+          done
+
+      - name: Make them universal and hand them to the bundler
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          # A universal build compiles each architecture separately, and each
+          # pass wants its own copy, so provide both thin binaries as well as
+          # the universal one the bundle ships.
+          for b in crossthreadsd crossthreads ct-mcp; do
+            for t in aarch64-apple-darwin x86_64-apple-darwin; do
+              cp "target/$t/release/$b" "src-tauri/binaries/$b-$t"
+            done
+            lipo -create \
+              "target/aarch64-apple-darwin/release/$b" \
+              "target/x86_64-apple-darwin/release/$b" \
+              -output "src-tauri/binaries/$b-universal-apple-darwin"
+            lipo -info "src-tauri/binaries/$b-universal-apple-darwin"
+          done
+
+      - name: Build Crossthreads.app and the .dmg
+        working-directory: src-tauri
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          # Unset empty secrets so the bundler falls back to ad-hoc signing.
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                   APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [[ -z "${!v}" ]] && unset "$v"
+          done
+          # The UI was built above; don't build it again.
+          npx --yes @tauri-apps/cli@2 build \
+            --target universal-apple-darwin --bundles app,dmg \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Check the bundle
+        shell: bash
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Crossthreads.app"
+          ls -la "$app/Contents/MacOS"
+          # The app's own program is `ct-desktop` (its package name). Mac disks
+          # ignore case, so "Crossthreads" here would find the `crossthreads` CLI.
+          for b in ct-desktop crossthreadsd crossthreads ct-mcp; do
+            lipo -info "$app/Contents/MacOS/$b"
+          done
+          test -f "$app/Contents/Resources/ui/index.html"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # The bundled CLI runs.
+          "$app/Contents/MacOS/crossthreads" help | head -3
+
+      - name: Smoke test (launch the app; it should start its own daemon)
+        shell: bash
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Crossthreads.app"
+          "$app/Contents/MacOS/ct-desktop" &
+          pid=$!
+          ok=0
+          for _ in $(seq 1 60); do
+            if "$app/Contents/MacOS/crossthreads" status --remote; then ok=1; break; fi
+            sleep 2
+          done
+          # The web app answers too, and needs signing in.
+          curl -s -o /dev/null -w "web app: HTTP %{http_code}\n" -X POST \
+            -H 'Content-Type: application/json' -d '{"op":"status"}' http://127.0.0.1:47101/api/rpc || true
+          "$app/Contents/MacOS/crossthreads" open --print || true
+          kill "$pid" 2>/dev/null || true
+          sleep 2
+          cat ~/Library/Logs/Crossthreads/crossthreadsd.log 2>/dev/null | tail -20 || true
+          [[ "$ok" == 1 ]] || { echo "the app didn't bring up its daemon"; exit 1; }
+
+      - name: Name the .dmg
+        shell: bash
+        run: |
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          out="Crossthreads-${{ steps.ver.outputs.version }}-macos-universal.dmg"
+          cp "$dmg" "$out"
+          shasum -a 256 "$out" | tee "$out.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Crossthreads-macos-dmg
+          path: |
+            Crossthreads-*.dmg
+            Crossthreads-*.dmg.sha256
+
+      - name: Attach to the release
+        if: steps.ver.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          files: |
+            Crossthreads-*.dmg
+            Crossthreads-*.dmg.sha256

@@ -1837,6 +1837,7 @@ export function App() {
                     refreshSetup();
                   }}
                   go={go}
+                  onChanged={refreshSetup}
                 />
               </div>
             )}

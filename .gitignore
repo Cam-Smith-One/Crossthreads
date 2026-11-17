@@ -25,3 +25,6 @@ src-tauri/gen/
 *.sqlite3
 *.db-wal
 *.db-shm
+
+# Daemon/CLI/MCP binaries copied in for the desktop bundle (built in CI)
+src-tauri/binaries/
