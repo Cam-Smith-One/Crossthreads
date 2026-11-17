@@ -274,3 +274,25 @@ fn relayed_messages_are_stored_once_and_reach_the_right_agent() {
     let names: Vec<&str> = rooms[0].agents.iter().map(|(n, _)| n.as_str()).collect();
     assert!(names.contains(&"codex@linux") && names.contains(&"claude@linux"));
 }
+
+#[test]
+fn a_room_appears_as_soon_as_an_agent_is_in_it() {
+    let s = Store::open_in_memory().unwrap();
+    // codex is listening; nobody has said anything yet.
+    s.room_touch(R, "codex", 100).unwrap();
+    let rooms = s.rooms().unwrap();
+    assert_eq!(rooms.len(), 1);
+    assert_eq!(rooms[0].room, R);
+    assert_eq!(rooms[0].messages, 0);
+    assert_eq!(rooms[0].agents.len(), 1);
+    assert!(!rooms[0].closed);
+
+    // Once claude speaks, the count follows; the newest activity sorts first.
+    s.room_post(R, "claude", "hi", None, false, 200).unwrap();
+    s.room_touch("other-room", "gemini", 300).unwrap();
+    let rooms = s.rooms().unwrap();
+    assert_eq!(rooms[0].room, "other-room");
+    let mine = rooms.iter().find(|r| r.room == R).unwrap();
+    assert_eq!(mine.messages, 1);
+    assert_eq!(mine.last_ts, 200);
+}

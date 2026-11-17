@@ -383,25 +383,22 @@ pub fn decode_pairing(code: &str) -> Option<(String, Peer)> {
 
 /// OS keychain storage for the federation token (ADR-010). Best-effort: every
 /// call degrades to `false`/`None` when no keychain backend is available (e.g.
-/// headless CI), so callers fall back to the plaintext config file.
+/// headless CI), so callers fall back to the plaintext config file. The token
+/// lives in the one Crossthreads keychain item ([`ct_llm::secrets`]), so
+/// reading it never adds a keychain prompt of its own.
 pub mod token_store {
-    const SERVICE: &str = "crossthreads";
-    const USER: &str = "federation-token";
+    const NAME: &str = "federation-token";
 
     pub fn get() -> Option<String> {
-        keyring::Entry::new(SERVICE, USER).ok()?.get_password().ok()
+        ct_llm::secrets::get(NAME)
     }
 
     pub fn set(token: &str) -> bool {
-        keyring::Entry::new(SERVICE, USER)
-            .and_then(|e| e.set_password(token))
-            .is_ok()
+        ct_llm::secrets::set(NAME, Some(token))
     }
 
     pub fn delete() {
-        if let Ok(e) = keyring::Entry::new(SERVICE, USER) {
-            let _ = e.delete_credential();
-        }
+        ct_llm::secrets::set(NAME, None);
     }
 }
 

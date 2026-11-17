@@ -195,6 +195,18 @@ export function Rooms({
           )}
 
           <div className="rooms-stream" ref={stream} aria-live="polite">
+            {messages.length === 0 && current && (
+              <p className="rooms-quiet">
+                {current.agents.some((a) => a.listening)
+                  ? `${current.agents
+                      .filter((a) => a.listening)
+                      .map((a) => a.name)
+                      .join(" and ")} ${
+                      current.agents.filter((a) => a.listening).length === 1 ? "is" : "are"
+                    } listening. Nothing has been said yet: the conversation appears here when the other agent sends its first message.`
+                  : "Nothing has been said in this room yet."}
+              </p>
+            )}
             {messages.map((m) => (
               <div
                 key={m.id}

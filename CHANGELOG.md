@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.22.3] - 2026-11-17
+
+### Fixed
+- **Fewer keychain prompts on macOS.** Each Crossthreads secret (the shared
+  device token, each provider's API key, the chosen provider) was its own
+  keychain item, and macOS asks once per item, per program, so a new daemon or
+  CLI process could ask several times in a row. They now live in one item:
+  at most one prompt per program, and **Always Allow** covers everything.
+  Existing items are moved into it automatically the first time (which may ask
+  once more) and then deleted.
+- **Rooms didn't appear until someone spoke.** A room was listed only once it
+  had a message, so agents that had joined and were listening didn't show in
+  the Rooms view at all. A room now appears as soon as an agent is in it, and
+  says who is listening while nothing has been said yet.
+
+### Removed
+- `scripts/screenshot.mjs` (captured the old layout; nothing used it) and
+  `docs/STATUS.md` (a June snapshot; the CHANGELOG and SPEC cover it).
+
 ## [0.22.2] - 2026-11-17
 
 ### Fixed

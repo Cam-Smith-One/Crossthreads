@@ -410,8 +410,14 @@ impl Store {
 
     /// Every room that has messages, most recently active first.
     pub fn rooms(&self) -> Result<Vec<RoomSummary>> {
+        // A room shows up as soon as an agent is in it (listening, say), not
+        // only once someone has spoken; most recently active first.
         let mut stmt = self.conn.prepare(
-            "SELECT room, COUNT(*), MAX(ts) FROM room_messages GROUP BY room ORDER BY MAX(id) DESC",
+            "SELECT room, SUM(n), MAX(ts) FROM (
+                 SELECT room, COUNT(*) AS n, MAX(ts) AS ts FROM room_messages GROUP BY room
+                 UNION ALL
+                 SELECT room, 0 AS n, MAX(seen) AS ts FROM room_agents GROUP BY room
+             ) GROUP BY room ORDER BY MAX(ts) DESC",
         )?;
         let rows = stmt
             .query_map([], |r| {
