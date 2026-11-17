@@ -589,6 +589,9 @@ fn merge_group(
     let mut devices: BTreeSet<String> = BTreeSet::new();
     devices.insert(out.device.clone().unwrap_or_else(|| me.to_string()));
     for r in rows {
+        if r.last_activity > out.last_activity && r.standing.is_some() {
+            out.standing = r.standing.clone();
+        }
         devices.insert(r.device.clone().unwrap_or_else(|| me.to_string()));
         for tool in r.tools {
             if !out.tools.contains(&tool) {
@@ -865,6 +868,7 @@ mod tests {
             device: Some(device.into()),
             devices: vec![],
             related: vec![],
+            standing: None,
         }
     }
 

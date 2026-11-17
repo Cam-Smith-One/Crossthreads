@@ -119,6 +119,9 @@ pub struct ThreadSummary {
     /// one. Filled in by the daemon.
     #[serde(default)]
     pub related: Vec<PartRef>,
+    /// Where the work stands. Filled in by the daemon.
+    #[serde(default)]
+    pub standing: Option<crate::Standing>,
 }
 
 /// A thread on a particular device.
@@ -272,7 +275,10 @@ fn work_id(parts: &[&str]) -> String {
     let d = h.finalize();
     format!(
         "th_w{}",
-        d.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>()
+        d.iter()
+            .take(8)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     )
 }
 
@@ -391,8 +397,11 @@ impl Store {
         let mut thread_of = HashMap::new();
         let rows = self.session_rows()?;
         let auto = {
-            let unplaced: Vec<&SessionRef> =
-                rows.iter().filter(|(_, t)| t.is_none()).map(|(s, _)| s).collect();
+            let unplaced: Vec<&SessionRef> = rows
+                .iter()
+                .filter(|(_, t)| t.is_none())
+                .map(|(s, _)| s)
+                .collect();
             auto_ids(&unplaced)
         };
         for (session, thread_id) in rows {
@@ -491,6 +500,7 @@ impl Store {
             device: None,
             devices: Vec::new(),
             related: Vec::new(),
+            standing: None,
         }
     }
 

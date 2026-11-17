@@ -34,6 +34,7 @@ pub mod rooms;
 pub mod schedule;
 pub mod setup;
 mod shared;
+mod standing;
 pub mod weekly;
 pub use ct_store::{
     behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
@@ -661,6 +662,11 @@ impl Daemon {
                 .thread_context(thread.as_deref(), device.as_deref(), cwd.as_deref(), brief)
                 .unwrap_or_else(err),
             Request::SetAgentContext { on } => self.set_agent_context(on).unwrap_or_else(err),
+            Request::SetAutoStanding { on } => self.set_auto_standing(on).unwrap_or_else(err),
+            Request::ThreadSummarize { id } => self
+                .summarize_thread(&id)
+                .map(|standing| Response::Standing { standing })
+                .unwrap_or_else(err),
             Request::DevicePairStart => self.device_pair_start(),
             Request::DevicePairCancel => {
                 self.device_pairing.cancel();
@@ -1056,6 +1062,7 @@ impl Daemon {
             s.tailnet = fed.listen_addr.is_some();
         }
         s.agent_context = self.agent_context_on();
+        s.auto_standing = self.auto_standing_on();
         s.keyless_client_at = *self.keyless_client_at.lock().expect("poisoned");
         s.phone_enabled = self.phone.enabled();
         s.phones = self.phone.phones().len();
@@ -1333,6 +1340,9 @@ impl Daemon {
                 }
             }
             self.live.annotate(&mut thread, &mut sessions, now);
+            if out.len() < self.standing_limit() {
+                self.attach_standing(&mut thread, &sessions);
+            }
             out.push(thread);
             if filters.limit.is_some_and(|n| out.len() >= n) {
                 break;
@@ -1424,6 +1434,7 @@ impl Daemon {
         Ok(detail.map(|mut t| {
             self.live
                 .annotate(&mut t.summary, &mut t.sessions, chrono::Utc::now());
+            self.attach_standing(&mut t.summary, &t.sessions);
             t
         }))
     }

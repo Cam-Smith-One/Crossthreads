@@ -491,6 +491,10 @@ pub enum Request {
     },
     /// Turn session-start context for agents on or off.
     SetAgentContext { on: bool },
+    /// Turn background thread summaries (by the user's model) on or off.
+    SetAutoStanding { on: bool },
+    /// Have the user's model write where a thread on this device stands now.
+    ThreadSummarize { id: String },
     /// Show a short code for adding another computer (SPEC §6.8).
     DevicePairStart,
     /// Stop showing the code.
@@ -851,6 +855,10 @@ pub enum Response {
         name: String,
         token: String,
         has_peers: bool,
+    },
+    /// Where a thread stands.
+    Standing {
+        standing: ct_store::Standing,
     },
     /// Shared thread state, for a peer.
     Shared {

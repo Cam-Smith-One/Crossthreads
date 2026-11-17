@@ -406,6 +406,7 @@ mod tests {
             device: None,
             devices: vec![],
             related: vec![],
+            standing: None,
         };
         reg.annotate(&mut thread, &mut sessions, now);
         assert_eq!(thread.live.unwrap().state, "needs_you");
