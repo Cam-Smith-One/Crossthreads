@@ -240,6 +240,47 @@ function StepCard({ step, n }: { step: Step; n: number }) {
   );
 }
 
+/** True when an older tool was refused in the last day. */
+export function staleClientRecently(s: SetupStatus): boolean {
+  return !!s.keyless_client_at && Date.now() / 1000 - s.keyless_client_at < 24 * 3600;
+}
+
+/** An older ct-mcp or CLI keeps connecting without the local key: say what
+ * that is and how to fix it. */
+function StaleClientWarning({ setup, ctMcp }: { setup: SetupStatus; ctMcp: string | null }) {
+  if (!staleClientRecently(setup)) return null;
+  const when = new Date((setup.keyless_client_at ?? 0) * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const path = ctMcp ?? "$(command -v ct-mcp)";
+  return (
+    <section className="settings-section stale-client">
+      <h3>⚠ An older Crossthreads tool is still connecting</h3>
+      <p className="settings-hint">
+        At {when}, something connected without this computer's key and was refused. It is almost
+        always Codex or Claude Code still running an older <code>ct-mcp</code>, so its Crossthreads
+        tools (search, threads, rooms) fail. Quit and reopen Codex and Claude Code. If it happens
+        again, point them at this version:
+      </p>
+      <CopyCommand
+        cmd={`claude mcp remove crossthreads -s user; claude mcp add crossthreads -s user -- ${
+          ctMcp ? `"${ctMcp}"` : path
+        }`}
+      />
+      <CopyCommand
+        cmd={`# Codex: in ~/.codex/config.toml\n[mcp_servers.crossthreads]\ncommand = ${
+          ctMcp ? `"${ctMcp}"` : '"<output of: command -v ct-mcp>"'
+        }`}
+      />
+      <p className="setup-note">
+        Check which version a tool uses with <code>ct-mcp --version</code> (0.22.2 or later
+        understands it).
+      </p>
+    </section>
+  );
+}
+
 /** Settings → Get started. */
 export function SetupChecklist({
   setup,
@@ -265,6 +306,7 @@ export function SetupChecklist({
   const done = essentials.filter((s) => s.done).length;
   return (
     <div className="setup">
+      <StaleClientWarning setup={setup} ctMcp={desktop?.ctMcp ?? null} />
       <section className="settings-section">
         <h3>
           Essentials <span className="setup-progress">{done} of {essentials.length} done</span>
@@ -306,6 +348,21 @@ export function SetupNudge({
 }) {
   const { essentials } = setupSteps(setup, sessions, () => {}, () => {});
   const left = essentials.filter((s) => !s.done);
+  if (staleClientRecently(setup)) {
+    return (
+      <div className="nudge">
+        <div>
+          <strong>⚠ An older Crossthreads tool is being refused</strong>
+          <span className="nudge-next">
+            Codex or Claude Code is likely running an old ct-mcp, so their Crossthreads tools fail.
+          </span>
+        </div>
+        <span className="nudge-actions">
+          <button onClick={onOpen}>Fix it</button>
+        </span>
+      </div>
+    );
+  }
   if (left.length === 0) return null;
   const next = left[0];
   return (

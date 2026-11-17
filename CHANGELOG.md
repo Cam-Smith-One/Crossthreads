@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.22.2] - 2026-11-17
+
+### Fixed
+- **An agent running an older `ct-mcp` failed silently.** Found in real use:
+  Codex kept running the `ct-mcp` it started before an update, which doesn't
+  present the local key (0.21+), so its Crossthreads tools were refused and its
+  room messages never arrived. The daemon now remembers when a client without
+  the key connects; **Settings → Get started** and the Threads page say so and
+  give the commands that point Claude Code and Codex at the current `ct-mcp`.
+  The refusal itself now says what it almost always means and what to do.
+
+- **"Tailscale isn't connected" when it was.** Crossthreads found the
+  Tailscale address by running the `tailscale` command, which an app opened from
+  Finder can't find (macOS gives it a minimal PATH) and which the App Store
+  build of Tailscale doesn't install. It now reads the address from the
+  computer's network interfaces (Tailscale's `100.64.0.0/10` range) and only
+  falls back to the command. This fixes phone access and `--addr auto`.
+
+### Added
+- `--version` on `crossthreads`, `crossthreadsd` and `ct-mcp`.
+
 ## [0.22.1] - 2026-11-17
 
 ### Fixed

@@ -145,9 +145,10 @@ impl Daemon {
                     .map(|ip| format!("{ip}:{}", crate::phone::PHONE_PORT))
             })
             .ok_or_else(|| {
-                "Tailscale isn't connected on this device. Phone access only listens on your \
-                 tailnet; install Tailscale on this computer and your phone, sign both in, \
-                 then try again."
+                "Couldn't find this computer's Tailscale address (a 100.x.y.z address on one of \
+                 its network interfaces). Phone access only listens on your tailnet: check that \
+                 Tailscale says Connected on this computer and your phone (same account), then \
+                 turn Phone access off and on again."
                     .to_string()
             })?;
         crate::phone::safe_bind(&addr)?;

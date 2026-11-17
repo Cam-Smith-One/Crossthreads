@@ -14,6 +14,14 @@ use ct_mcp::Server;
 use serde_json::Value;
 
 fn main() -> ExitCode {
+    // `ct-mcp --version`: which build an agent is actually running.
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a == "--version" || a == "-V")
+    {
+        println!("ct-mcp {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     // Auto-start the daemon on demand so the agent path is one step — no
     // separate `crossthreadsd` to keep running.
     let server = Server::from_env_autostart();

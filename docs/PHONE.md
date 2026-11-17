@@ -71,8 +71,12 @@ The whole picture is in the [security model](SECURITY_MODEL.md).
 
 ## Troubleshooting
 
-**"Tailscale isn't connected on this device."** Install Tailscale on the
-computer and sign in, then turn Phone access off and on again.
+**"Couldn't find this computer's Tailscale address"** (before 0.22.2: "Tailscale
+isn't connected on this device"). Crossthreads looks for a `100.x.y.z` address
+on the computer's network interfaces. Check that Tailscale says **Connected**
+(its menu-bar icon), then turn Phone access off and on again. Before 0.22.2 this
+check used the `tailscale` command, which the Mac app couldn't find even when
+Tailscale was connected; update to fix it.
 
 **The phone can't open the address.** Check Tailscale is connected on the phone
 (the VPN switch in the Tailscale app). Both devices must be signed in to the same

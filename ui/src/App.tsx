@@ -60,7 +60,7 @@ import {
 import { Board } from "./Board";
 import { Rooms } from "./Rooms";
 import { PairPhone, PhoneSettings } from "./Phone";
-import { SetupChecklist, SetupNudge } from "./Setup";
+import { SetupChecklist, SetupNudge, staleClientRecently } from "./Setup";
 import { SignIn } from "./SignIn";
 import { toolIcon, toolLabel } from "./tools";
 
@@ -971,7 +971,7 @@ export function App() {
               history and pick it up where it left off.
             </p>
           </div>
-          {!phone && setup && !nudgeDismissed && (
+          {!phone && setup && (!nudgeDismissed || staleClientRecently(setup)) && (
             <SetupNudge
               setup={setup}
               sessions={sessionCount}
