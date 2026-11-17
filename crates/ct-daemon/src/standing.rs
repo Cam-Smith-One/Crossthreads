@@ -51,12 +51,12 @@ impl Daemon {
         st.last_ask = plain.and_then(|p| p.last_ask);
         if st.next.is_none() {
             st.next = store
-                .notes_for(&[thread.id.clone()])
+                .notes_for(std::slice::from_ref(&thread.id))
                 .ok()
                 .and_then(|n| n.into_iter().find(|n| n.kind == "todo"))
                 .map(|n| ct_store::standing::clip(&n.text, 200));
         }
-        thread.standing = Some(st);
+        thread.standing = Some(Box::new(st));
     }
 
     pub(crate) fn standing_limit(&self) -> usize {
@@ -109,7 +109,7 @@ impl Daemon {
                     ct_store::standing::clip(s.title.as_deref().unwrap_or("(untitled)"), 100)
                 ));
             }
-            let notes = store.notes_for(&[t.summary.id.clone()])?;
+            let notes = store.notes_for(std::slice::from_ref(&t.summary.id))?;
             if !notes.is_empty() {
                 p.push_str("Notes:\n");
                 for n in &notes {

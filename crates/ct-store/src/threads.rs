@@ -121,7 +121,7 @@ pub struct ThreadSummary {
     pub related: Vec<PartRef>,
     /// Where the work stands. Filled in by the daemon.
     #[serde(default)]
-    pub standing: Option<crate::Standing>,
+    pub standing: Option<Box<crate::Standing>>,
 }
 
 /// A thread on a particular device.

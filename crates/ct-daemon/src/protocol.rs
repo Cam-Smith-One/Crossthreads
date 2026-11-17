@@ -613,6 +613,9 @@ fn default_max_chars() -> usize {
 /// A response from the daemon to a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// A response is built once and serialized straight away; boxing variants to
+// even out their sizes would buy nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Response {
     /// The daemon's version (see `Request::Version`).
     Version {
