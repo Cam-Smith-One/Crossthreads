@@ -16,6 +16,13 @@ a tagged release.
   give the commands that point Claude Code and Codex at the current `ct-mcp`.
   The refusal itself now says what it almost always means and what to do.
 
+- **"Tailscale isn't connected" when it was.** Crossthreads found the
+  Tailscale address by running the `tailscale` command, which an app opened from
+  Finder can't find (macOS gives it a minimal PATH) and which the App Store
+  build of Tailscale doesn't install. It now reads the address from the
+  computer's network interfaces (Tailscale's `100.64.0.0/10` range) and only
+  falls back to the command. This fixes phone access and `--addr auto`.
+
 ### Added
 - `--version` on `crossthreads`, `crossthreadsd` and `ct-mcp`.
 

@@ -553,8 +553,39 @@ fn tailscale_peers() -> Vec<(String, String)> {
 /// Best-effort: this device's own tailnet IPv4 address, read from the `Self`
 /// node of `tailscale status --json`. `None` when Tailscale isn't installed or
 /// connected — callers then fall back to a loopback bind.
+///
+/// Reads this computer's network interfaces first: a connected Tailscale has
+/// an address in its `100.64.0.0/10` range on one of them, however Tailscale
+/// was installed. That matters on macOS, where an app opened from Finder
+/// can't find the `tailscale` command (its PATH is minimal) and the App Store
+/// build of Tailscale has no command at all. The CLI is the fallback.
 pub fn detect_self_tailnet_ip() -> Option<String> {
-    self_tailnet_ip(&tailscale_status_json()?)
+    tailnet_ip_from_interfaces().or_else(|| self_tailnet_ip(&tailscale_status_json()?))
+}
+
+/// Is this an address Tailscale hands out (`100.64.0.0/10`, carrier-grade
+/// NAT space)?
+pub fn is_tailnet_v4(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    o[0] == 100 && (o[1] & 0xC0) == 64
+}
+
+/// The first `100.64.0.0/10` address on a network interface, preferring one
+/// that looks like Tailscale's (`tailscale0` on Linux, a `utun` on macOS).
+fn tailnet_ip_from_interfaces() -> Option<String> {
+    let ifaces = if_addrs::get_if_addrs().ok()?;
+    let mut found: Vec<(bool, std::net::Ipv4Addr)> = ifaces
+        .iter()
+        .filter_map(|i| match i.ip() {
+            std::net::IpAddr::V4(v4) if is_tailnet_v4(v4) => {
+                let named = i.name.starts_with("tailscale") || i.name.starts_with("utun");
+                Some((named, v4))
+            }
+            _ => None,
+        })
+        .collect();
+    found.sort_by_key(|(named, _)| !named);
+    found.first().map(|(_, ip)| ip.to_string())
 }
 
 /// Pull the `Self` node's first IPv4 tailnet address. Pure, so it's testable.
@@ -751,6 +782,19 @@ mod tests {
                 ("work-laptop".to_string(), "100.40.50.60".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn recognises_tailnet_addresses() {
+        let ip = |s: &str| s.parse::<std::net::Ipv4Addr>().unwrap();
+        assert!(is_tailnet_v4(ip("100.64.0.1")));
+        assert!(is_tailnet_v4(ip("100.101.102.103")));
+        assert!(is_tailnet_v4(ip("100.127.255.254")));
+        assert!(!is_tailnet_v4(ip("100.128.0.1")));
+        assert!(!is_tailnet_v4(ip("100.63.255.255")));
+        assert!(!is_tailnet_v4(ip("192.168.1.10")));
+        // Reading the interfaces never fails the caller.
+        let _ = tailnet_ip_from_interfaces();
     }
 
     #[test]
