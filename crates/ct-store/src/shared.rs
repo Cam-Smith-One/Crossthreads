@@ -43,6 +43,16 @@ pub struct SharedThread {
     #[serde(default)]
     pub status_by: String,
     pub updated: i64,
+    /// Sent to another device to continue there: (device, tool), or empty
+    /// once picked up.
+    #[serde(default)]
+    pub moved_to: Option<String>,
+    #[serde(default)]
+    pub moved_tool: Option<String>,
+    #[serde(default)]
+    pub moved_at: i64,
+    #[serde(default)]
+    pub moved_by: String,
 }
 
 /// One device's thread, attached to a shared thread.
@@ -138,6 +148,11 @@ fn clip(s: &str, max: usize) -> String {
     }
 }
 
+/// 16 random-looking hex characters (time plus a per-process random key).
+pub(crate) fn random_hex() -> String {
+    random_suffix()
+}
+
 fn random_suffix() -> String {
     let mut h = RandomState::new().build_hasher();
     h.write_u128(
@@ -159,7 +174,8 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, title, title_at, title_by, status, status_at, status_by, updated
+                "SELECT id, title, title_at, title_by, status, status_at, status_by, updated,
+                        moved_to, moved_tool, moved_at, moved_by
                  FROM shared_threads WHERE id = ?1",
                 [id],
                 row_thread,
@@ -170,7 +186,8 @@ impl Store {
     /// Every shared thread record.
     pub fn shared_threads(&self) -> Result<Vec<SharedThread>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, title_at, title_by, status, status_at, status_by, updated
+            "SELECT id, title, title_at, title_by, status, status_at, status_by, updated,
+                    moved_to, moved_tool, moved_at, moved_by
              FROM shared_threads",
         )?;
         let rows = stmt.query_map([], row_thread)?;
@@ -201,6 +218,10 @@ impl Store {
             status_at: 0,
             status_by: String::new(),
             updated: 0,
+            moved_to: None,
+            moved_tool: None,
+            moved_at: 0,
+            moved_by: String::new(),
         });
         if let Some(title) = title {
             let title = clip(title, MAX_TITLE);
@@ -218,6 +239,38 @@ impl Store {
         Ok(())
     }
 
+    /// Send a thread to another device to continue there (`to` = None clears
+    /// it, once picked up).
+    pub fn share_thread_move(
+        &self,
+        id: &str,
+        to: Option<&str>,
+        tool: Option<&str>,
+        device: &str,
+        at: i64,
+    ) -> Result<()> {
+        let mut t = self.shared_thread(id)?.unwrap_or(SharedThread {
+            id: id.to_string(),
+            title: None,
+            title_at: 0,
+            title_by: String::new(),
+            status: None,
+            status_at: 0,
+            status_by: String::new(),
+            updated: 0,
+            moved_to: None,
+            moved_tool: None,
+            moved_at: 0,
+            moved_by: String::new(),
+        });
+        t.moved_to = to.map(str::to_string);
+        t.moved_tool = tool.map(str::to_string);
+        t.moved_at = at;
+        t.moved_by = device.to_string();
+        self.merge_thread(&t)?;
+        Ok(())
+    }
+
     /// Merge one shared thread record. Returns true when anything changed.
     pub fn merge_thread(&self, t: &SharedThread) -> Result<bool> {
         let cur = self.shared_thread(&t.id)?;
@@ -230,6 +283,10 @@ impl Store {
             status_at: 0,
             status_by: String::new(),
             updated: 0,
+            moved_to: None,
+            moved_tool: None,
+            moved_at: 0,
+            moved_by: String::new(),
         });
         if newer(t.title_at, &t.title_by, out.title_at, &out.title_by) {
             out.title = t.title.as_deref().map(|s| clip(s, MAX_TITLE));
@@ -245,18 +302,27 @@ impl Store {
                 }
             }
         }
+        if newer(t.moved_at, &t.moved_by, out.moved_at, &out.moved_by) {
+            out.moved_to = t.moved_to.clone().filter(|d| !d.is_empty());
+            out.moved_tool = t.moved_tool.clone().filter(|d| !d.is_empty());
+            out.moved_at = t.moved_at;
+            out.moved_by = t.moved_by.clone();
+        }
         if cur.as_ref() == Some(&out) {
             return Ok(false);
         }
-        out.updated = out.title_at.max(out.status_at);
+        out.updated = out.title_at.max(out.status_at).max(out.moved_at);
         self.conn.execute(
-            "INSERT INTO shared_threads (id, title, title_at, title_by, status, status_at, status_by, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO shared_threads (id, title, title_at, title_by, status, status_at, status_by,
+                 updated, moved_to, moved_tool, moved_at, moved_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET title = ?2, title_at = ?3, title_by = ?4,
-                 status = ?5, status_at = ?6, status_by = ?7, updated = ?8",
+                 status = ?5, status_at = ?6, status_by = ?7, updated = ?8,
+                 moved_to = ?9, moved_tool = ?10, moved_at = ?11, moved_by = ?12",
             params![
                 out.id, out.title, out.title_at, out.title_by, out.status, out.status_at,
-                out.status_by, out.updated
+                out.status_by, out.updated, out.moved_to, out.moved_tool, out.moved_at,
+                out.moved_by
             ],
         )?;
         Ok(true)
@@ -502,7 +568,8 @@ impl Store {
     pub fn shared_since(&self, since: i64) -> Result<SharedState> {
         let mut st = SharedState::default();
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, title_at, title_by, status, status_at, status_by, updated
+            "SELECT id, title, title_at, title_by, status, status_at, status_by, updated,
+                    moved_to, moved_tool, moved_at, moved_by
              FROM shared_threads WHERE updated > ?1 ORDER BY updated LIMIT ?2",
         )?;
         st.threads = stmt
@@ -589,6 +656,10 @@ fn row_thread(r: &rusqlite::Row) -> rusqlite::Result<SharedThread> {
         status_at: r.get(5)?,
         status_by: r.get(6)?,
         updated: r.get(7)?,
+        moved_to: r.get(8)?,
+        moved_tool: r.get(9)?,
+        moved_at: r.get(10)?,
+        moved_by: r.get(11)?,
     })
 }
 

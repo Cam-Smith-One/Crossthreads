@@ -91,6 +91,15 @@ pub(crate) fn resume_args(program: &str, id: &str) -> Option<Vec<String>> {
 
 /// Build the resume plan for a conversation from its `tool`, `source_path`, and
 /// (optional) `project` working directory.
+/// The tool's own id for a session, for tools that can resume one.
+pub(crate) fn native_id(tool: &str, source_path: &str) -> Option<String> {
+    match tool {
+        "claude-code" => file_stem(source_path),
+        "codex" => file_stem(source_path).and_then(|stem| embedded_uuid(&stem)),
+        _ => None,
+    }
+}
+
 pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resume {
     // (program, session id) for tools with a known resume CLI.
     let command = match tool {

@@ -37,6 +37,7 @@ pub mod setup;
 mod shared;
 mod standing;
 pub mod weekly;
+mod work;
 pub use ct_store::{
     behavior, Filters, SearchHit, StoredConversation, ThreadDetail, ThreadFilters, ThreadSummary,
 };
@@ -663,6 +664,25 @@ impl Daemon {
                 .thread_context(thread.as_deref(), device.as_deref(), cwd.as_deref(), brief)
                 .unwrap_or_else(err),
             Request::SetAgentContext { on } => self.set_agent_context(on).unwrap_or_else(err),
+            Request::ThreadCreate { title, goal, cwd } => self
+                .create_thread(&title, goal.as_deref(), &cwd)
+                .unwrap_or_else(err),
+            Request::ThreadContinue {
+                id,
+                device,
+                tool,
+                fresh,
+            } => self
+                .continue_thread(&id, device.as_deref(), &tool, fresh)
+                .unwrap_or_else(err),
+            Request::ThreadMove {
+                id,
+                device,
+                to,
+                tool,
+            } => self
+                .move_thread(&id, device.as_deref(), to.as_deref(), tool.as_deref())
+                .unwrap_or_else(err),
             Request::SetAutoStanding { on } => self.set_auto_standing(on).unwrap_or_else(err),
             Request::ThreadSummarize { id } => self
                 .summarize_thread(&id)

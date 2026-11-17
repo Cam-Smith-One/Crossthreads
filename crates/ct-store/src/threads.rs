@@ -122,6 +122,12 @@ pub struct ThreadSummary {
     /// Where the work stands. Filled in by the daemon.
     #[serde(default)]
     pub standing: Option<Box<crate::Standing>>,
+    /// Sent to this device to continue: the tool to continue in. Filled in
+    /// by the daemon.
+    #[serde(default)]
+    pub moved_to: Option<String>,
+    #[serde(default)]
+    pub moved_tool: Option<String>,
 }
 
 /// A thread on a particular device.
@@ -317,6 +323,9 @@ struct Grouped {
     thread_of: HashMap<String, String>,
     /// thread id → (custom title, status), for threads with a row.
     meta: HashMap<String, (Option<String>, String)>,
+    /// Threads started from the app with no session yet:
+    /// (id, folder, repo key, created at).
+    planned: Vec<(String, String, Option<String>, String)>,
 }
 
 impl Store {
@@ -422,6 +431,28 @@ impl Store {
             });
         }
 
+        // Threads started from the app wait, empty, for their first session.
+        let mut planned = Vec::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, project, repo_key, created_at FROM threads WHERE project IS NOT NULL",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, project, repo_key, created) = row?;
+                if !members.contains_key(&id) {
+                    planned.push((id, project, repo_key, created));
+                }
+            }
+        }
+
         let mut meta = HashMap::new();
         let mut stmt = self.conn.prepare("SELECT id, title, status FROM threads")?;
         let rows = stmt.query_map([], |r| {
@@ -439,6 +470,7 @@ impl Store {
             members,
             thread_of,
             meta,
+            planned,
         })
     }
 
@@ -501,6 +533,8 @@ impl Store {
             devices: Vec::new(),
             related: Vec::new(),
             standing: None,
+            moved_to: None,
+            moved_tool: None,
         }
     }
 
@@ -542,6 +576,21 @@ impl Store {
                 );
                 (summary, sessions.clone())
             })
+            .chain(g.planned.iter().map(|(id, project, repo_key, created)| {
+                let mut summary = Self::summarize(id, &[], g.meta.get(id), 0);
+                summary.repo_key = repo_key.clone().or_else(|| Some(project.clone()));
+                summary.repo_label = Some(match repo_key {
+                    Some(k) => ct_core::repo::repo_label(k),
+                    None => project
+                        .rsplit(['/', '\\'])
+                        .find(|p| !p.is_empty())
+                        .unwrap_or(project)
+                        .to_string(),
+                });
+                summary.last_activity = Some(created.clone());
+                summary.first_activity = Some(created.clone());
+                (summary, Vec::new())
+            }))
             .filter(|(t, _)| f.status.as_deref().map_or(true, |s| t.status == s))
             .filter(|(t, _)| {
                 f.tool
@@ -574,6 +623,21 @@ impl Store {
     /// a thread id or the conversation id of any session in it.
     pub fn thread(&self, id: &str) -> Result<Option<ThreadDetail>> {
         let g = self.grouped()?;
+        if let Some((pid, _, repo_key, created)) = g.planned.iter().find(|p| p.0 == id) {
+            let mut summary = Self::summarize(pid, &[], g.meta.get(pid), 0);
+            summary.repo_key = repo_key.clone();
+            summary.repo_label = repo_key.as_deref().map(ct_core::repo::repo_label);
+            summary.last_activity = Some(created.clone());
+            summary.first_activity = Some(created.clone());
+            return Ok(Some(ThreadDetail {
+                summary,
+                sessions: Vec::new(),
+                links: Vec::new(),
+                suggestions: Vec::new(),
+                notes: Vec::new(),
+                parts: Vec::new(),
+            }));
+        }
         let id = match g.members.contains_key(id) {
             true => id.to_string(),
             false => match self
@@ -851,6 +915,63 @@ impl Store {
             params![lo, hi],
         )?;
         self.put_link(&ka, &kb, kind, origin, 1.0, true)
+    }
+
+    /// Start a thread before any session: a goal, in a folder. The first
+    /// session started for it (see [`Store::attach_session`]) joins it.
+    pub fn create_thread(
+        &self,
+        title: &str,
+        goal: Option<&str>,
+        project: &str,
+        repo_key: Option<&str>,
+    ) -> Result<String> {
+        let title = title.trim();
+        if title.is_empty() {
+            bail!("a thread needs a name");
+        }
+        let id = format!("th_n{}", crate::shared::random_hex());
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO threads (id, title, status, created_at, updated_at, project, repo_key, goal)
+             VALUES (?1, ?2, 'active', ?3, ?3, ?4, ?5, ?6)",
+            params![
+                id,
+                crate::standing::clip(title, 200),
+                now,
+                project,
+                repo_key,
+                goal.map(str::trim).filter(|g| !g.is_empty())
+            ],
+        )?;
+        Ok(id)
+    }
+
+    /// The folder and goal a thread was started with from the app, if it was.
+    pub fn thread_origin(&self, id: &str) -> Result<Option<(String, Option<String>)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT project, goal FROM threads WHERE id = ?1 AND project IS NOT NULL",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// Put one session (by conversation id) into a thread on this device.
+    pub fn attach_session(&self, conversation_id: &str, thread_id: &str) -> Result<bool> {
+        let Some(key) = self.session_key_of(conversation_id)? else {
+            return Ok(false);
+        };
+        if self.explicit_thread(&key)?.as_deref() == Some(thread_id) {
+            return Ok(false);
+        }
+        self.conn.execute(
+            "INSERT OR REPLACE INTO thread_sessions (session_key, thread_id) VALUES (?1, ?2)",
+            params![key, thread_id],
+        )?;
+        Ok(true)
     }
 
     /// Move every session of thread `part` into thread `into` (both on this

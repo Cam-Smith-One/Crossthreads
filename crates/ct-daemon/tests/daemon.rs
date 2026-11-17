@@ -2491,3 +2491,99 @@ fn a_short_code_pairs_a_new_computer_once() {
         .unwrap();
     assert!(matches!(r, Response::Shared { .. }), "{r:?}");
 }
+
+// ---- Starting and moving work from the app (SPEC §6.9) -----------------------
+
+#[test]
+fn a_thread_started_from_the_app_waits_then_takes_its_first_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let d = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed("lap", "s3cret-token-for-tests", vec![]));
+    let Response::ThreadId { id: Some(id) } = d.handle(Request::ThreadCreate {
+        title: "Dark mode".into(),
+        goal: Some("Add a dark theme to settings".into()),
+        cwd: cwd.clone(),
+    }) else {
+        panic!("expected an id");
+    };
+    let Response::Threads { threads, .. } = d.handle(Request::Threads {
+        filters: Default::default(),
+        devices: None,
+    }) else {
+        panic!("expected threads");
+    };
+    let t = threads
+        .iter()
+        .find(|t| t.id == id)
+        .expect("listed before any session");
+    assert_eq!(t.title, "Dark mode");
+    assert_eq!(t.session_count, 0);
+    let Response::Thread {
+        thread: Some(detail),
+    } = d.handle(Request::Thread {
+        id: id.clone(),
+        device: None,
+    })
+    else {
+        panic!("expected the thread");
+    };
+    assert!(detail
+        .notes
+        .iter()
+        .any(|n| n.text == "Goal: Add a dark theme to settings"));
+
+    // A missing folder, or a tool we can't open, is refused.
+    assert!(matches!(
+        d.handle(Request::ThreadCreate {
+            title: "x".into(),
+            goal: None,
+            cwd: "/no/such/folder".into(),
+        }),
+        Response::Error { .. }
+    ));
+    assert!(matches!(
+        d.handle(Request::ThreadContinue {
+            id: id.clone(),
+            device: None,
+            tool: "vim".into(),
+            fresh: false,
+        }),
+        Response::Error { .. }
+    ));
+
+    // Sending it to a device that isn't paired is refused; to a paired one
+    // (here, this one) it shows as waiting there.
+    assert!(matches!(
+        d.handle(Request::ThreadMove {
+            id: id.clone(),
+            device: None,
+            to: Some("nowhere".into()),
+            tool: None,
+        }),
+        Response::Error { .. }
+    ));
+    d.handle(Request::ThreadMove {
+        id: id.clone(),
+        device: None,
+        to: Some("lap".into()),
+        tool: Some("codex".into()),
+    });
+    let Response::Threads { threads, .. } = d.handle(Request::Threads {
+        filters: Default::default(),
+        devices: None,
+    }) else {
+        panic!("expected threads");
+    };
+    let t = threads.iter().find(|t| t.id == id).unwrap();
+    assert_eq!(t.moved_to.as_deref(), Some("lap"));
+    assert_eq!(t.moved_tool.as_deref(), Some("codex"));
+}

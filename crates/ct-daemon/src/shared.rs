@@ -550,7 +550,21 @@ impl Daemon {
         };
         for (conv, thread, device) in found {
             if device == me {
-                continue; // a handoff within this device is linked by detection
+                // A session started here from this thread's brief (Continue
+                // in…, or a pasted handoff) belongs to it.
+                let attached = {
+                    let store = self.write_lock();
+                    match store.thread(&thread) {
+                        Ok(Some(t)) if !t.sessions.iter().any(|s| s.conversation_id == conv) => {
+                            store.attach_session(&conv, &t.summary.id)
+                        }
+                        _ => Ok(false),
+                    }
+                };
+                if let Err(e) = attached {
+                    eprintln!("warn: attaching a session to {thread}: {e:#}");
+                }
+                continue;
             }
             let part = match self.read_lock().thread(&conv) {
                 Ok(Some(t)) => t.summary.id,
@@ -634,6 +648,8 @@ fn merge_group(
                 out.status = s.clone();
             }
         }
+        out.moved_to = sh.moved_to.clone();
+        out.moved_tool = sh.moved_tool.clone();
     }
     out.id = id.clone();
     if out.device.is_some() || dev != me {
@@ -869,6 +885,8 @@ mod tests {
             devices: vec![],
             related: vec![],
             standing: None,
+            moved_to: None,
+            moved_tool: None,
         }
     }
 
