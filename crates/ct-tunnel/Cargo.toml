@@ -1,0 +1,26 @@
+[package]
+name = "ct-tunnel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.85"
+description = "End-to-end encrypted device-to-device transport over a Crossthreads relay (Noise KK, SPAKE2 pairing)."
+
+[dependencies]
+snow = "0.10"
+spake2 = "0.4"
+chacha20poly1305 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = { workspace = true }
+subtle = "2"
+zeroize = "1"
+getrandom = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
