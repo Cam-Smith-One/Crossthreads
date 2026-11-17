@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens (shadcn/ui convention): HSL channels, light then dark. */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 224 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 25% 12%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 224 25% 16%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 44%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 224 25% 14%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 60% 38%;
+    --warning: 35 92% 45%;
+    --border: 220 13% 90%;
+    --input: 220 13% 88%;
+    --ring: 221 83% 53%;
+    --sidebar: 220 20% 97.5%;
+    --sidebar-foreground: 224 20% 20%;
+    --radius: 0.6rem;
+  }
+  [data-theme="dark"] {
+    --background: 225 18% 7%;
+    --foreground: 220 15% 92%;
+    --card: 225 16% 10%;
+    --card-foreground: 220 15% 92%;
+    --popover: 225 16% 10%;
+    --popover-foreground: 220 15% 92%;
+    --primary: 217 91% 64%;
+    --primary-foreground: 224 40% 8%;
+    --secondary: 224 14% 16%;
+    --secondary-foreground: 220 15% 92%;
+    --muted: 224 14% 14%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 224 14% 17%;
+    --accent-foreground: 220 15% 94%;
+    --destructive: 0 63% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 55% 50%;
+    --warning: 38 92% 58%;
+    --border: 224 14% 18%;
+    --input: 224 14% 22%;
+    --ring: 217 91% 64%;
+    --sidebar: 225 18% 8.5%;
+    --sidebar-foreground: 220 12% 84%;
+  }
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    @apply bg-primary/25;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+}

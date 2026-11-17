@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { Glance } from "./Glance";
+import "./index.css";
 import "./styles.css";
 
 // The desktop tray popover loads `index.html?view=glance` — a compact

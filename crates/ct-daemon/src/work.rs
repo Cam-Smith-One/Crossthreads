@@ -53,6 +53,27 @@ impl Daemon {
         Ok(Response::ThreadId { id: Some(id) })
     }
 
+    pub(crate) fn recent_folders(&self) -> Result<Response> {
+        let mut sessions: Vec<ct_store::SessionRef> = self
+            .read_lock()
+            .threads_with_sessions(&ct_store::ThreadFilters::default())?
+            .into_iter()
+            .flat_map(|(_, s)| s)
+            .collect();
+        sessions.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+        let mut folders: Vec<String> = Vec::new();
+        for s in sessions {
+            let Some(p) = s.project.filter(|p| !p.is_empty()) else { continue };
+            if !folders.contains(&p) && Path::new(&p).is_dir() {
+                folders.push(p);
+            }
+            if folders.len() == 15 {
+                break;
+            }
+        }
+        Ok(Response::Folders { folders })
+    }
+
     /// Open `tool` in a terminal to continue a thread on this computer.
     pub(crate) fn continue_thread(
         &self,

@@ -683,6 +683,7 @@ impl Daemon {
             } => self
                 .move_thread(&id, device.as_deref(), to.as_deref(), tool.as_deref())
                 .unwrap_or_else(err),
+            Request::RecentFolders => self.recent_folders().unwrap_or_else(err),
             Request::SetAutoStanding { on } => self.set_auto_standing(on).unwrap_or_else(err),
             Request::ThreadSummarize { id } => self
                 .summarize_thread(&id)

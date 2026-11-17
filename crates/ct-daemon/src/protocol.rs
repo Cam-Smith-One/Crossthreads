@@ -522,6 +522,9 @@ pub enum Request {
         #[serde(default)]
         tool: Option<String>,
     },
+    /// Folders on this computer recent sessions ran in, newest first, for
+    /// starting a thread.
+    RecentFolders,
     /// Turn background thread summaries (by the user's model) on or off.
     SetAutoStanding { on: bool },
     /// Have the user's model write where a thread on this device stands now.
@@ -889,6 +892,9 @@ pub enum Response {
         name: String,
         token: String,
         has_peers: bool,
+    },
+    Folders {
+        folders: Vec<String>,
     },
     /// Where a thread stands.
     Standing {
