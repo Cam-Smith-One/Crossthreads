@@ -81,6 +81,10 @@ pub struct Daemon {
     login_tickets: Arc<local_auth::Tickets>,
     /// Where the local web app is served, for sign-in links.
     http_addr: Option<String>,
+    /// When a local client last connected without the local key (epoch
+    /// seconds): almost always an older `ct-mcp` or `crossthreads` still
+    /// running in an agent. Shown in Settings → Get started.
+    keyless_client_at: Arc<Mutex<Option<i64>>>,
 }
 
 impl Daemon {
@@ -103,6 +107,7 @@ impl Daemon {
             local_key: None,
             login_tickets: Arc::new(local_auth::Tickets::default()),
             http_addr: None,
+            keyless_client_at: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -368,13 +373,20 @@ impl Daemon {
                     },
                     None => Response::Ok { ok: true },
                 },
-                Ok(req) if !signed_in && !req.is_peer_request() => Response::Error {
-                    message: format!(
-                        "unauthorized: present the local key first (it is in {}, readable \
-                         only by the account that runs Crossthreads)",
-                        local_auth::key_path().display()
-                    ),
-                },
+                Ok(req) if !signed_in && !req.is_peer_request() => {
+                    *self.keyless_client_at.lock().expect("poisoned") =
+                        Some(chrono::Utc::now().timestamp());
+                    Response::Error {
+                        message: format!(
+                            "unauthorized: this client didn't present the local key (in {}). \
+                             It is almost always an older crossthreads or ct-mcp (before 0.21) \
+                             still running: restart the app that started it (Codex, Claude \
+                             Code), and make sure it uses an up-to-date ct-mcp, such as \
+                             /Applications/Crossthreads.app/Contents/MacOS/ct-mcp",
+                            local_auth::key_path().display()
+                        ),
+                    }
+                }
                 Ok(Request::LoginTicket) => self.login_ticket(),
                 Ok(req) => self.handle(req),
                 Err(e) => Response::Error {
@@ -964,6 +976,7 @@ impl Daemon {
             s.devices = peers.len();
             s.devices_can_message = peers.iter().filter(|p| p.rooms).count();
         }
+        s.keyless_client_at = *self.keyless_client_at.lock().expect("poisoned");
         s.phone_enabled = self.phone.enabled();
         s.phones = self.phone.phones().len();
         s

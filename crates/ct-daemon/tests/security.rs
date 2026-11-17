@@ -75,6 +75,11 @@ fn local_clients_must_present_the_local_key() {
     );
     assert!(replies[0].contains("pong"), "ping is open: {}", replies[0]);
     assert!(replies[1].contains("unauthorized"), "{}", replies[1]);
+    assert!(
+        replies[1].contains("older"),
+        "says what to do: {}",
+        replies[1]
+    );
     assert!(replies[2].contains("wrong local key"), "{}", replies[2]);
     assert!(replies[3].contains("unauthorized"), "{}", replies[3]);
     assert!(replies[4].contains(r#""ok":true"#), "{}", replies[4]);
@@ -344,4 +349,17 @@ fn reports_its_version() {
         Response::Version { version } => assert_eq!(version, env!("CARGO_PKG_VERSION")),
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn setup_status_flags_a_client_without_the_key() {
+    let d = daemon().with_local_key(KEY.into());
+    let setup = |d: &Daemon| match d.handle(Request::SetupStatus) {
+        Response::Setup { setup } => setup,
+        other => panic!("{other:?}"),
+    };
+    assert!(setup(&d).keyless_client_at.is_none());
+    let addr = serve(d.clone(), false);
+    lines(&addr, &[r#"{"op":"status"}"#]);
+    assert!(setup(&d).keyless_client_at.is_some());
 }

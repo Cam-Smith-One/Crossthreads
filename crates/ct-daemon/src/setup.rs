@@ -31,6 +31,10 @@ pub struct SetupStatus {
     /// Which tools have their data on this machine at all.
     pub claude_present: bool,
     pub codex_present: bool,
+    /// When a local client last connected without the local key (epoch
+    /// seconds): an older `ct-mcp` or CLI is still in use somewhere.
+    #[serde(default)]
+    pub keyless_client_at: Option<i64>,
 }
 
 fn home(env: &str, default: &str) -> PathBuf {

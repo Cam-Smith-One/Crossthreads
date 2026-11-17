@@ -1520,3 +1520,5 @@ a.side-status[href]:hover { color: var(--text); }
 
 .signin-cmd { display: block; font-size: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .setup-result { margin: 0; white-space: pre-wrap; font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; max-width: 100%; }
+.stale-client { border: 1px solid var(--err-border); background: var(--err-bg); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.stale-client h3 { color: var(--err-text); }

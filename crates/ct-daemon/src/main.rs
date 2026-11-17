@@ -101,6 +101,10 @@ fn run() -> Result<()> {
                     .context("--serve-exclude-project needs a value")?
                     .clone(),
             ),
+            "--version" | "-V" => {
+                println!("crossthreadsd {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "--help" | "-h" => {
                 print!("{USAGE}");
                 return Ok(());

@@ -154,6 +154,9 @@ export interface SetupStatus {
   phones: number;
   claude_present: boolean;
   codex_present: boolean;
+  /** When a client without the local key last tried to connect (epoch
+   * seconds): an older ct-mcp or CLI is still in use. */
+  keyless_client_at?: number | null;
 }
 
 export async function getSetupStatus(): Promise<SetupStatus> {
