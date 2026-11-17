@@ -237,6 +237,22 @@ machine.
 
 ---
 
+## macOS keeps asking for my keychain password
+
+`crossthreadsd` (or `crossthreads`) wants to read its saved secrets: the shared
+device token and any model API keys you added. Click **Always Allow**, not
+Allow: Allow lasts until that program exits, so the next start asks again.
+
+macOS remembers the choice per program and per build. Until Crossthreads is
+signed with an Apple Developer ID, each update is a new build, so expect one
+prompt after updating; and the app's copy of `crossthreadsd` and a terminal
+install's copy are separate programs, so each asks once. From 0.22.3 all
+secrets are one keychain item, so it is one prompt per program, not one per
+secret. To avoid the second program, use the app's copies (Settings → Get
+started → *Use Crossthreads from your terminal*) instead of a terminal install.
+
+---
+
 ## "unknown variant" or "older than this app"
 
 A Crossthreads daemon from an earlier version is still running, and the app or

@@ -9,6 +9,7 @@
 //! credentials in preference order until one succeeds.
 
 pub mod auth;
+pub mod secrets;
 pub mod store;
 
 pub use auth::{available_providers, resolve, Cred, Provider};
