@@ -22,6 +22,7 @@ pub mod fluency;
 pub mod glance;
 mod http;
 pub mod insights;
+pub mod launch;
 pub mod live;
 pub mod local_auth;
 pub mod optimize;
