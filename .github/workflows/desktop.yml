@@ -135,11 +135,28 @@ jobs:
         shell: bash
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Crossthreads.app"
+          # Reproduce an upgrade: an older daemon (from an earlier terminal
+          # install) is already running. The app must replace it with its own.
+          old="$RUNNER_TEMP/old-daemon"
+          mkdir -p "$old"
+          curl -fsSL -o "$old/old.tgz" \
+            https://github.com/Cam-Smith-One/Crossthreads/releases/download/v0.21.0/crossthreads-v0.21.0-aarch64-apple-darwin.tar.gz
+          tar -xzf "$old/old.tgz" -C "$old"
+          "$(find "$old" -name crossthreadsd -type f | head -1)" --addr 127.0.0.1:47100 --no-watch \
+            > "$old/old.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            "$app/Contents/MacOS/crossthreads" status --remote >/dev/null 2>&1 && break
+            sleep 1
+          done
+          echo "before launching the app:"
+          "$app/Contents/MacOS/crossthreads" status --remote | head -2
           "$app/Contents/MacOS/ct-desktop" &
           pid=$!
           ok=0
           for _ in $(seq 1 60); do
-            if "$app/Contents/MacOS/crossthreads" status --remote; then ok=1; break; fi
+            if "$app/Contents/MacOS/crossthreads" status --remote | grep -q "version ${{ steps.ver.outputs.version }}"; then
+              "$app/Contents/MacOS/crossthreads" status --remote; ok=1; break
+            fi
             sleep 2
           done
           # The web app answers too, and needs signing in.
@@ -150,6 +167,10 @@ jobs:
           sleep 2
           cat ~/Library/Logs/Crossthreads/crossthreadsd.log 2>/dev/null | tail -20 || true
           [[ "$ok" == 1 ]] || { echo "the app didn't bring up its daemon"; exit 1; }
+          want="${{ steps.ver.outputs.version }}"
+          "$app/Contents/MacOS/crossthreads" status --remote | grep -q "version $want" \
+            || { echo "the app kept an older daemon instead of its own $want"; exit 1; }
+          echo "the app replaced the older daemon with its own $want"
 
       - name: Name the .dmg
         shell: bash

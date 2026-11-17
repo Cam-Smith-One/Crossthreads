@@ -28,6 +28,10 @@ pub enum Mode {
 pub enum Request {
     /// Liveness check.
     Ping,
+    /// This daemon's version, so a client (the desktop app) can tell an
+    /// older daemon from its own. Daemons before 0.22.1 don't know this op and
+    /// answer with an error, which also means "older". Answers `Version`.
+    Version,
     /// Index health and counts.
     Status,
     /// Distinct tools present (for filter UIs).
@@ -501,6 +505,10 @@ fn default_max_chars() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
+    /// The daemon's version (see `Request::Version`).
+    Version {
+        version: String,
+    },
     Pong,
     Status {
         conversations: i64,

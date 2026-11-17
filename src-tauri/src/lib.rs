@@ -64,14 +64,69 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-/// Start the bundled daemon unless one is already answering. It serves the
-/// web app on 127.0.0.1:47101 too (for `crossthreads open` and phones), using
-/// the copy of the UI shipped in the bundle's resources.
-fn start_daemon(ui_dir: Option<PathBuf>) -> Option<Child> {
-    if daemon_up() {
-        return None;
+/// This app's version, which is also the version of the daemon it bundles.
+const BUNDLED_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// `major.minor.patch` as numbers, for comparing versions.
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let mut it = v
+        .trim()
+        .split(['.', '-', '+'])
+        .map(|p| p.parse::<u64>().ok());
+    Some((it.next()??, it.next()??, it.next()??))
+}
+
+/// The running daemon's version. `None` means it is older than the `version`
+/// request (before 0.22.1), so certainly older than this app.
+fn running_version() -> Option<String> {
+    match Client::new(DEFAULT_ADDR).call_timeout(&Request::Version, Duration::from_secs(2)) {
+        Ok(Response::Version { version }) => Some(version),
+        _ => None,
     }
+}
+
+/// Is the running daemon older than the one in this app? Then it may not
+/// understand what this app asks of it, and must be replaced.
+fn running_is_older() -> bool {
+    match running_version().as_deref().and_then(parse_version) {
+        Some(running) => parse_version(BUNDLED_VERSION).is_some_and(|ours| running < ours),
+        None => true,
+    }
+}
+
+/// Stop every `crossthreadsd` of this account (an older one left by a
+/// terminal install, or started by an older MCP server), and wait for the
+/// port to free up.
+fn stop_running_daemon() {
+    #[cfg(unix)]
+    let _ = Command::new("pkill").args(["-x", "crossthreadsd"]).status();
+    #[cfg(windows)]
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "crossthreadsd.exe"])
+        .status();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while daemon_up() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Start the bundled daemon unless an up-to-date one is already answering. A
+/// daemon older than this app is replaced: only one may own the index, and an
+/// old one doesn't understand the newer app. It serves the web app on
+/// 127.0.0.1:47101 too (for `crossthreads open` and phones), using the copy of
+/// the UI shipped in the bundle's resources.
+fn start_daemon(ui_dir: Option<PathBuf>) -> Option<Child> {
     let daemon = bundled("crossthreadsd")?;
+    if daemon_up() {
+        if !running_is_older() {
+            return None;
+        }
+        eprintln!(
+            "Crossthreads: replacing an older daemon ({}) with this app's {BUNDLED_VERSION}",
+            running_version().unwrap_or_else(|| "before 0.22.1".into())
+        );
+        stop_running_daemon();
+    }
     let mut cmd = Command::new(daemon);
     cmd.args(["--addr", "auto", "--http", "127.0.0.1:47101"]);
     if let Some(ui) = ui_dir.filter(|d| d.join("index.html").is_file()) {
@@ -86,6 +141,19 @@ fn start_daemon(ui_dir: Option<PathBuf>) -> Option<Child> {
         )
         .stderr(log.map_or(Stdio::null(), Stdio::from));
     cmd.spawn().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compares_versions_as_numbers() {
+        assert!(parse_version("0.9.0") < parse_version("0.22.1"));
+        assert!(parse_version("0.22.1") < parse_version("0.22.10"));
+        assert_eq!(parse_version("1.2.3-beta"), Some((1, 2, 3)));
+        assert_eq!(parse_version("nonsense"), None);
+    }
 }
 
 /// Forward a JSON-encoded daemon `Request` and return the JSON `Response`.

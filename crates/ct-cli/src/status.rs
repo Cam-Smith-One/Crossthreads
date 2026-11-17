@@ -46,7 +46,19 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
                 embedder,
                 tools,
             } => {
-                println!("daemon: running");
+                // Older daemons don't know `version`; say so rather than fail.
+                let version = match client.call(&Request::Version) {
+                    Ok(Response::Version { version }) => version,
+                    _ => "older than 0.22.1".into(),
+                };
+                let mine = env!("CARGO_PKG_VERSION");
+                println!("daemon: running (version {version})");
+                if version != mine {
+                    println!(
+                        "  note: this command is {mine}; restart the daemon (`pkill crossthreadsd`, \
+                         then start Crossthreads again) so they match"
+                    );
+                }
                 println!("  conversations: {conversations}");
                 println!("  embeddings:    {embeddings} ({embedder})");
                 for (tool, threads, skills) in tools {
