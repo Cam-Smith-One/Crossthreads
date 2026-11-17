@@ -3,13 +3,14 @@
 //!
 //! The app is self-contained. `crossthreadsd`, `crossthreads` and `ct-mcp` ship
 //! inside the bundle (next to this executable), and on launch the app starts
-//! the daemon unless one is already running, so installing the `.dmg` is the
-//! whole setup. Both windows talk to the daemon through the `rpc` command, over
-//! the same local protocol as the CLI and the MCP server, presenting this
+//! the daemon unless one is already running, so installing the `.dmg` (or, on
+//! Windows, running the installer, which puts the same programs side by side
+//! in the install folder) is the whole setup. Both windows talk to the daemon
+//! through the `rpc` command, over the same local protocol as the CLI and the MCP server, presenting this
 //! account's local key like every other local client.
 //!
 //! This crate is excluded from the headless workspace (it needs the platform
-//! webview); it is built by `.github/workflows/desktop.yml` on macOS.
+//! webview); it is built by `.github/workflows/desktop.yml` on macOS and Windows.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -38,6 +39,21 @@ fn bundled(name: &str) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// A `Command` for a program this app runs in the background. On Windows the
+/// bundled programs are console programs, so without `CREATE_NO_WINDOW` each
+/// one would flash (or, for the daemon, keep open) a console window.
+fn background_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 fn daemon_up() -> bool {
     matches!(
         Client::new(DEFAULT_ADDR).call_timeout(&Request::Ping, Duration::from_millis(400)),
@@ -45,10 +61,13 @@ fn daemon_up() -> bool {
     )
 }
 
-/// Where the daemon's log goes: `~/Library/Logs/Crossthreads` on macOS.
+/// Where the daemon's log goes: `~/Library/Logs/Crossthreads` on macOS,
+/// `%LOCALAPPDATA%\Crossthreads\Logs` on Windows.
 fn log_file() -> Option<std::fs::File> {
     let dir = if cfg!(target_os = "macos") {
         dirs_home()?.join("Library/Logs/Crossthreads")
+    } else if cfg!(windows) {
+        local_app_data()?.join("Crossthreads").join("Logs")
     } else {
         dirs_home()?.join(".crossthreads/logs")
     };
@@ -61,7 +80,18 @@ fn log_file() -> Option<std::fs::File> {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    // Windows has no `HOME` unless something (Git Bash) sets it.
+    let fallback = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os(fallback))
+        .map(PathBuf::from)
+}
+
+/// `%LOCALAPPDATA%` (used on Windows): per-user app data on this machine.
+fn local_app_data() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| dirs_home().map(|h| h.join("AppData").join("Local")))
 }
 
 /// This app's version, which is also the version of the daemon it bundles.
@@ -101,8 +131,11 @@ fn stop_running_daemon() {
     #[cfg(unix)]
     let _ = Command::new("pkill").args(["-x", "crossthreadsd"]).status();
     #[cfg(windows)]
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "crossthreadsd.exe"])
+    let _ = background_command("taskkill")
+        .args(["/IM", "crossthreadsd.exe", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
     let deadline = Instant::now() + Duration::from_secs(5);
     while daemon_up() && Instant::now() < deadline {
@@ -127,7 +160,7 @@ fn start_daemon(ui_dir: Option<PathBuf>) -> Option<Child> {
         );
         stop_running_daemon();
     }
-    let mut cmd = Command::new(daemon);
+    let mut cmd = background_command(daemon);
     cmd.args(["--addr", "auto", "--http", "127.0.0.1:47101"]);
     if let Some(ui) = ui_dir.filter(|d| d.join("index.html").is_file()) {
         cmd.arg("--ui").arg(ui);
@@ -187,7 +220,8 @@ fn app_paths() -> serde_json::Value {
 
 /// Run one Get started step for the user, with the bundled CLI.
 /// `hooks`: install the Claude Code and Codex hooks. `skill`: install the agent
-/// skill. `cli`: link the commands into `~/.local/bin`.
+/// skill. `cli`: link the commands into `~/.local/bin` (on Windows: copy them
+/// into `%LOCALAPPDATA%\Crossthreads\bin` and put that on the user's PATH).
 #[tauri::command]
 async fn setup_step(step: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -198,8 +232,9 @@ async fn setup_step(step: String) -> Result<String, String> {
             "cli" => return link_cli(),
             other => return Err(format!("unknown setup step `{other}`")),
         };
-        let out = Command::new(cli)
+        let out = background_command(cli)
             .args(args)
+            .stdin(Stdio::null())
             .output()
             .map_err(|e| e.to_string())?;
         let text = String::from_utf8_lossy(&out.stdout).into_owned()
@@ -216,6 +251,7 @@ async fn setup_step(step: String) -> Result<String, String> {
 
 /// Link `crossthreads`, `crossthreadsd` and `ct-mcp` into `~/.local/bin`, the
 /// same place the install script uses.
+#[cfg(not(windows))]
 fn link_cli() -> Result<String, String> {
     let bin = dirs_home().ok_or("no home folder")?.join(".local/bin");
     std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
@@ -250,9 +286,183 @@ fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(src, dst)
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(windows)))]
 fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::copy(src, dst).map(|_| ())
+}
+
+/// The programs `link_cli` puts on the PATH on Windows.
+#[cfg(windows)]
+const CLI_PROGRAMS: [&str; 3] = ["crossthreads", "crossthreadsd", "ct-mcp"];
+
+/// Where `link_cli` copies the commands on Windows: a folder of their own, so
+/// the user's PATH doesn't depend on where the app is installed (or run from).
+#[cfg(windows)]
+fn cli_dir() -> Option<PathBuf> {
+    Some(local_app_data()?.join("Crossthreads").join("bin"))
+}
+
+/// Windows: copy `crossthreads.exe`, `crossthreadsd.exe` and `ct-mcp.exe` into
+/// `%LOCALAPPDATA%\Crossthreads\bin` and add that folder to the user's PATH
+/// (HKCU\Environment, so no administrator is needed). Symlinks on Windows need
+/// developer mode or an administrator, hence copies; the app refreshes them on
+/// each launch (`refresh_cli_copies`) so they follow app updates. Running it
+/// again is harmless.
+#[cfg(windows)]
+fn link_cli() -> Result<String, String> {
+    let bin = cli_dir().ok_or("no %LOCALAPPDATA% folder")?;
+    std::fs::create_dir_all(&bin).map_err(|e| format!("{}: {e}", bin.display()))?;
+    let mut copied = Vec::new();
+    for name in CLI_PROGRAMS {
+        let Some(src) = bundled(name) else { continue };
+        let dst = bin.join(format!("{name}.exe"));
+        copy_replacing(&src, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+        copied.push(name);
+    }
+    let path_note = match add_to_user_path(&bin) {
+        Ok(true) => " Added it to your PATH; open a new terminal to use them.".to_string(),
+        Ok(false) => " It was already on your PATH.".to_string(),
+        Err(e) => format!(" Couldn't add it to your PATH ({e}); add it yourself."),
+    };
+    Ok(format!(
+        "Copied {} into {}.{path_note}",
+        copied.join(", "),
+        bin.display()
+    ))
+}
+
+/// Copy `src` over `dst` even while `dst` is running: Windows won't overwrite
+/// or delete a running program, but it will rename one, so the old copy is
+/// moved aside first (and cleaned up next time).
+#[cfg(windows)]
+fn copy_replacing(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let new = dst.with_extension("exe.new");
+    let old = dst.with_extension("exe.old");
+    std::fs::copy(src, &new)?;
+    let _ = std::fs::remove_file(&old);
+    if dst.exists() {
+        if let Err(e) = std::fs::remove_file(dst) {
+            std::fs::rename(dst, &old).map_err(|_| e)?;
+        }
+    }
+    std::fs::rename(&new, dst)
+}
+
+/// Keep the copies `link_cli` made in step with this app (after an update),
+/// if the user made them. Best effort: nothing to report if it fails.
+#[cfg(windows)]
+fn refresh_cli_copies() {
+    let Some(bin) = cli_dir() else { return };
+    for name in CLI_PROGRAMS {
+        let dst = bin.join(format!("{name}.exe"));
+        let Some(src) = bundled(name) else { continue };
+        if !dst.is_file() {
+            continue;
+        }
+        // On Windows `fs::copy` keeps the modified time, so a copy is current
+        // when it is the same size and no older than the bundled program.
+        let current = match (std::fs::metadata(&src), std::fs::metadata(&dst)) {
+            (Ok(a), Ok(b)) => {
+                a.len() == b.len()
+                    && matches!((a.modified(), b.modified()), (Ok(s), Ok(d)) if d >= s)
+            }
+            _ => false,
+        };
+        if !current {
+            let _ = copy_replacing(&src, &dst);
+        }
+    }
+}
+
+/// Add `dir` to the user's PATH (HKCU\Environment\Path) unless it is there
+/// already. Returns whether it changed anything. Writes REG_EXPAND_SZ, the
+/// type Windows itself uses, so entries like `%USERPROFILE%\bin` still expand,
+/// then tells running programs the environment changed, so a terminal opened
+/// from the Start menu or Explorer sees the new PATH without signing out.
+#[cfg(windows)]
+fn add_to_user_path(dir: &Path) -> Result<bool, String> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_EXPAND_SZ};
+    use winreg::{RegKey, RegValue};
+
+    let (env, _) = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)
+        .map_err(|e| e.to_string())?;
+    // The raw value, unexpanded. A missing `Path` is fine (we create it), but
+    // one we can't read must not be overwritten.
+    let current: String = match env.get_value("Path") {
+        Ok(path) => path,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("can't read your PATH: {e}")),
+    };
+    let normalize = |p: &str| {
+        // Compare expanded, case-insensitively, without a trailing slash.
+        let mut p = p.trim().to_string();
+        if let Some(lad) = std::env::var_os("LOCALAPPDATA") {
+            p = p.replace("%LOCALAPPDATA%", &lad.to_string_lossy());
+        }
+        p.trim_end_matches(['\\', '/']).to_lowercase()
+    };
+    let want = normalize(&dir.to_string_lossy());
+    if current.split(';').any(|p| normalize(p) == want) {
+        return Ok(false);
+    }
+    let updated = if current.trim().is_empty() {
+        dir.to_string_lossy().into_owned()
+    } else {
+        format!("{};{}", current.trim_end_matches(';'), dir.display())
+    };
+    // REG_EXPAND_SZ is UTF-16LE, NUL-terminated.
+    let bytes = updated
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    env.set_raw_value(
+        "Path",
+        &RegValue {
+            bytes,
+            vtype: REG_EXPAND_SZ,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    broadcast_environment_change();
+    Ok(true)
+}
+
+/// Send WM_SETTINGCHANGE("Environment") to every top-level window, as System
+/// Properties does after an environment change. Best effort.
+#[cfg(windows)]
+fn broadcast_environment_change() {
+    #[link(name = "user32")]
+    extern "system" {
+        fn SendMessageTimeoutW(
+            hwnd: isize,
+            msg: u32,
+            wparam: usize,
+            lparam: isize,
+            flags: u32,
+            timeout: u32,
+            result: *mut usize,
+        ) -> isize;
+    }
+    const HWND_BROADCAST: isize = 0xffff;
+    const WM_SETTINGCHANGE: u32 = 0x001A;
+    const SMTO_ABORTIFHUNG: u32 = 0x0002;
+    let area: Vec<u16> = "Environment".encode_utf16().chain([0]).collect();
+    let mut result = 0usize;
+    // SAFETY: `area` is a NUL-terminated UTF-16 string that outlives the call,
+    // and `result` points to a valid usize for the reply.
+    unsafe {
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            area.as_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            2000,
+            &mut result,
+        );
+    }
 }
 
 /// Bring up (show + focus) the full main window — invoked from the glance
@@ -316,6 +526,9 @@ pub fn run() {
                 if let Some(child) = start_daemon(ui_dir) {
                     *handle.state::<OwnedDaemon>().0.lock().unwrap() = Some(child);
                 }
+                // After the daemon is settled, so an older copy isn't in use.
+                #[cfg(windows)]
+                refresh_cli_copies();
             });
 
             let handle = app.handle();
@@ -337,7 +550,7 @@ pub fn run() {
                         // Signed in, through the same one-time link as
                         // `crossthreads open`.
                         if let Some(cli) = bundled("crossthreads") {
-                            let _ = Command::new(cli).arg("open").spawn();
+                            let _ = background_command(cli).arg("open").spawn();
                         }
                     }
                     "quit" => app.exit(0),
@@ -365,7 +578,8 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            // Stop the daemon only if this app started it.
+            // Stop the daemon only if this app started it. (`kill` is
+            // TerminateProcess on Windows, so this covers Windows too.)
             if let Some(mut child) = handle.state::<OwnedDaemon>().0.lock().unwrap().take() {
                 let _ = child.kill();
                 let _ = child.wait();

@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [Unreleased]
+
+### Added
+- **A Windows app.** The desktop app now also ships for Windows as
+  `Crossthreads-<version>-windows-x64-setup.exe`, a per-user installer (no
+  administrator needed) with the daemon, CLI and MCP server inside. Like the
+  Mac app it starts the daemon (replacing an older running one), here without
+  a console window, and **Settings → Get started** puts the commands on your PATH. It
+  isn't code-signed yet, so SmartScreen may warn the first time.
+
 ## [0.22.3] - 2026-11-17
 
 ### Fixed
