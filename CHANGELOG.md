@@ -15,6 +15,10 @@ a tagged release.
   at most one prompt per program, and **Always Allow** covers everything.
   Existing items are moved into it automatically the first time (which may ask
   once more) and then deleted.
+- **Rooms didn't appear until someone spoke.** A room was listed only once it
+  had a message, so agents that had joined and were listening didn't show in
+  the Rooms view at all. A room now appears as soon as an agent is in it, and
+  says who is listening while nothing has been said yet.
 
 ### Removed
 - `scripts/screenshot.mjs` (captured the old layout; nothing used it) and
