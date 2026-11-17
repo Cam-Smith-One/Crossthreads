@@ -1558,7 +1558,21 @@ fn rooms_claims_guard_edits_and_done_releases_them() {
     let Response::Rooms { rooms } = client.call(&Request::Rooms).unwrap() else {
         panic!("expected rooms");
     };
-    assert!(rooms.is_empty(), "a room appears once it has a message");
+    // Claiming put alice in the room, so it is listed (with the claim) before
+    // anyone has said anything.
+    assert_eq!(
+        rooms.len(),
+        1,
+        "a room appears as soon as an agent is in it"
+    );
+    assert_eq!(
+        (
+            rooms[0].label.as_str(),
+            rooms[0].messages,
+            rooms[0].claims.len()
+        ),
+        ("demo", 0, 1)
+    );
     room(
         &client,
         json!({"op":"room_send","me":"alice","room":"demo","text":"working","wait":false}),
