@@ -332,6 +332,31 @@ messaging on. The app creates the token itself on first run. Without Tailscale,
 devices meet through a self-hosted relay (`crossthreads-relay`) with
 end-to-end encryption and SPAKE2 for the code ([RELAY.md](RELAY.md)).
 
+### 6.9 Managing work: grouping, standing, starting, moving
+
+Status: built in 0.24.
+
+- **Grouping by work key.** Unlinked sessions are grouped automatically: on a
+  feature branch, by repository and branch (thread id derived from both, so it
+  is the same on every device); on a generic branch (main, master, trunk,
+  develop, dev) or none, by repository (or folder), chaining sessions that start
+  within 3 hours of the previous one ending. Explicit links, removals and joins
+  override it. A thread started from the app (`thread_create`: name, goal,
+  folder) is listed before it has sessions.
+- **Standing.** Each thread carries where it stands: the latest session's last
+  answer and ask, or a model summary (`summary`, `next`, `blocked`) written in
+  the background for recently active threads quiet for 5 minutes (at most 4 per
+  pass) or on request (`thread_summarize`). Kept until the thread moves on.
+- **Continue.** `thread_continue` opens a terminal on this computer in the
+  thread's folder running Claude Code or Codex: resuming the latest session when
+  it was here in that tool, else a new session whose first prompt is the
+  thread's handoff (with its marker, so the session joins the thread). The
+  prompt reaches the tool through a private file as one argument; no shell sees
+  it. Local clients only.
+- **Move.** `thread_move` marks a thread for another device and tool (shared
+  state, last writer wins); that device lists it under "Waiting for you here"
+  until it is continued there. Nothing is started remotely.
+
 ## 7. Architecture
 
 ### 7.1 Shape

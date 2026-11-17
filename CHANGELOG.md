@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.24.0] - 2026-11-17
+
+Threads you can manage, not just look at.
+
+### Added
+- **Threads that group themselves.** Every session on a feature branch of a
+  repository, in any tool, is one thread, with an id that comes from the
+  repository and branch alone, so every computer arrives at the same thread.
+  On main (or with no branch), sessions chain into one thread while each starts
+  within three hours of the last one ending. Linking, removing and renaming
+  still win.
+- **Start and continue work from the app.** **New thread** takes a name, a goal
+  and a folder, and can open Claude Code or Codex on it straight away.
+  **Continue in Claude Code / Codex** opens a terminal on this computer in the
+  thread's folder, resuming the latest session when it was there in that tool,
+  else a new session briefed with the thread's handoff. Sessions started this
+  way join the thread. The prompt never passes through a shell.
+- **Where it stands.** Every thread shows what's done, what's next and what's
+  in the way: from its latest session, or written by your model once a session
+  goes quiet (a few at a time; switch in Settings, or **Update with my model**).
+- **Send to another computer.** From the Continue menu, send a thread to another
+  device and tool; it waits at the top of that computer's Home until you
+  continue it there. Nothing starts remotely.
+
+### Changed
+- **A new look**, built with shadcn/ui on Tailwind: a calmer sidebar layout,
+  cards for threads with where each stands and a Continue button, a thread
+  panel with notes, sessions and joining, a New thread dialog, a Devices page
+  with a guided Add a device, notifications instead of error banners, and a
+  proper phone layout. Bundled locally; no fonts or scripts from the internet.
+
 ## [0.23.0] - 2026-11-17
 
 A simpler Crossthreads, after an end-to-end review: fewer places, one way to
