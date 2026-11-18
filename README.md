@@ -34,7 +34,7 @@ From there you can:
 - **Search everything you've ever discussed with an AI**, across ten tools and all your machines, by keyword or by meaning.
 - **Check on it from your phone.** Open the board over your private Tailscale network, read-only unless you allow more.
 - **Understand how you work.** Get cited answers from your own history, open loops, decisions, a weekly review, and measured habits.
-- **Give it all to your agents.** 34 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
+- **Give it all to your agents.** 36 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
 
 Everything runs on your machines. There's no account, no telemetry and no hosted service. Adding a computer is a short code typed on it; devices then talk directly over your own Tailscale network, or through an end-to-end encrypted relay you host yourself.
 
@@ -217,7 +217,7 @@ Each of these is optional and takes a minute. Crossthreads is useful as soon as 
 
 | To get | Do this | Guide |
 |---|---|---|
-| **Claude Code and Codex connected**: live state, session-start briefs, room auto-wake, the claim guard, the 34 tools and the skill | `crossthreads connect` (or the one button in Settings → Get started), then restart them | [For agents](#-for-agents-mcp) |
+| **Claude Code and Codex connected**: live state, session-start briefs, room auto-wake, the claim guard, the 36 tools and the skill | `crossthreads connect` (or the one button in Settings → Get started), then restart them | [For agents](#-for-agents-mcp) |
 | **Your other computers** in search, threads and rooms | Devices → **Add a device** on one, type the code on the other (both on Tailscale, or both using your relay) | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) |
 | **The board on your phone** | Devices → **Add a device → A phone**, and scan the QR code | [PHONE](docs/PHONE.md) |
 | **Model-backed insights** (Ask, weekly review, analyses) | Nothing, if Claude Code, Codex or Gemini CLI is signed in; or paste an API key in Settings → Models | [Beyond search](#-beyond-search--understand-how-you-work) |
@@ -269,7 +269,7 @@ crossthreads index | status | glance | llm-auth
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for Claude Code and Codex) and your agent gets 34 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
+Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for Claude Code and Codex) and your agent gets 36 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
 
 | Tool | Purpose |
 |---|---|
@@ -420,7 +420,7 @@ Crossthreads holds your whole AI coding history and can pass messages to agents 
    AI coding tools                 crossthreadsd (one per machine)                  You and your agents
  ┌───────────────────┐          ┌────────────────────────────────────┐          ┌─────────────────────────┐
  │ Claude Code       │  watch   │ connectors → normalize → SQLite    │  RPC     │ Web app (board, rooms)  │
- │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (34 tools)    │
+ │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (36 tools)    │
  │ Cline · Copilot   │          │  • threads, links, repo keys       │          │ Menu-bar app (Tauri)    │
  │ Gemini · Windsurf │  hooks   │  • live state · rooms · claims     │          │ Phone (tailnet, paired) │
  │ Aider · Antigrav. │ ───────► │  • insights and metrics            │          └─────────────────────────┘
@@ -474,7 +474,7 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 10 tools + skills/prompts, hybrid search, daemon, web UI, MCP (34 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ Connectors for 10 tools + skills/prompts, hybrid search, daemon, web UI, MCP (36 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring), theme map, temporal view, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification

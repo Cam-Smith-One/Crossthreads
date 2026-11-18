@@ -413,6 +413,29 @@ pub enum Request {
         #[serde(default = "default_room_wait")]
         timeout: u64,
     },
+    /// Give a task its own git branch (`ct/<task id>`) and worktree on this
+    /// computer, or take the worktree away again (`remove`; the branch stays).
+    RoomWorktree {
+        me: String,
+        /// The repository's root folder (the room).
+        room: String,
+        id: String,
+        #[serde(default)]
+        remove: bool,
+    },
+    /// Ask for an agent (`claude-code`, `codex` or `grok-build`) to be
+    /// started for a task on `device` (default this one). Only a request:
+    /// the user allows or declines it in the app on that device.
+    RoomRequestAgent {
+        me: String,
+        id: String,
+        tool: String,
+        #[serde(default)]
+        device: Option<String>,
+    },
+    /// The user's answer to a request to start an agent on this device.
+    /// Starts the agent when `allow`. Local only, never from peers or phones.
+    RoomLaunch { id: String, allow: bool },
     /// The room's task board, as text.
     RoomTasks {
         #[serde(default)]

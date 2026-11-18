@@ -369,6 +369,21 @@ returns who it is still waiting on. Tasks are merged last-writer-wins and
 synced with the shared state, only with devices granted "Agents can message".
 The board is in `rooms` (for the app) and `room_history` (for agents).
 
+Built in 0.27: **a worktree per task** and **starting agents with approval**.
+`room_worktree` runs `git worktree add` (arguments only, never a shell) on a
+branch `ct/<task id>` in a folder under the app's data directory
+(`…/crossthreads/worktrees/<repo>-<hash>/<task id>`, or `CROSSTHREADS_WORKTREES`),
+and records the branch, folder and device on the task; `remove` deletes the
+folder and keeps the branch for the lead to merge. `room_request_agent` records
+a request (tool, device, `requested`) on the task and makes the agent it will
+start (`claude`, `codex` or `grok`, with `@device` when remote) the owner; the
+request syncs to that device like any task change. That device's app shows
+Allow / Decline; only `room_launch` there, from a local client, starts anything:
+it opens the tool in a terminal in that computer's folder for the repository
+(the room path if it exists, else the latest session in that repository) with a
+prompt to join the room and take the task, sets the state to `started` or
+`declined`, and tells the lead.
+
 ## 7. Architecture
 
 ### 7.1 Shape

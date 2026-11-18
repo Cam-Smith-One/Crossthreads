@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, CircleDashed, CircleSlash, Loader2, OctagonAlert, Users } from "lucide-react";
-import { updateRoomTask, type RoomTask, type TaskStatus } from "@/api";
+import { CheckCircle2, Circle, CircleDashed, CircleSlash, GitBranch, Loader2, OctagonAlert, Play, Users } from "lucide-react";
+import { answerAgentRequest, updateRoomTask, type RoomTask, type TaskStatus } from "@/api";
+import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,12 @@ const ICON: Record<TaskStatus, React.ReactNode> = {
   cancelled: <CircleSlash className="text-muted-foreground" />,
 };
 
+const TOOL_NAME: Record<string, string> = {
+  "claude-code": "Claude Code",
+  codex: "Codex",
+  "grok-build": "Grok Build",
+};
+
 /**
  * A room's crew: who leads, which agent has which task (on which computer),
  * and how each is going. You can reassign a task or change its status.
@@ -19,6 +26,7 @@ const ICON: Record<TaskStatus, React.ReactNode> = {
 export function CrewBoard({
   room,
   tasks,
+  asksHere = [],
   agents,
   canEdit,
   onChanged,
@@ -26,6 +34,7 @@ export function CrewBoard({
 }: {
   room: string;
   tasks: RoomTask[];
+  asksHere?: string[];
   agents: string[];
   canEdit: boolean;
   onChanged: () => void;
@@ -50,8 +59,42 @@ export function CrewBoard({
     }
   }
 
+  async function answer(t: RoomTask, allow: boolean) {
+    setBusy(true);
+    try {
+      await answerAgentRequest(t.id, allow);
+      onChanged();
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const asks = tasks.filter((t) => asksHere.includes(t.id));
+
   return (
     <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+      {asks.map((t) => (
+        <div key={`ask-${t.id}`} className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <Play className="h-4 w-4 text-primary" />
+            {t.created_by} wants to start {TOOL_NAME[t.launch_tool ?? ""] ?? t.launch_tool} on this computer
+          </div>
+          <p className="text-xs text-muted-foreground">
+            For “{t.title}” in <span className="font-mono">{room}</span>. It opens in a terminal, joins this room and
+            takes the task. Nothing starts unless you allow it.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy} onClick={() => answer(t, true)}>
+              Allow and start
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => answer(t, false)}>
+              Decline
+            </Button>
+          </div>
+        </div>
+      ))}
       <div className="flex items-center gap-2 text-xs">
         <Users className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="font-medium">Crew</span>
@@ -76,6 +119,15 @@ export function CrewBoard({
               <span className={cn("min-w-0 flex-1 truncate", t.status === "cancelled" && "line-through text-muted-foreground")}>
                 {t.title}
               </span>
+              {t.branch && (
+                <span className="hidden shrink-0 items-center gap-1 font-mono text-[11px] text-muted-foreground sm:inline-flex">
+                  <GitBranch className="!h-3 !w-3" />
+                  {t.branch}
+                </span>
+              )}
+              {t.launch_state === "requested" && (
+                <span className="shrink-0 text-[11px] text-warning">waiting for approval</span>
+              )}
               <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
                 {t.owner || "unassigned"}
               </span>
@@ -85,6 +137,19 @@ export function CrewBoard({
                 {t.brief && <p className="whitespace-pre-wrap text-muted-foreground">{t.brief}</p>}
                 {t.files.length > 0 && (
                   <p className="font-mono text-[11px] text-muted-foreground">{t.files.join("  ")}</p>
+                )}
+                {t.branch && (
+                  <p className="text-muted-foreground">
+                    Branch <span className="font-mono">{t.branch}</span>
+                    {t.worktree
+                      ? <> in <span className="font-mono">{t.worktree}</span>{t.worktree_device ? ` on ${t.worktree_device}` : ""}</>
+                      : " (worktree removed; ready to merge)"}
+                  </p>
+                )}
+                {t.launch_state && t.launch_state !== "requested" && (
+                  <p className="text-muted-foreground">
+                    {TOOL_NAME[t.launch_tool ?? ""] ?? t.launch_tool} on {t.launch_device}: {t.launch_state}
+                  </p>
                 )}
                 {t.result && (
                   <p className="whitespace-pre-wrap">

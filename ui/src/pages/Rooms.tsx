@@ -63,11 +63,14 @@ export function RoomsPage({
   onError,
   canPost,
   onListening,
+  onAsks,
 }: {
   active: boolean;
   onError: (m: string) => void;
   canPost: boolean;
   onListening: (b: boolean) => void;
+  /** How many requests to start an agent are waiting on this computer. */
+  onAsks?: (n: number) => void;
 }) {
   const open = active;
   const [rooms, setRooms] = React.useState<RoomView[] | null>(null);
@@ -90,6 +93,16 @@ export function RoomsPage({
   React.useEffect(() => {
     onListening(anyoneListening);
   }, [anyoneListening, onListening]);
+  const asking = list.filter((r) => (r.asks_here ?? []).length > 0);
+  const askCount = asking.reduce((n, r) => n + (r.asks_here ?? []).length, 0);
+  React.useEffect(() => {
+    onAsks?.(askCount);
+  }, [askCount, onAsks]);
+  // Opening the page with a request waiting shows that room.
+  const firstAsking = asking[0]?.room;
+  React.useEffect(() => {
+    if (open && firstAsking) setSelected(firstAsking);
+  }, [open, firstAsking]);
 
   const refresh = React.useCallback(async () => {
     const l = await getRooms();
@@ -311,6 +324,7 @@ export function RoomsPage({
                   <CrewBoard
                     room={current.room}
                     tasks={current.tasks ?? []}
+                    asksHere={current.asks_here ?? []}
                     agents={current.agents.map((a) => a.name)}
                     canEdit={canPost}
                     onChanged={() => getRooms().then(setRooms).catch(() => {})}

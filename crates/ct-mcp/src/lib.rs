@@ -542,6 +542,40 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_worktree",
+                    "description": "Give a task its own git branch (ct/<task id>) and worktree folder \
+                        on this computer, so agents sharing a repository don't collide. Work and \
+                        commit there; the lead reviews and merges the branch. remove=true deletes \
+                        the folder when finished (the branch stays).",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your repository's root folder." },
+                            "id": { "type": "string", "description": "The task id (tk_…)." },
+                            "remove": { "type": "boolean", "description": "Remove the worktree folder instead." }
+                        },
+                        "required": ["me", "room", "id"]
+                    }
+                },
+                {
+                    "name": "crossthreads_request_agent",
+                    "description": "As the lead: ask for a new agent to be started for a task, in \
+                        claude-code, codex or grok-build, on this computer or another device. It's \
+                        only a request: the user allows or declines it in Crossthreads on that \
+                        device. Once started, the agent joins the room and takes the task.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "id": { "type": "string", "description": "The task id (tk_…)." },
+                            "tool": { "type": "string", "enum": ["claude-code", "codex", "grok-build"] },
+                            "device": { "type": "string", "description": "The device to start it on (default: this one)." }
+                        },
+                        "required": ["me", "id", "tool"]
+                    }
+                },
+                {
                     "name": "crossthreads_tasks",
                     "description": "Show this room's task board: every task, its owner, status and result.",
                     "inputSchema": {
@@ -752,6 +786,8 @@ impl Server {
             | "crossthreads_task"
             | "crossthreads_gather"
             | "crossthreads_tasks"
+            | "crossthreads_worktree"
+            | "crossthreads_request_agent"
             | "crossthreads_release" => Ok(self.call_room(name, &args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
@@ -1209,6 +1245,8 @@ impl Server {
             "crossthreads_task" => "room_task",
             "crossthreads_gather" => "room_gather",
             "crossthreads_tasks" => "room_tasks",
+            "crossthreads_worktree" => "room_worktree",
+            "crossthreads_request_agent" => "room_request_agent",
             _ => "room_release",
         };
         let mut body = match args {

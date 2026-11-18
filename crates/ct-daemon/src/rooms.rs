@@ -140,6 +140,10 @@ pub struct RoomView {
     /// The room's task board (SPEC §6.10).
     #[serde(default)]
     pub tasks: Vec<ct_store::RoomTask>,
+    /// Ids of tasks with a request to start an agent waiting on this
+    /// computer, for the user to allow or decline.
+    #[serde(default)]
+    pub asks_here: Vec<String>,
 }
 
 fn now() -> i64 {
@@ -551,31 +555,41 @@ impl Daemon {
             (store.rooms()?, store.claims(now())?)
         };
         let cap = self.room_turn_cap;
+        let here = self.device_name();
         Ok(rooms
             .into_iter()
-            .map(|r| RoomView {
-                label: room_label(&r.room),
-                agents: r
-                    .agents
-                    .into_iter()
-                    .map(|(name, seen)| RoomAgent {
-                        listening: self.rooms.is_listening(&r.room, &name),
-                        name,
-                        seen,
-                    })
-                    .collect(),
-                claims: claims
+            .map(|r| {
+                let tasks = self.read_lock().room_tasks(&r.room).unwrap_or_default();
+                let asks_here = tasks
                     .iter()
-                    .filter(|c| c.room == r.room)
-                    .cloned()
-                    .collect(),
-                tasks: self.read_lock().room_tasks(&r.room).unwrap_or_default(),
-                messages: r.messages,
-                turns: r.turns,
-                max_turns: cap,
-                last_ts: r.last_ts,
-                closed: r.closed,
-                room: r.room,
+                    .filter(|t| t.launch_state == "requested" && t.launch_device == here)
+                    .map(|t| t.id.clone())
+                    .collect();
+                RoomView {
+                    label: room_label(&r.room),
+                    agents: r
+                        .agents
+                        .into_iter()
+                        .map(|(name, seen)| RoomAgent {
+                            listening: self.rooms.is_listening(&r.room, &name),
+                            name,
+                            seen,
+                        })
+                        .collect(),
+                    claims: claims
+                        .iter()
+                        .filter(|c| c.room == r.room)
+                        .cloned()
+                        .collect(),
+                    tasks,
+                    asks_here,
+                    messages: r.messages,
+                    turns: r.turns,
+                    max_turns: cap,
+                    last_ts: r.last_ts,
+                    closed: r.closed,
+                    room: r.room,
+                }
             })
             .collect())
     }

@@ -73,6 +73,16 @@ never reaches the browser). The cookie lasts 30 days.
 | Phone access and pairing a phone | Devices → Add a device → A phone | The phone listener runs; that phone can read |
 | **Can post to rooms** | Devices → Phones, per phone | That phone can step into rooms |
 
+**Starting agents.** An agent, here or on a device that may message, can ask for
+another agent to be started for a task. That is only a request, stored on the
+task. Nothing runs until you press Allow in the app on the computer it would
+run on; the answer is a local-only operation that peers and phones can't send.
+The tool is one of three fixed names, it starts in that computer's own folder
+for the repository, and the prompt goes in as a single argument through a
+private file, never through a shell. Task worktrees are made with `git`
+arguments (never a shell), in Crossthreads' own data folder, from task ids
+checked to be `tk_` plus hex.
+
 **The shared token.** The app makes a random 256-bit token the first time it
 runs, and keeps it in your OS keychain where one is available (otherwise in the
 owner-only config file). Nobody types or sees it. A token you set yourself must

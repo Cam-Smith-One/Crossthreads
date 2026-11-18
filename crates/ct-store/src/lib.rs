@@ -365,6 +365,17 @@ impl Store {
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
         // v8 -> v9: machine-independent repository identity for threads.
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN repo_key TEXT", []);
+        // v15: a task's worktree, and requests to start an agent for it.
+        for col in [
+            "branch TEXT NOT NULL DEFAULT ''",
+            "worktree TEXT NOT NULL DEFAULT ''",
+            "worktree_device TEXT NOT NULL DEFAULT ''",
+            "launch_tool TEXT NOT NULL DEFAULT ''",
+            "launch_device TEXT NOT NULL DEFAULT ''",
+            "launch_state TEXT NOT NULL DEFAULT ''",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE room_tasks ADD COLUMN {col}"), []);
+        }
         // v13: a thread sent to another device.
         for col in [
             "moved_to TEXT",

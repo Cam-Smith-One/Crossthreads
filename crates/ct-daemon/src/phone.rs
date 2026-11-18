@@ -452,6 +452,14 @@ mod tests {
         phone.can_post = true;
         assert!(allowed(&post, &phone).is_ok());
         assert!(allowed(&Request::Reindex, &phone).is_err());
+        assert!(allowed(
+            &Request::RoomLaunch {
+                id: "tk_1".into(),
+                allow: true
+            },
+            &phone
+        )
+        .is_err());
         assert!(allowed(&Request::PhonePair, &phone).is_err());
         assert!(allowed(
             &Request::SetFederationConfig {
