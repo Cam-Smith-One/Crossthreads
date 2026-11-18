@@ -34,7 +34,7 @@ From there you can:
 - **Search everything you've ever discussed with an AI**, across ten tools and all your machines, by keyword or by meaning.
 - **Check on it from your phone.** Open the board over your private Tailscale network, read-only unless you allow more.
 - **Understand how you work.** Get cited answers from your own history, open loops, decisions, a weekly review, and measured habits.
-- **Give it all to your agents.** 30 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
+- **Give it all to your agents.** 34 MCP tools let agents recall prior work, read and annotate threads, and use rooms.
 
 Everything runs on your machines. There's no account, no telemetry and no hosted service. Adding a computer is a short code typed on it; devices then talk directly over your own Tailscale network, or through an end-to-end encrypted relay you host yourself.
 
@@ -138,10 +138,11 @@ Agents forget everything between sessions, and they never knew what the other to
 - **Any agent can ask** with `crossthreads_thread_context`, and **leave notes** with `crossthreads_note`: a decision and why, a todo left open, context the next agent needs. Notes travel to your other computers with the thread, and you see and edit them in the app.
 - **Handoffs carry them too**, so pasting a handoff into another tool hands over the decisions as well as the transcript.
 
-### 🤝 Rooms: your agents talk to each other
+### 🤝 Rooms: your agents talk to each other, or work as a crew
 
 Stop being the copy-paste layer between your agents. Two agents working in the same repository share a **room** and hand work to each other directly: brief, implement, review, done.
 
+- **Lead a crew.** One agent can lead many: `/crossthreads lead <goal> with claude, codex@desk, grok` splits the work into tasks on the room's board, sends each agent its brief, and waits for them all with one call (`gather`) instead of pinging agents in turn. Workers move their task to doing, blocked or done with a result. The board shows who has what, on which computer, and how it's going, and you can reassign or change any task from the app.
 - **One call per turn.** `send` posts and then blocks until the reply arrives, so agents never poll and a waiting agent costs nothing.
 - **File claims** stop two agents editing the same file; a hook refuses the edit and names who holds it.
 - **Auto-wake.** If an agent ends its turn mid-conversation, a hook hands it the next message instead of letting it stop.
@@ -216,7 +217,7 @@ Each of these is optional and takes a minute. Crossthreads is useful as soon as 
 
 | To get | Do this | Guide |
 |---|---|---|
-| **Claude Code and Codex connected**: live state, session-start briefs, room auto-wake, the claim guard, the 30 tools and the skill | `crossthreads connect` (or the one button in Settings → Get started), then restart them | [For agents](#-for-agents-mcp) |
+| **Claude Code and Codex connected**: live state, session-start briefs, room auto-wake, the claim guard, the 34 tools and the skill | `crossthreads connect` (or the one button in Settings → Get started), then restart them | [For agents](#-for-agents-mcp) |
 | **Your other computers** in search, threads and rooms | Devices → **Add a device** on one, type the code on the other (both on Tailscale, or both using your relay) | [MULTI_DEVICE_SETUP](docs/MULTI_DEVICE_SETUP.md) |
 | **The board on your phone** | Devices → **Add a device → A phone**, and scan the QR code | [PHONE](docs/PHONE.md) |
 | **Model-backed insights** (Ask, weekly review, analyses) | Nothing, if Claude Code, Codex or Gemini CLI is signed in; or paste an API key in Settings → Models | [Beyond search](#-beyond-search--understand-how-you-work) |
@@ -268,7 +269,7 @@ crossthreads index | status | glance | llm-auth
 
 ## 🤖 For agents (MCP)
 
-Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for Claude Code and Codex) and your agent gets 30 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
+Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for Claude Code and Codex) and your agent gets 34 tools. Your history, your threads, the rooms and your working profile all become part of its memory.
 
 | Tool | Purpose |
 |---|---|
@@ -287,6 +288,10 @@ Point any MCP client at the `ct-mcp` binary (`crossthreads connect` does it for 
 | `crossthreads_room_wait` | listen for the next room message |
 | `crossthreads_room_history` | who is in the room, claims, and recent messages |
 | `crossthreads_claim` / `crossthreads_release` | reserve files before editing them, and let them go |
+| `crossthreads_plan` | lead a crew: put tasks on the room's board, each assigned to an agent here or `name@device`, and send each its brief |
+| `crossthreads_task` | move a task along (doing, blocked, done with a result); the lead is told |
+| `crossthreads_gather` | as the lead, wait until every task you planned is finished, collecting the replies |
+| `crossthreads_tasks` | the room's task board |
 | `crossthreads_activity` | session activity over time (day/week), with a per-tool breakdown |
 | `crossthreads_metrics` | hard behavioral metrics on how the user works (turns, friction, delegation, languages, tempo) |
 | `crossthreads_optimize` | the biggest change to make now + a measured verdict on the last one + trends |
@@ -415,7 +420,7 @@ Crossthreads holds your whole AI coding history and can pass messages to agents 
    AI coding tools                 crossthreadsd (one per machine)                  You and your agents
  ┌───────────────────┐          ┌────────────────────────────────────┐          ┌─────────────────────────┐
  │ Claude Code       │  watch   │ connectors → normalize → SQLite    │  RPC     │ Web app (board, rooms)  │
- │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (30 tools)    │
+ │ Codex · Cursor    │ ───────► │  • FTS5 + vectors → hybrid search  │ ───────► │ CLI · MCP (34 tools)    │
  │ Cline · Copilot   │          │  • threads, links, repo keys       │          │ Menu-bar app (Tauri)    │
  │ Gemini · Windsurf │  hooks   │  • live state · rooms · claims     │          │ Phone (tailnet, paired) │
  │ Aider · Antigrav. │ ───────► │  • insights and metrics            │          └─────────────────────────┘
@@ -469,7 +474,7 @@ scripts/demo.sh    # bring up the full stack against a sample corpus
 
 ## 🗺️ Roadmap
 
-- ✅ Connectors for 10 tools + skills/prompts, hybrid search, daemon, web UI, MCP (30 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
+- ✅ Connectors for 10 tools + skills/prompts, hybrid search, daemon, web UI, MCP (34 tools), durable bookmarks/pins, notes & tags, prebuilt releases, **cross-device search** (federation over Tailscale)
 - ✅ **Understanding layer:** cited **Ask** (RAG), **insights** (open loops / decisions / cards / recurring), theme map, temporal view, **behavioral metrics + Work DNA / gaps / prompt coach / process miner**, a **proactive weekly review**, an **optimize** closed loop, and a **4D AI-fluency** view with reflective prompts — all reusing your existing model login
 - ✅ **Native menu-bar app (Tauri)** — a tray icon that toggles a compact **glance** popover fusing per-tool usage (today vs. your baseline) with the insight read (fluency, unresolved threads, optimize focus); Mac + Windows + Linux
 - ✅ **Scheduled weekly-review delivery** — `crossthreads schedule install` wires a launchd agent (macOS) or a managed crontab line (Linux) to run `crossthreads weekly --deliver` on the cadence you pick; the review lands as a file + a desktop notification

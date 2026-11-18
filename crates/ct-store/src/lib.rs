@@ -15,6 +15,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 pub mod behavior;
+pub mod crew;
 pub mod rooms;
 mod schema;
 pub mod shared;
@@ -23,6 +24,7 @@ pub mod themes;
 pub mod threads;
 
 pub use behavior::{RawMessage, RawSession, SessionMetrics, WorkMetrics};
+pub use crew::{RoomTask, TaskChange};
 pub use rooms::{Claim, RoomMessage, RoomSummary};
 pub use schema::SCHEMA_VERSION;
 pub use shared::{SharedPart, SharedState, SharedThread, ThreadNote};

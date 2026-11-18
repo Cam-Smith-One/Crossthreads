@@ -1022,7 +1022,36 @@ export interface RoomView {
   /** The latest agent message closed the exchange with DONE. */
   closed: boolean;
   claims: RoomClaim[];
+  /** The room's task board: one agent leads, others take tasks. */
+  tasks?: RoomTask[];
 }
+
+export type TaskStatus = "todo" | "doing" | "blocked" | "done" | "cancelled";
+
+export interface RoomTask {
+  id: string;
+  room: string;
+  title: string;
+  brief: string;
+  /** An agent name, or name@device; empty when unassigned. */
+  owner: string;
+  status: TaskStatus;
+  result: string;
+  files: string[];
+  /** The agent that planned it. */
+  created_by: string;
+  device: string;
+  /** Epoch milliseconds. */
+  created: number;
+  updated: number;
+}
+
+/** Change a task on a room's board, as you. The lead is told. */
+export const updateRoomTask = (
+  room: string,
+  id: string,
+  change: { status?: TaskStatus; owner?: string; result?: string },
+) => rpc<{ text: string }>({ op: "room_task", me: "you", room, id, ...change });
 
 export interface RoomMessage {
   id: number;

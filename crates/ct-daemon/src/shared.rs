@@ -420,19 +420,25 @@ impl Daemon {
             return Response::Error { message };
         }
         if let Some(st) = push {
-            if let Err(e) = self.take_shared(st) {
+            if let Err(e) = self.take_shared(st, from) {
                 eprintln!("warn: shared threads from {from}: {e:#}");
             }
         }
         match self.read_lock().shared_since(since) {
-            Ok(state) => Response::Shared { state },
+            Ok(mut state) => {
+                if !self.may_message(from) {
+                    state.tasks.clear();
+                }
+                Response::Shared { state }
+            }
             Err(e) => crate::err(e),
         }
     }
 
     /// Merge state from another device, and apply name and status changes to
     /// this device's own copy of any thread that lives here.
-    fn take_shared(&self, st: &SharedState) -> Result<usize> {
+    fn take_shared(&self, st: &SharedState, from: &str) -> Result<usize> {
+        let rooms_ok = self.may_message(from);
         let store = self.write_lock();
         let mut changed = 0;
         for t in st.threads.iter().take(ct_store::shared::MAX_BATCH) {
@@ -455,7 +461,23 @@ impl Daemon {
         for n in st.notes.iter().take(ct_store::shared::MAX_BATCH) {
             changed += store.merge_note(n)? as usize;
         }
+        // Room tasks only between devices whose agents may message.
+        if rooms_ok {
+            for t in st.tasks.iter().take(ct_store::shared::MAX_BATCH) {
+                changed += store.merge_task(t)? as usize;
+            }
+            if !st.tasks.is_empty() {
+                self.rooms_changed();
+            }
+        }
         Ok(changed)
+    }
+
+    /// May agents on device `name` take part in this device's rooms?
+    fn may_message(&self, name: &str) -> bool {
+        self.federation
+            .as_ref()
+            .is_some_and(|f| f.room_peer(name).is_some())
     }
 
     /// Compare shared state with every approved device once.
@@ -482,7 +504,13 @@ impl Daemon {
                         .unwrap_or(0)
                 };
                 let pushed = get(&pushed_key);
-                (get(&pulled_key), store.shared_since(pushed).ok())
+                let mut push = store.shared_since(pushed).ok();
+                if !peer.rooms {
+                    if let Some(p) = &mut push {
+                        p.tasks.clear();
+                    }
+                }
+                (get(&pulled_key), push)
             };
             let req = Request::PeerShared {
                 token: fed.token(),
@@ -492,7 +520,7 @@ impl Daemon {
             };
             match Client::new(peer.addr.clone()).call_timeout(&req, fed.timeout) {
                 Ok(Response::Shared { state }) => {
-                    match self.take_shared(&state) {
+                    match self.take_shared(&state, &peer.name) {
                         Ok(n) => total += n,
                         Err(e) => eprintln!("warn: shared threads from {}: {e:#}", peer.name),
                     }

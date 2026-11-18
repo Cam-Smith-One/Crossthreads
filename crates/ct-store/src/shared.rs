@@ -101,6 +101,9 @@ pub struct SharedState {
     pub parts: Vec<SharedPart>,
     #[serde(default)]
     pub notes: Vec<ThreadNote>,
+    /// Room tasks. Only sent to, and taken from, devices that may message.
+    #[serde(default)]
+    pub tasks: Vec<crate::RoomTask>,
     /// The newest change included; ask for changes after it next time.
     #[serde(default)]
     pub upto: i64,
@@ -108,7 +111,10 @@ pub struct SharedState {
 
 impl SharedState {
     pub fn is_empty(&self) -> bool {
-        self.threads.is_empty() && self.parts.is_empty() && self.notes.is_empty()
+        self.threads.is_empty()
+            && self.parts.is_empty()
+            && self.notes.is_empty()
+            && self.tasks.is_empty()
     }
 }
 
@@ -589,6 +595,7 @@ impl Store {
         st.notes = stmt
             .query_map(params![since, MAX_BATCH as i64], row_note)?
             .collect::<rusqlite::Result<_>>()?;
+        st.tasks = self.tasks_since(since, MAX_BATCH)?;
         // A full batch may have left later rows behind; only promise up to the
         // newest change every list got through.
         let mut upto = i64::MAX;
@@ -610,10 +617,15 @@ impl Store {
             st.notes.len() >= MAX_BATCH,
             st.notes.last().map(|n| n.updated),
         );
+        bound(
+            st.tasks.len() >= MAX_BATCH,
+            st.tasks.last().map(|t| t.updated),
+        );
         let newest = [
             st.threads.last().map(|t| t.updated),
             st.parts.last().map(|p| p.at),
             st.notes.last().map(|n| n.updated),
+            st.tasks.last().map(|t| t.updated),
         ]
         .into_iter()
         .flatten()
@@ -641,6 +653,9 @@ impl Store {
         }
         for n in st.notes.iter().take(MAX_BATCH) {
             changed += self.merge_note(n)? as usize;
+        }
+        for t in st.tasks.iter().take(MAX_BATCH) {
+            changed += self.merge_task(t)? as usize;
         }
         Ok(changed)
     }

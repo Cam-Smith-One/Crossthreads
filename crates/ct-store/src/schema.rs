@@ -5,7 +5,7 @@
 //! store to back up, sync, or purge.
 
 /// Bumped when the schema changes; the store refuses to open a newer version.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 /// Executed once on open. Idempotent (`IF NOT EXISTS`); FTS5 stays in sync with
 /// `messages` via triggers so callers only ever touch the base table.
@@ -239,6 +239,25 @@ CREATE TABLE IF NOT EXISTS thread_notes (
     updated   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_thread_notes_thread ON thread_notes(thread_id);
+
+-- v14: a room's task board (SPEC §6.10). Shared with devices that may message.
+CREATE TABLE IF NOT EXISTS room_tasks (
+    id         TEXT PRIMARY KEY,
+    room       TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    brief      TEXT NOT NULL DEFAULT '',
+    owner      TEXT NOT NULL DEFAULT '',
+    status     TEXT NOT NULL,
+    result     TEXT NOT NULL DEFAULT '',
+    files      TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL DEFAULT '',
+    device     TEXT NOT NULL DEFAULT '',
+    created    INTEGER NOT NULL,
+    updated    INTEGER NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_room_tasks_room ON room_tasks(room, created);
+CREATE INDEX IF NOT EXISTS idx_room_tasks_updated ON room_tasks(updated);
 
 -- Time-limited reservations on files or folders (absolute paths on this device).
 CREATE TABLE IF NOT EXISTS claims (

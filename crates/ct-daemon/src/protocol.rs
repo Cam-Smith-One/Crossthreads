@@ -380,6 +380,44 @@ pub enum Request {
         #[serde(default)]
         author: Option<String>,
     },
+    /// Lead a crew: put tasks on the room's board, each assigned to an agent
+    /// here or `name@device`, and send each its brief (SPEC §6.10).
+    RoomPlan {
+        me: String,
+        #[serde(default)]
+        room: String,
+        tasks: Vec<crate::rooms::crew::TaskSpec>,
+    },
+    /// Move a task along: status (`todo`, `doing`, `blocked`, `done`,
+    /// `cancelled`), result, owner, files. Tells the lead.
+    RoomTask {
+        me: String,
+        #[serde(default)]
+        room: String,
+        id: String,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        result: Option<String>,
+        #[serde(default)]
+        owner: Option<String>,
+        #[serde(default)]
+        files: Option<Vec<String>>,
+    },
+    /// Wait until every task `me` planned in the room is finished (done,
+    /// blocked or cancelled), or `timeout` seconds pass.
+    RoomGather {
+        me: String,
+        #[serde(default)]
+        room: String,
+        #[serde(default = "default_room_wait")]
+        timeout: u64,
+    },
+    /// The room's task board, as text.
+    RoomTasks {
+        #[serde(default)]
+        room: String,
+    },
     /// Every room with its agents, turns and claims, for the board.
     Rooms,
     /// Messages in a room after id `after`, oldest first, for the board.

@@ -357,6 +357,18 @@ Status: built in 0.24.
   state, last writer wins); that device lists it under "Waiting for you here"
   until it is continued there. Nothing is started remotely.
 
+### 6.10 Crews
+
+Status: built in 0.26. A room has a task board (`room_tasks`): id, title,
+brief, owner (`name` or `name@device`), status (`todo`, `doing`, `blocked`,
+`done`, `cancelled`), result, files, the lead that planned it and its device.
+`plan` creates tasks and DMs each owner its brief; `task` changes one and tells
+the lead with a DM; `gather` blocks (at most the room wait limit per call)
+until every task the caller planned on this device is no longer open, or
+returns who it is still waiting on. Tasks are merged last-writer-wins and
+synced with the shared state, only with devices granted "Agents can message".
+The board is in `rooms` (for the app) and `room_history` (for agents).
+
 ## 7. Architecture
 
 ### 7.1 Shape

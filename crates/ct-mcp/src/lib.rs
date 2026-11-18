@@ -9,6 +9,9 @@
 //! Implemented without an SDK to stay dependency-light; the surface is small
 //! (`initialize`, `tools/list`, `tools/call`, `ping`).
 
+// The tool list is one large `json!` literal.
+#![recursion_limit = "256"]
+
 use serde_json::{json, Value};
 
 use ct_daemon::{Client, Filters, Mode, Request, Response, DEFAULT_ADDR};
@@ -476,6 +479,80 @@ impl Server {
                     }
                 },
                 {
+                    "name": "crossthreads_plan",
+                    "description": "Lead a crew: put tasks on this room's board, each assigned to \
+                        an agent (by name, or name@device for one on another computer), and send \
+                        each its brief. Split work so tasks touch different files. Then call \
+                        crossthreads_gather to wait for them.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "tasks": {
+                                "type": "array",
+                                "description": "The tasks (at most 25).",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": { "type": "string", "description": "One line: what to do." },
+                                        "brief": { "type": "string", "description": "What done looks like, constraints, where to look." },
+                                        "to": { "type": "string", "description": "Who does it: an agent name, or name@device." },
+                                        "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths it covers." }
+                                    },
+                                    "required": ["title"]
+                                }
+                            }
+                        },
+                        "required": ["me", "room", "tasks"]
+                    }
+                },
+                {
+                    "name": "crossthreads_task",
+                    "description": "Move a task on the room's board along: status doing when you \
+                        start, done with a short result when finished, blocked with the reason \
+                        when stuck. The lead is told. A lead can also reassign (owner) or cancel.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "id": { "type": "string", "description": "The task id (tk_…)." },
+                            "status": { "type": "string", "enum": ["todo", "doing", "blocked", "done", "cancelled"] },
+                            "result": { "type": "string", "description": "What you did or why it's blocked (short; refer to files by path)." },
+                            "owner": { "type": "string", "description": "Reassign to this agent (name or name@device)." },
+                            "files": { "type": "array", "items": { "type": "string" } }
+                        },
+                        "required": ["me", "id"]
+                    }
+                },
+                {
+                    "name": "crossthreads_gather",
+                    "description": "As the lead: wait until every task you planned in this room is \
+                        done, blocked or cancelled (or the timeout passes), collecting the \
+                        messages that arrive. Returns the board and who is still working.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "me": { "type": "string", "description": "Your agent name." },
+                            "room": { "type": "string", "description": "Your project root path, or a room name." },
+                            "timeout": { "type": "integer", "description": "Seconds to wait (default 50)." }
+                        },
+                        "required": ["me", "room"]
+                    }
+                },
+                {
+                    "name": "crossthreads_tasks",
+                    "description": "Show this room's task board: every task, its owner, status and result.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "room": { "type": "string", "description": "Your project root path, or a room name." }
+                        },
+                        "required": ["room"]
+                    }
+                },
+                {
                     "name": "crossthreads_claim",
                     "description": "Reserve files or folders (absolute paths) before editing them, \
                         so another agent doesn't edit them at the same time. Paths someone else \
@@ -671,6 +748,10 @@ impl Server {
             | "crossthreads_room_wait"
             | "crossthreads_room_history"
             | "crossthreads_claim"
+            | "crossthreads_plan"
+            | "crossthreads_task"
+            | "crossthreads_gather"
+            | "crossthreads_tasks"
             | "crossthreads_release" => Ok(self.call_room(name, &args)),
             "crossthreads_activity" => Ok(self.call_activity(&args)),
             "crossthreads_metrics" => Ok(self.call_metrics(&args)),
@@ -1124,6 +1205,10 @@ impl Server {
             "crossthreads_room_wait" => "room_wait",
             "crossthreads_room_history" => "room_history",
             "crossthreads_claim" => "room_claim",
+            "crossthreads_plan" => "room_plan",
+            "crossthreads_task" => "room_task",
+            "crossthreads_gather" => "room_gather",
+            "crossthreads_tasks" => "room_tasks",
             _ => "room_release",
         };
         let mut body = match args {

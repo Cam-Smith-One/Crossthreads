@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.26.0] - 2026-11-18
+
+### Added
+- **Crews: one agent leads many.** A room now has a task board. The lead
+  plans tasks (`crossthreads_plan`), each assigned to an agent here or on
+  another computer (`name@device`), and each assignee gets its brief as a
+  direct message. Workers move their task along (`crossthreads_task`:
+  doing, blocked, done, with a result), which tells the lead. The lead waits
+  for the whole crew with one call (`crossthreads_gather`), which returns when
+  every task it planned is finished or says who it is still waiting on. Tasks
+  travel to your other computers whose agents may message. The Rooms view
+  shows the crew: who leads, who has which task and on which computer,
+  progress, results, and lets you reassign a task or change its status. The
+  Claude skill and the Codex/Grok prompt explain leading a crew and taking a
+  task. 34 MCP tools.
+
 ## [0.25.0] - 2026-11-17
 
 ### Added
