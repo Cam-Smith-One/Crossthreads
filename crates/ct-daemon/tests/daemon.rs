@@ -2758,3 +2758,163 @@ fn a_crew_spans_devices_that_may_message() {
         "{seen}"
     );
 }
+
+#[test]
+fn a_task_gets_its_own_worktree_and_agent_starts_wait_for_the_user() {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("api");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "start",
+        ],
+    );
+    let wt_base = tmp.path().join("worktrees");
+    std::env::set_var("CROSSTHREADS_WORKTREES", &wt_base);
+    let room = git(&repo, &["rev-parse", "--show-toplevel"]);
+
+    let d = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    );
+    let plan = text_of(d.handle(Request::RoomPlan {
+        me: "claude".into(),
+        room: room.clone(),
+        tasks: vec![ct_daemon::rooms::crew::TaskSpec {
+            title: "Add retries".into(),
+            to: Some("codex".into()),
+            ..Default::default()
+        }],
+    }));
+    let id = plan
+        .split_whitespace()
+        .find(|w| w.starts_with("tk_"))
+        .expect("a task id")
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .to_string();
+
+    // A worktree on the task's own branch, outside the user's checkout.
+    let made = text_of(d.handle(Request::RoomWorktree {
+        me: "codex".into(),
+        room: room.clone(),
+        id: id.clone(),
+        remove: false,
+    }));
+    let branch = format!("ct/{id}");
+    assert!(made.contains(&branch), "{made}");
+    let Response::Rooms { rooms } = d.handle(Request::Rooms) else {
+        panic!("expected rooms")
+    };
+    let t = &rooms[0].tasks[0];
+    assert_eq!(t.branch, branch);
+    let path = std::path::PathBuf::from(&t.worktree);
+    assert!(
+        path.starts_with(&wt_base) && path.join(".git").exists(),
+        "{path:?}"
+    );
+    assert_eq!(git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]), branch);
+    // Asking again is harmless; a made-up id is refused.
+    assert!(text_of(d.handle(Request::RoomWorktree {
+        me: "codex".into(),
+        room: room.clone(),
+        id: id.clone(),
+        remove: false,
+    }))
+    .contains(&branch));
+    let bad = text_of(d.handle(Request::RoomWorktree {
+        me: "codex".into(),
+        room: room.clone(),
+        id: "../../etc".into(),
+        remove: false,
+    }));
+    assert!(bad.starts_with("Error"), "{bad}");
+
+    // Removing takes the folder away but keeps the branch for merging.
+    let gone = text_of(d.handle(Request::RoomWorktree {
+        me: "codex".into(),
+        room: room.clone(),
+        id: id.clone(),
+        remove: true,
+    }));
+    assert!(gone.contains("kept"), "{gone}");
+    assert!(!path.exists());
+    assert_eq!(
+        git(&repo, &["branch", "--list", &branch]).trim_start_matches(['*', ' ']),
+        branch
+    );
+
+    // Asking for an agent only records a request; declining starts nothing.
+    let asked = text_of(d.handle(Request::RoomRequestAgent {
+        me: "claude".into(),
+        id: id.clone(),
+        tool: "grok".into(),
+        device: None,
+    }));
+    assert!(asked.contains("Asked to start"), "{asked}");
+    let Response::Rooms { rooms } = d.handle(Request::Rooms) else {
+        panic!("expected rooms")
+    };
+    let t = &rooms[0].tasks[0];
+    assert_eq!(
+        (t.launch_tool.as_str(), t.launch_state.as_str()),
+        ("grok-build", "requested")
+    );
+    assert_eq!(t.owner, "grok");
+    assert_eq!(rooms[0].asks_here, vec![id.clone()]);
+    assert!(text_of(d.handle(Request::RoomLaunch {
+        id: id.clone(),
+        allow: false
+    }))
+    .contains("Declined"));
+    let Response::Rooms { rooms } = d.handle(Request::Rooms) else {
+        panic!("expected rooms")
+    };
+    assert_eq!(rooms[0].tasks[0].launch_state, "declined");
+    // Nothing is waiting any more, so a second answer is refused.
+    assert!(matches!(
+        d.handle(Request::RoomLaunch {
+            id: id.clone(),
+            allow: true
+        }),
+        Response::Error { .. }
+    ));
+    // Unknown tools and devices aren't accepted.
+    assert!(text_of(d.handle(Request::RoomRequestAgent {
+        me: "claude".into(),
+        id: id.clone(),
+        tool: "bash".into(),
+        device: None,
+    }))
+    .starts_with("Error"));
+    assert!(text_of(d.handle(Request::RoomRequestAgent {
+        me: "claude".into(),
+        id,
+        tool: "codex".into(),
+        device: Some("stranger".into()),
+    }))
+    .starts_with("Error"));
+}

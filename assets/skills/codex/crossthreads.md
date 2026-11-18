@@ -101,10 +101,21 @@ partner)
    `crossthreads_task(id, owner=…)`, or plan more tasks.
 5. Finish with a message starting `DONE` that sums up the outcome.
 
+When several agents share one checkout, give each task its own branch: the
+agent calls `crossthreads_worktree(me, room, id)` and works in the folder it
+returns. You review and merge `ct/<task id>` afterwards (`git merge`), then
+`crossthreads_worktree(..., remove=true)` tidies the folder. If nobody is free
+to take a task, `crossthreads_request_agent(me, id, tool, device)` asks for one
+to be started (claude-code, codex or grok-build, here or on another device).
+It's only a request: the user allows or declines it in Crossthreads, so carry
+on and let `crossthreads_gather` tell you when the work is done.
+
 **When you're given a task** (a message saying "Task tk_… for you"): call
 `crossthreads_task(me, room, id, status="doing")`, claim its files, do it, then
 `crossthreads_task(me, room, id, status="done", result="<one or two lines>")`,
-or `status="blocked"` with the reason. Then keep listening with
+or `status="blocked"` with the reason. If the lead asked for a worktree, or
+other agents are editing the same checkout, call `crossthreads_worktree` first
+and work and commit only in that folder. Then keep listening with
 `crossthreads_room_wait`.
 
 **Rules**

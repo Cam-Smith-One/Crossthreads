@@ -70,6 +70,7 @@ export function App() {
   const [transcript, setTranscript] = useState<{ id: string; device?: string | null } | null>(null);
   const [newThread, setNewThread] = useState(false);
   const [roomsListening, setRoomsListening] = useState(false);
+  const [agentAsks, setAgentAsks] = useState(0);
   const [weeklyUnseen, setWeeklyUnseen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [nudgeDismissed, setNudgeDismissed] = useState(() => {
@@ -230,6 +231,20 @@ export function App() {
 
   const nudges = (
     <>
+      {agentAsks > 0 && (
+        <a
+          href="#/rooms"
+          className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm hover:bg-primary/10"
+        >
+          <Users className="h-4 w-4 text-primary" />
+          <span className="flex-1">
+            {agentAsks === 1
+              ? "An agent asked to start another agent on this computer."
+              : `${agentAsks} requests to start agents on this computer.`}
+          </span>
+          <span className="font-medium text-primary">Review</span>
+        </a>
+      )}
       {!phone && setup && (!nudgeDismissed || staleClientRecently(setup)) && (
         <SetupNudge
           setup={setup}
@@ -311,7 +326,7 @@ export function App() {
               />
             )}
             <div className={page === "rooms" ? "" : "hidden"}>
-              <RoomsPage active={page === "rooms"} onError={onError} canPost={session?.can_post ?? true} onListening={setRoomsListening} />
+              <RoomsPage active={page === "rooms"} onError={onError} canPost={session?.can_post ?? true} onListening={setRoomsListening} onAsks={setAgentAsks} />
             </div>
           </div>
         </main>

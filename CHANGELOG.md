@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format is based on
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches
 a tagged release.
 
+## [0.27.0] - 2026-11-18
+
+### Added
+- **A worktree per task.** `crossthreads_worktree` gives a crew task its own
+  branch (`ct/<task id>`) and folder, so agents sharing a repository don't
+  edit the same checkout. The lead reviews and merges the branch; `remove`
+  tidies the folder and keeps the branch. The crew board shows each task's
+  branch and where its worktree is.
+- **Ask for an agent, on any of your computers.** A lead can ask for Claude
+  Code, Codex or Grok Build to be started for a task, here or on another
+  device (`crossthreads_request_agent`). The request shows up in Crossthreads
+  on that computer (a banner on Home and a card on the crew board) and only
+  starts when you press Allow: it opens the tool in a terminal in that
+  repository, joined to the room with the task. Declining tells the lead.
+  36 MCP tools.
+
 ## [0.26.0] - 2026-11-18
 
 ### Added

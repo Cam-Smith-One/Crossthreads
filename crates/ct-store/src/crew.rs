@@ -49,6 +49,23 @@ pub struct RoomTask {
     pub updated: i64,
     #[serde(default)]
     pub updated_by: String,
+    /// The git branch the task is done on, when it has its own worktree.
+    #[serde(default)]
+    pub branch: String,
+    /// That worktree's folder, on `worktree_device`.
+    #[serde(default)]
+    pub worktree: String,
+    #[serde(default)]
+    pub worktree_device: String,
+    /// A request to start an agent for this task: which tool (`claude-code`,
+    /// `codex`, `grok-build`), on which device, and how it went (`requested`,
+    /// `started`, `declined`). Only the user, on that device, can start it.
+    #[serde(default)]
+    pub launch_tool: String,
+    #[serde(default)]
+    pub launch_device: String,
+    #[serde(default)]
+    pub launch_state: String,
 }
 
 impl RoomTask {
@@ -65,7 +82,14 @@ pub struct TaskChange<'a> {
     pub result: Option<&'a str>,
     pub owner: Option<&'a str>,
     pub files: Option<&'a [String]>,
+    /// The task's own branch and worktree (on `worktree_device`).
+    pub worktree: Option<(&'a str, &'a str, &'a str)>,
+    /// (tool, device, state) of a request to start an agent.
+    pub launch: Option<(&'a str, &'a str, &'a str)>,
 }
+
+/// The states a request to start an agent can be in.
+pub const LAUNCH_STATES: &[&str] = &["", "requested", "started", "declined"];
 
 fn clip(s: &str, max: usize) -> String {
     let s = s.trim();
@@ -128,6 +152,12 @@ impl Store {
             created: at_ms,
             updated: at_ms,
             updated_by: device.to_string(),
+            branch: String::new(),
+            worktree: String::new(),
+            worktree_device: String::new(),
+            launch_tool: String::new(),
+            launch_device: String::new(),
+            launch_state: String::new(),
         };
         self.merge_task(&t)?;
         Ok(t)
@@ -159,6 +189,19 @@ impl Store {
         if let Some(f) = change.files {
             t.files = clean_files(f);
         }
+        if let Some((branch, path, device)) = change.worktree {
+            t.branch = clip(branch, 200);
+            t.worktree = clip(path, 1000);
+            t.worktree_device = clip(device, 120);
+        }
+        if let Some((tool, device, state)) = change.launch {
+            if !LAUNCH_STATES.contains(&state) {
+                bail!("unknown launch state `{state}`");
+            }
+            t.launch_tool = clip(tool, 40);
+            t.launch_device = clip(device, 120);
+            t.launch_state = state.to_string();
+        }
         t.updated = at_ms.max(t.updated + 1);
         t.updated_by = device.to_string();
         self.merge_task(&t)?;
@@ -177,10 +220,14 @@ impl Store {
         }
         self.conn.execute(
             "INSERT INTO room_tasks (id, room, title, brief, owner, status, result, files,
-                 created_by, device, created, updated, updated_by)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 created_by, device, created, updated, updated_by, branch, worktree,
+                 worktree_device, launch_tool, launch_device, launch_state)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                 ?17, ?18, ?19)
              ON CONFLICT(id) DO UPDATE SET title = ?3, brief = ?4, owner = ?5, status = ?6,
-                 result = ?7, files = ?8, updated = ?12, updated_by = ?13",
+                 result = ?7, files = ?8, updated = ?12, updated_by = ?13, branch = ?14,
+                 worktree = ?15, worktree_device = ?16, launch_tool = ?17,
+                 launch_device = ?18, launch_state = ?19",
             params![
                 t.id,
                 t.room,
@@ -194,7 +241,17 @@ impl Store {
                 t.device,
                 t.created,
                 t.updated,
-                t.updated_by
+                t.updated_by,
+                clip(&t.branch, 200),
+                clip(&t.worktree, 1000),
+                clip(&t.worktree_device, 120),
+                clip(&t.launch_tool, 40),
+                clip(&t.launch_device, 120),
+                if LAUNCH_STATES.contains(&t.launch_state.as_str()) {
+                    t.launch_state.as_str()
+                } else {
+                    ""
+                }
             ],
         )?;
         Ok(true)
@@ -227,7 +284,8 @@ impl Store {
 }
 
 const SELECT: &str = "SELECT id, room, title, brief, owner, status, result, files, created_by,
-    device, created, updated, updated_by FROM room_tasks";
+    device, created, updated, updated_by, branch, worktree, worktree_device, launch_tool,
+    launch_device, launch_state FROM room_tasks";
 
 fn row_task(r: &rusqlite::Row) -> rusqlite::Result<RoomTask> {
     let files: String = r.get(7)?;
@@ -245,6 +303,12 @@ fn row_task(r: &rusqlite::Row) -> rusqlite::Result<RoomTask> {
         created: r.get(10)?,
         updated: r.get(11)?,
         updated_by: r.get(12)?,
+        branch: r.get(13)?,
+        worktree: r.get(14)?,
+        worktree_device: r.get(15)?,
+        launch_tool: r.get(16)?,
+        launch_device: r.get(17)?,
+        launch_state: r.get(18)?,
     })
 }
 

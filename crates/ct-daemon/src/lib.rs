@@ -575,6 +575,19 @@ impl Daemon {
                 text_or_err(self.room_gather(&me, &room, timeout))
             }
             Request::RoomTasks { room } => text_or_err(self.room_board(&room)),
+            Request::RoomWorktree {
+                me,
+                room,
+                id,
+                remove,
+            } => text_or_err(self.room_worktree(&me, &room, &id, remove)),
+            Request::RoomRequestAgent {
+                me,
+                id,
+                tool,
+                device,
+            } => text_or_err(self.room_request_agent(&me, &id, &tool, device.as_deref())),
+            Request::RoomLaunch { id, allow } => text_or_err(self.room_launch(&id, allow)),
             Request::RoomWait { me, room, timeout } => {
                 text_or_err(self.room_wait(&me, &room, timeout))
             }

@@ -1024,6 +1024,8 @@ export interface RoomView {
   claims: RoomClaim[];
   /** The room's task board: one agent leads, others take tasks. */
   tasks?: RoomTask[];
+  /** Tasks with a request to start an agent waiting on this computer. */
+  asks_here?: string[];
 }
 
 export type TaskStatus = "todo" | "doing" | "blocked" | "done" | "cancelled";
@@ -1044,7 +1046,23 @@ export interface RoomTask {
   /** Epoch milliseconds. */
   created: number;
   updated: number;
+  /** The task's own git branch (ct/<id>), when it has one. */
+  branch?: string;
+  /** Its worktree folder (on worktree_device), or empty once removed. */
+  worktree?: string;
+  worktree_device?: string;
+  /** A request to start an agent for it: tool, device, and where it stands. */
+  launch_tool?: string;
+  launch_device?: string;
+  launch_state?: "" | "requested" | "started" | "declined";
 }
+
+/**
+ * Answer a request to start an agent on this computer. Allowing opens the
+ * tool in a terminal with the task; nothing starts without this.
+ */
+export const answerAgentRequest = (id: string, allow: boolean) =>
+  rpc<{ text: string }>({ op: "room_launch", id, allow });
 
 /** Change a task on a room's board, as you. The lead is told. */
 export const updateRoomTask = (

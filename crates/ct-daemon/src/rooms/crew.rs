@@ -160,6 +160,7 @@ impl Daemon {
                     result,
                     owner: owner_norm.as_deref(),
                     files,
+                    ..Default::default()
                 },
                 &device,
                 ms(),
@@ -281,4 +282,350 @@ pub(crate) fn board_text(room: &str, tasks: &[RoomTask]) -> String {
     );
     s.push_str(&tasks.iter().map(board_line).collect::<Vec<_>>().join("\n"));
     s
+}
+
+// ---- a worktree per task, and starting agents (with the user's approval) ----
+
+/// The short name an agent of `tool` goes by in rooms.
+fn agent_name(tool: &str) -> &'static str {
+    match tool {
+        "codex" => "codex",
+        "grok-build" | "grok" => "grok",
+        _ => "claude",
+    }
+}
+
+/// Run git with arguments (never a shell). Ok(stdout) or Err(stderr).
+fn git(dir: &std::path::Path, args: &[&str]) -> std::result::Result<String, String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("couldn't run git: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// Where a task's worktree goes: in Crossthreads' own folder, not the
+/// user's project, one folder per repository.
+fn worktree_dir(root: &std::path::Path, id: &str) -> Option<std::path::PathBuf> {
+    use sha2::{Digest, Sha256};
+    let name = root.file_name()?.to_string_lossy().into_owned();
+    let hash = Sha256::digest(root.to_string_lossy().as_bytes());
+    let short: String = hash.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    // CROSSTHREADS_WORKTREES moves them elsewhere (an absolute folder).
+    let base = std::env::var_os("CROSSTHREADS_WORKTREES")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            Some(
+                dirs::data_local_dir()?
+                    .join("crossthreads")
+                    .join("worktrees"),
+            )
+        })?;
+    Some(base.join(format!("{name}-{short}")).join(id))
+}
+
+/// A task id is `tk_` and hex: safe in a path and a branch name.
+fn valid_task_id(id: &str) -> bool {
+    id.len() <= 32 && id.starts_with("tk_") && id[3..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+impl Daemon {
+    /// `worktree`: give a task its own branch (`ct/<task id>`) and folder on
+    /// this computer, or (`remove`) take the folder away again (the branch
+    /// stays for the lead to merge).
+    pub(crate) fn room_worktree(
+        &self,
+        me: &str,
+        room: &str,
+        id: &str,
+        remove: bool,
+    ) -> Result<String> {
+        let Some(me) = norm(me) else {
+            return Ok("Error: `me` is required.".into());
+        };
+        let id = id.trim();
+        if !valid_task_id(id) {
+            return Ok(format!("Error: `{id}` isn't a task id."));
+        }
+        let dir = std::path::Path::new(room.trim());
+        if !dir.is_dir() {
+            return Ok("Error: pass your repository's root folder as `room` (git rev-parse --show-toplevel).".into());
+        }
+        let root = match git(dir, &["rev-parse", "--show-toplevel"]) {
+            Ok(r) => std::path::PathBuf::from(r),
+            Err(e) => {
+                return Ok(format!(
+                    "Error: {} isn't a git repository: {e}",
+                    dir.display()
+                ))
+            }
+        };
+        let Some(task) = self.read_lock().task(id)? else {
+            return Ok(format!("Error: no task {id}."));
+        };
+        if task.room != room_id(room) {
+            return Ok(format!("Error: task {id} belongs to another room."));
+        }
+        let device = self.device_name();
+        let branch = format!("ct/{id}");
+        let Some(path) = worktree_dir(&root, id) else {
+            return Ok("Error: couldn't find a folder for worktrees on this computer.".into());
+        };
+        let path_s = path.to_string_lossy().into_owned();
+
+        if remove {
+            if path.exists() {
+                if let Err(e) = git(&root, &["worktree", "remove", &path_s]) {
+                    return Ok(format!(
+                        "Couldn't remove the worktree (uncommitted changes?): {e}\nCommit or discard them in {path_s} first."
+                    ));
+                }
+            }
+            self.write_lock().change_task(
+                id,
+                &TaskChange {
+                    worktree: Some((&branch, "", "")),
+                    ..Default::default()
+                },
+                &device,
+                ms(),
+            )?;
+            self.rooms_changed();
+            self.sync_soon();
+            return Ok(format!(
+                "Removed the worktree for {id}. Branch {branch} is kept for merging."
+            ));
+        }
+
+        if !path.join(".git").exists() {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let have_branch = git(
+                &root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ],
+            )
+            .is_ok();
+            let made = if have_branch {
+                git(&root, &["worktree", "add", &path_s, &branch])
+            } else {
+                git(&root, &["worktree", "add", "-b", &branch, &path_s, "HEAD"])
+            };
+            if let Err(e) = made {
+                return Ok(format!("Couldn't create the worktree: {e}"));
+            }
+        }
+        self.write_lock().change_task(
+            id,
+            &TaskChange {
+                worktree: Some((&branch, &path_s, &device)),
+                ..Default::default()
+            },
+            &device,
+            ms(),
+        )?;
+        self.rooms_changed();
+        self.sync_soon();
+        Ok(format!(
+            "Task {id} has its own worktree at {path_s} on branch {branch} (from the current HEAD of {}).\n\
+             Work and commit there (not in the main checkout); other agents can't collide with you. \
+             When done, mark the task done; {} reviews and merges {branch}.",
+            root.display(),
+            if task.created_by.is_empty() || task.created_by == me { "the lead".to_string() } else { task.created_by.clone() }
+        ))
+    }
+
+    /// `request_agent`: ask for an agent to be started for a task, in `tool`,
+    /// on `device` (default: this one). Nothing starts until the user allows
+    /// it in the app on that device.
+    pub(crate) fn room_request_agent(
+        &self,
+        me: &str,
+        id: &str,
+        tool: &str,
+        device: Option<&str>,
+    ) -> Result<String> {
+        let Some(_me) = norm(me) else {
+            return Ok("Error: `me` is required.".into());
+        };
+        let tool = match tool.trim() {
+            "claude" | "claude-code" => "claude-code",
+            "codex" => "codex",
+            "grok" | "grok-build" => "grok-build",
+            other => {
+                return Ok(format!(
+                    "Error: start claude-code, codex or grok-build, not `{other}`."
+                ))
+            }
+        };
+        let here = self.device_name();
+        let device = device
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .unwrap_or(&here)
+            .to_string();
+        if device != here
+            && !self
+                .federation
+                .as_ref()
+                .is_some_and(|f| f.room_peer(&device).is_some())
+        {
+            return Ok(format!(
+                "Error: `{device}` isn't a device whose agents may message this one."
+            ));
+        }
+        let owner = if device == here {
+            agent_name(tool).to_string()
+        } else {
+            format!("{}@{device}", agent_name(tool))
+        };
+        let Some(t) = self.write_lock().change_task(
+            id.trim(),
+            &TaskChange {
+                owner: Some(&owner),
+                launch: Some((tool, &device, "requested")),
+                ..Default::default()
+            },
+            &here,
+            ms(),
+        )?
+        else {
+            return Ok(format!("Error: no task {id}."));
+        };
+        self.rooms_changed();
+        self.sync_soon();
+        Ok(format!(
+            "Asked to start {} on {device} for {} (it will be `{owner}`). The user sees the request in \
+             Crossthreads on {device} and decides; carry on, and crossthreads_gather will show when it's done.",
+            crate::launch::Tool::from_id(tool).map(|t| t.display_name()).unwrap_or(tool),
+            t.id
+        ))
+    }
+
+    /// The user's answer, on this device, to a request to start an agent.
+    pub(crate) fn room_launch(&self, id: &str, allow: bool) -> Result<String> {
+        let here = self.device_name();
+        let Some(t) = self.read_lock().task(id.trim())? else {
+            anyhow::bail!("no task {id}");
+        };
+        if t.launch_state != "requested" || t.launch_device != here {
+            anyhow::bail!("there's no request waiting on this computer for {id}");
+        }
+        let mut message = String::new();
+        let state = if allow {
+            let Some(tool) = crate::launch::Tool::from_id(&t.launch_tool) else {
+                anyhow::bail!("unknown tool `{}`", t.launch_tool);
+            };
+            let Some(cwd) = self.room_folder(&t.room) else {
+                anyhow::bail!(
+                    "couldn't find this repository on this computer: open a session in it here once, then try again"
+                );
+            };
+            let name = agent_name(&t.launch_tool);
+            let mut prompt = format!(
+                "You're {} on {here}, joining a crew in Crossthreads. The lead is {}.\n\
+                 Your name in the room is `{name}`. Your task {}: {}\n",
+                tool.display_name(),
+                if t.device == here || t.device.is_empty() {
+                    t.created_by.clone()
+                } else {
+                    format!("{}@{}", t.created_by, t.device)
+                },
+                t.id,
+                t.title
+            );
+            if !t.brief.is_empty() {
+                prompt.push_str(&format!("{}\n", t.brief));
+            }
+            if !t.files.is_empty() {
+                prompt.push_str(&format!("Files: {}\n", t.files.join(", ")));
+            }
+            prompt.push_str(&format!(
+                "\nUse the Crossthreads room for this repository (room = the repository root): \
+                 call crossthreads_task(me=\"{name}\", room, id=\"{}\", status=\"doing\"), do the work \
+                 (call crossthreads_worktree for the task's own branch if several agents share this \
+                 checkout), then status=\"done\" with a short result, and keep listening with \
+                 crossthreads_room_wait.",
+                t.id
+            ));
+            message = crate::launch::launch(&crate::launch::LaunchPlan {
+                tool,
+                cwd,
+                prompt: Some(prompt),
+                resume: None,
+            })?;
+            "started"
+        } else {
+            "declined"
+        };
+        let (tool, device) = (t.launch_tool.clone(), t.launch_device.clone());
+        let note = {
+            let store = self.write_lock();
+            store.change_task(
+                &t.id,
+                &TaskChange {
+                    launch: Some((&tool, &device, state)),
+                    ..Default::default()
+                },
+                &here,
+                ms(),
+            )?;
+            let lead = if t.device == here || t.device.is_empty() {
+                t.created_by.clone()
+            } else {
+                format!("{}@{}", t.created_by, t.device)
+            };
+            let text = format!(
+                "The user {} starting {} on {here} for {}.",
+                if allow { "allowed" } else { "declined" },
+                agent_name(&tool),
+                t.id
+            );
+            store.room_post(&t.room, "you", &text, Some(&lead), true, now())?
+        };
+        self.rooms_changed();
+        self.relay(note);
+        self.sync_soon();
+        Ok(if allow {
+            message
+        } else {
+            format!("Declined starting {} for {}.", agent_name(&tool), t.id)
+        })
+    }
+
+    /// This computer's folder for a room: the room itself when it's a folder,
+    /// else the folder of a recent session in that repository.
+    fn room_folder(&self, room: &str) -> Option<std::path::PathBuf> {
+        let p = std::path::Path::new(room);
+        if p.is_absolute() && p.is_dir() {
+            return Some(p.to_path_buf());
+        }
+        let mut sessions: Vec<ct_store::SessionRef> = self
+            .read_lock()
+            .threads_with_sessions(&ct_store::ThreadFilters::default())
+            .ok()?
+            .into_iter()
+            .flat_map(|(_, s)| s)
+            .filter(|s| s.repo_key.as_deref() == Some(room))
+            .collect();
+        sessions.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+        sessions
+            .into_iter()
+            .filter_map(|s| s.project)
+            .map(std::path::PathBuf::from)
+            .find(|p| p.is_dir())
+    }
 }

@@ -547,7 +547,21 @@ kind `exchange`, and the sessions of the agents that spoke are linked
   and either "All your tasks are finished" or who it is still waiting on.
 - `{"op":"room_tasks","room"}` → text: the board. `RoomView.tasks` has it for the app.
 
-MCP: `crossthreads_plan`, `crossthreads_task`, `crossthreads_gather`, `crossthreads_tasks`.
+- `{"op":"room_worktree","me","room","id","remove"?}` → text. `room` must be the
+  repository root. Creates (or reuses) the worktree for branch `ct/<id>`; with
+  `remove`, deletes the folder and keeps the branch.
+- `{"op":"room_request_agent","me","id","tool","device"?}` → text. `tool` is
+  `claude-code`, `codex` or `grok-build`; `device` defaults to this one and
+  otherwise must be a device granted "Agents can message". Records a request;
+  starts nothing.
+- `{"op":"room_launch","id","allow"}` → text. The user's answer on the device
+  the request waits on; `allow` opens the tool. Local clients only (refused from
+  phones and never sent between devices). `RoomView.asks_here` lists the task
+  ids waiting on this device.
+
+MCP: `crossthreads_plan`, `crossthreads_task`, `crossthreads_gather`, `crossthreads_tasks`,
+`crossthreads_worktree`, `crossthreads_request_agent` (not `room_launch`: only the
+user answers a request).
 
 ### 7.7 Phone access
 
