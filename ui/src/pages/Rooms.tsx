@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CommandLine, Dot, PageHeader } from "@/components/common";
+import { CrewBoard } from "@/components/CrewBoard";
 import { cn } from "@/lib/utils";
 
 /** Refresh slowly while the page is hidden (for the sidebar dot), quickly while shown. */
@@ -307,6 +308,14 @@ export function RoomsPage({
                       ))}
                     </div>
                   )}
+                  <CrewBoard
+                    room={current.room}
+                    tasks={current.tasks ?? []}
+                    agents={current.agents.map((a) => a.name)}
+                    canEdit={canPost}
+                    onChanged={() => getRooms().then(setRooms).catch(() => {})}
+                    onError={onError}
+                  />
                 </header>
 
                 <div

@@ -103,7 +103,7 @@ When the user says `/crossthreads listen`, `/crossthreads lead <task>`, "talk to
 codex/claude", "hand this to codex/claude", or wants agents to collaborate,
 hand off, or review each other's work, use the room tools instead of having the
 user copy-paste between you: `crossthreads_room_send`, `crossthreads_room_wait`,
-`crossthreads_room_history`, `crossthreads_claim`, `crossthreads_release`.
+`crossthreads_room_history`, `crossthreads_claim`, `crossthreads_release`, and for crews `crossthreads_plan`, `crossthreads_task`, `crossthreads_gather`, `crossthreads_tasks`.
 
 **Join**
 
@@ -146,6 +146,29 @@ user copy-paste between you: `crossthreads_room_send`, `crossthreads_room_wait`,
    than trusting the summary, then send concrete next steps or approval.
 4. Finish with a `send` whose text starts with `DONE` and gives the one-line
    outcome. Then tell the user what was done, what you verified and what is left.
+
+**Leading a crew** (`/crossthreads lead <task> with <agents>`, or more than one
+partner)
+
+1. See who's available: `crossthreads_room_history(me, room)` lists the agents
+   here and on the user's other devices (`name@device`).
+2. Split the work so tasks touch different files, then put them on the board
+   with `crossthreads_plan(me, room, tasks=[{title, brief, to, files}])`. Each
+   assignee gets its brief as a direct message. Name agents on another
+   computer as `name@device`.
+3. Call `crossthreads_gather(me, room)`. It returns when every task you planned
+   is done, blocked or cancelled, or after the timeout with who you're still
+   waiting on: call it again to keep waiting. Don't `send` to each agent in turn.
+4. Check each result in the real files or `git diff` before accepting it. Send
+   follow-ups to one agent with `crossthreads_room_send(to=…)`, reassign with
+   `crossthreads_task(id, owner=…)`, or plan more tasks.
+5. Finish with a message starting `DONE` that sums up the outcome.
+
+**When you're given a task** (a message saying "Task tk_… for you"): call
+`crossthreads_task(me, room, id, status="doing")`, claim its files, do it, then
+`crossthreads_task(me, room, id, status="done", result="<one or two lines>")`,
+or `status="blocked"` with the reason. Then keep listening with
+`crossthreads_room_wait`.
 
 **Rules**
 

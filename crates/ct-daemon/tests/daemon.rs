@@ -2587,3 +2587,174 @@ fn a_thread_started_from_the_app_waits_then_takes_its_first_session() {
     assert_eq!(t.moved_to.as_deref(), Some("lap"));
     assert_eq!(t.moved_tool.as_deref(), Some("codex"));
 }
+
+// ---- Crews: one agent leads, others take tasks (SPEC §6.10) ------------------
+
+fn text_of(r: Response) -> String {
+    match r {
+        Response::Text { text } => text,
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_lead_plans_tasks_workers_finish_them_and_gather_returns() {
+    let d = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    );
+    let plan = text_of(d.handle(Request::RoomPlan {
+        me: "claude".into(),
+        room: "crew-test".into(),
+        tasks: vec![
+            ct_daemon::rooms::crew::TaskSpec {
+                title: "Write the retry tests".into(),
+                brief: "Cover 3 failures then success".into(),
+                to: Some("codex".into()),
+                files: vec!["/w/api/tests/retry.rs".into()],
+            },
+            ct_daemon::rooms::crew::TaskSpec {
+                title: "Update the docs".into(),
+                to: Some("grok".into()),
+                ..Default::default()
+            },
+        ],
+    }));
+    assert!(plan.contains("Planned 2 task(s)"), "{plan}");
+    // Task ids, in plan order (the board lists tasks planned together in id order).
+    let id_of = |title: &str| -> String {
+        plan.lines()
+            .find(|l| l.contains(title))
+            .and_then(|l| l.split_whitespace().find(|w| w.starts_with("tk_")))
+            .expect("task on the board")
+            .to_string()
+    };
+    let ids = [id_of("Write the retry tests"), id_of("Update the docs")];
+
+    // Codex got its brief as a direct message.
+    let inbox = text_of(d.handle(Request::RoomWait {
+        me: "codex".into(),
+        room: "crew-test".into(),
+        timeout: 1,
+    }));
+    assert!(
+        inbox.contains("Write the retry tests") && inbox.contains(&ids[0]),
+        "{inbox}"
+    );
+
+    // Not finished yet: gather comes back saying who it's waiting on.
+    let g = text_of(d.handle(Request::RoomGather {
+        me: "claude".into(),
+        room: "crew-test".into(),
+        timeout: 1,
+    }));
+    assert!(g.contains("Still waiting on"), "{g}");
+
+    for (who, id) in [("codex", &ids[0]), ("grok", &ids[1])] {
+        let r = text_of(d.handle(Request::RoomTask {
+            me: who.into(),
+            room: "crew-test".into(),
+            id: id.clone(),
+            status: Some("done".into()),
+            result: Some(format!("{who} finished")),
+            owner: None,
+            files: None,
+        }));
+        assert!(r.contains("[done]"), "{r}");
+    }
+    let g = text_of(d.handle(Request::RoomGather {
+        me: "claude".into(),
+        room: "crew-test".into(),
+        timeout: 5,
+    }));
+    assert!(g.contains("All your tasks are finished"), "{g}");
+    assert!(
+        g.contains("codex finished") && g.contains("2/2 done"),
+        "{g}"
+    );
+
+    // The board is on the room view too, and bad input is refused.
+    let Response::Rooms { rooms } = d.handle(Request::Rooms) else {
+        panic!("expected rooms");
+    };
+    assert_eq!(rooms[0].tasks.len(), 2);
+    let bad = d.handle(Request::RoomTask {
+        me: "codex".into(),
+        room: "crew-test".into(),
+        id: ids[0].clone(),
+        status: Some("lost".into()),
+        result: None,
+        owner: None,
+        files: None,
+    });
+    assert!(
+        matches!(&bad, Response::Error { message } if message.contains("unknown status")),
+        "{bad:?}"
+    );
+}
+
+#[test]
+fn a_crew_spans_devices_that_may_message() {
+    let desk = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "desk",
+        "s3cret-token-for-tests",
+        vec![Peer {
+            name: "lap".into(),
+            addr: "127.0.0.1:1".into(),
+            rooms: true,
+        }],
+    ));
+    let desk_addr = serve(desk);
+    let desk_client = Client::new(desk_addr.clone());
+    let lap = Daemon::new(
+        Store::open_in_memory().unwrap(),
+        Box::new(HashEmbedder::default()),
+    )
+    .with_federation(fed(
+        "lap",
+        "s3cret-token-for-tests",
+        vec![Peer {
+            name: "desk".into(),
+            addr: desk_addr,
+            rooms: true,
+        }],
+    ));
+    let lap_client = Client::new(serve(lap));
+    let plan = text_of(
+        lap_client
+            .call(&Request::RoomPlan {
+                me: "claude".into(),
+                room: "crew-x".into(),
+                tasks: vec![ct_daemon::rooms::crew::TaskSpec {
+                    title: "Run the slow suite".into(),
+                    to: Some("codex@desk".into()),
+                    ..Default::default()
+                }],
+            })
+            .unwrap(),
+    );
+    assert!(plan.contains("codex@desk"), "{plan}");
+    // The desk sees the task on its board.
+    let mut seen = String::new();
+    for _ in 0..50 {
+        seen = text_of(
+            desk_client
+                .call(&Request::RoomTasks {
+                    room: "crew-x".into(),
+                })
+                .unwrap(),
+        );
+        if seen.contains("Run the slow suite") {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        seen.contains("Run the slow suite") && seen.contains("codex@desk"),
+        "{seen}"
+    );
+}

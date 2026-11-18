@@ -36,6 +36,8 @@ use serde::{Deserialize, Serialize};
 use crate::Daemon;
 
 /// Default wait for a reply: under Codex's 60-second tool timeout.
+pub mod crew;
+
 pub const DEFAULT_WAIT: u64 = 50;
 /// The longest a single wait may block.
 const MAX_WAIT: u64 = 600;
@@ -83,7 +85,7 @@ pub struct RoomHub {
 }
 
 impl RoomHub {
-    fn notify(&self) {
+    pub(crate) fn notify(&self) {
         *self.generation.lock().expect("room hub poisoned") += 1;
         self.changed.notify_all();
     }
@@ -135,6 +137,9 @@ pub struct RoomView {
     /// The latest agent message closed the exchange.
     pub closed: bool,
     pub claims: Vec<Claim>,
+    /// The room's task board (SPEC §6.10).
+    #[serde(default)]
+    pub tasks: Vec<ct_store::RoomTask>,
 }
 
 fn now() -> i64 {
@@ -427,6 +432,10 @@ impl Daemon {
                 }
             ),
         ];
+        let tasks = self.read_lock().room_tasks(&room)?;
+        if !tasks.is_empty() {
+            out.push(crew::board_text(&room, &tasks));
+        }
         if rows.is_empty() {
             out.push("(room is empty)".into());
         }
@@ -560,6 +569,7 @@ impl Daemon {
                     .filter(|c| c.room == r.room)
                     .cloned()
                     .collect(),
+                tasks: self.read_lock().room_tasks(&r.room).unwrap_or_default(),
                 messages: r.messages,
                 turns: r.turns,
                 max_turns: cap,
@@ -724,7 +734,7 @@ impl Daemon {
 
     /// Push a message posted here to every peer that may message. Returns at
     /// once; a peer that is offline catches up later.
-    fn relay(&self, id: i64) {
+    pub(crate) fn relay(&self, id: i64) {
         let Some(fed) = &self.federation else {
             return;
         };

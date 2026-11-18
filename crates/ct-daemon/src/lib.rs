@@ -551,6 +551,30 @@ impl Daemon {
                 wait,
                 timeout,
             } => text_or_err(self.room_send(&me, &text, &room, to.as_deref(), wait, timeout)),
+            Request::RoomPlan { me, room, tasks } => {
+                text_or_err(self.room_plan(&me, &room, &tasks))
+            }
+            Request::RoomTask {
+                me,
+                room,
+                id,
+                status,
+                result,
+                owner,
+                files,
+            } => text_or_err(self.room_task_update(
+                &me,
+                &room,
+                &id,
+                status.as_deref(),
+                result.as_deref(),
+                owner.as_deref(),
+                files.as_deref(),
+            )),
+            Request::RoomGather { me, room, timeout } => {
+                text_or_err(self.room_gather(&me, &room, timeout))
+            }
+            Request::RoomTasks { room } => text_or_err(self.room_board(&room)),
             Request::RoomWait { me, room, timeout } => {
                 text_or_err(self.room_wait(&me, &room, timeout))
             }

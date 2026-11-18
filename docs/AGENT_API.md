@@ -536,6 +536,19 @@ unless the receiver has granted `from`. Claims are per device.
 kind `exchange`, and the sessions of the agents that spoke are linked
 `conversed` (origin `explicit`) when a hook has reported their transcripts.
 
+### 7.6a Crews
+
+- `{"op":"room_plan","me","room","tasks":[{"title","brief"?,"to"?,"files"?}]}` →
+  text: the board. At most 25 tasks per call; each assignee gets a DM.
+- `{"op":"room_task","me","room"?,"id","status"?,"result"?,"owner"?,"files"?}` →
+  text. Status is `todo`, `doing`, `blocked`, `done` or `cancelled`; the lead
+  gets a DM when status or result changes.
+- `{"op":"room_gather","me","room","timeout"?}` → text: new messages, the board,
+  and either "All your tasks are finished" or who it is still waiting on.
+- `{"op":"room_tasks","room"}` → text: the board. `RoomView.tasks` has it for the app.
+
+MCP: `crossthreads_plan`, `crossthreads_task`, `crossthreads_gather`, `crossthreads_tasks`.
+
 ### 7.7 Phone access
 
 A phone opens the web app from a second HTTP listener on the computer's
