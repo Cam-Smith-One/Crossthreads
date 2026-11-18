@@ -21,10 +21,11 @@ const USAGE: &str = "\
 crossthreads skill — install the Crossthreads agent skill
 
 USAGE:
-    crossthreads skill install [--claude] [--codex] [--force]
+    crossthreads skill install [--claude] [--codex] [--grok] [--force]
 
-By default installs for both tools that are present. Pass --claude or --codex to
-limit to one. --force overwrites an existing file.
+By default installs for Claude Code and Codex, and for Grok Build when it's on
+this computer. Pass --claude, --codex or --grok to choose. --force overwrites an
+existing file.
 
 After installing, configure the Crossthreads MCP server in the tool and keep the
 daemon running (`crossthreads-up`). In Claude Code the skill loads automatically;
@@ -49,20 +50,23 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
 fn install(args: &[String]) -> Result<ExitCode> {
     let mut only_claude = false;
     let mut only_codex = false;
+    let mut only_grok = false;
     let mut force = false;
     for a in args {
         match a.as_str() {
             "--claude" => only_claude = true,
             "--codex" => only_codex = true,
+            "--grok" => only_grok = true,
             "--force" | "-f" => force = true,
             other => anyhow::bail!("unknown option: {other}"),
         }
     }
-    // With no tool flag, install for both.
-    let (do_claude, do_codex) = if only_claude || only_codex {
-        (only_claude, only_codex)
+    // With no tool flag, install for Claude Code and Codex, and for Grok
+    // Build when it is on this computer.
+    let (do_claude, do_codex, do_grok) = if only_claude || only_codex || only_grok {
+        (only_claude, only_codex, only_grok)
     } else {
-        (true, true)
+        (true, true, grok_dir().is_ok_and(|d| d.is_dir()))
     };
 
     let mut wrote = 0;
@@ -76,6 +80,14 @@ fn install(args: &[String]) -> Result<ExitCode> {
     }
     if do_codex {
         wrote += write_one(codex_prompt_path()?, CODEX_PROMPT, force, "Codex prompt")?;
+    }
+    if do_grok {
+        wrote += write_one(
+            grok_skill_path()?,
+            &grok_skill(),
+            force,
+            "Grok Build skill (/crossthreads)",
+        )?;
     }
 
     if wrote > 0 {
@@ -119,6 +131,31 @@ fn codex_dir() -> Result<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|h| h.join(".codex")))
         .context("could not resolve the Codex home dir (set CODEX_HOME)")
+}
+
+/// Grok Build's home (`GROK_HOME`, else `~/.grok`).
+pub(crate) fn grok_dir() -> Result<PathBuf> {
+    std::env::var_os("GROK_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".grok")))
+        .context("could not resolve the Grok Build home (set GROK_HOME)")
+}
+
+fn grok_skill_path() -> Result<PathBuf> {
+    Ok(grok_dir()?
+        .join("skills")
+        .join("crossthreads")
+        .join("SKILL.md"))
+}
+
+/// The Claude Code skill, marked user-invocable so Grok Build offers it as
+/// `/crossthreads` too.
+fn grok_skill() -> String {
+    CLAUDE_SKILL.replacen(
+        "\nname: crossthreads\n",
+        "\nname: crossthreads\nuser_invocable: true\n",
+        1,
+    )
 }
 
 fn claude_skill_path() -> Result<PathBuf> {

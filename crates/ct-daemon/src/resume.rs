@@ -85,6 +85,8 @@ pub(crate) fn resume_args(program: &str, id: &str) -> Option<Vec<String>> {
         "claude" => Some(vec!["--resume".to_string(), id.to_string()]),
         // Codex: `codex resume <uuid>`.
         "codex" => Some(vec!["resume".to_string(), id.to_string()]),
+        // Grok Build: `grok --resume <session-id>`.
+        "grok" => Some(vec!["--resume".to_string(), id.to_string()]),
         _ => None,
     }
 }
@@ -96,8 +98,20 @@ pub(crate) fn native_id(tool: &str, source_path: &str) -> Option<String> {
     match tool {
         "claude-code" => file_stem(source_path),
         "codex" => file_stem(source_path).and_then(|stem| embedded_uuid(&stem)),
+        "grok-build" => grok_session_id(source_path),
         _ => None,
     }
+}
+
+/// Grok Build keeps each session in a folder named by its id; the log file
+/// (`chat_history.jsonl` or `updates.jsonl`) sits inside it.
+fn grok_session_id(source_path: &str) -> Option<String> {
+    std::path::Path::new(source_path)
+        .parent()?
+        .file_name()?
+        .to_str()
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
 }
 
 pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resume {
@@ -112,6 +126,7 @@ pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resum
         "codex" => file_stem(source_path)
             .and_then(|stem| embedded_uuid(&stem))
             .map(|id| ("codex", id)),
+        "grok-build" => grok_session_id(source_path).map(|id| ("grok", id)),
         _ => None,
     };
 
@@ -119,7 +134,7 @@ pub fn resume_for(tool: &str, source_path: &str, project: Option<&str>) -> Resum
         Some((program, id)) => {
             // Run from the project dir so the resumed session lands in the right
             // workspace; the display command is copy-paste complete.
-            let args = resume_args(program, &id).expect("claude and codex both resume");
+            let args = resume_args(program, &id).expect("these tools all resume");
             let subcmd = format!("{program} {}", args.join(" "));
             let display = match project {
                 Some(p) if !p.is_empty() => format!("cd {} && {subcmd}", shell_quote(p)),

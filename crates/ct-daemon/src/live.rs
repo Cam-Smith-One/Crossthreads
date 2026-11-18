@@ -35,7 +35,7 @@ const RECENT_HOURS: i64 = 24;
 /// Tools that keep one transcript file per session, so the file's modification
 /// time says something about that session. (Editors that keep every chat in
 /// one database are left out: the file changes whenever anything does.)
-const FILE_PER_SESSION: [&str; 3] = ["claude-code", "codex", "gemini-cli"];
+const FILE_PER_SESSION: [&str; 4] = ["claude-code", "codex", "gemini-cli", "grok-build"];
 
 /// One event from a tool's hook, as `crossthreads hook` forwards it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

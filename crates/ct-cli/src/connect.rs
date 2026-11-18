@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 const USAGE: &str = "\
-crossthreads connect — connect Claude Code and Codex to Crossthreads
+crossthreads connect — connect Claude Code, Codex and Grok Build to Crossthreads
 
 USAGE:
     crossthreads connect
@@ -69,10 +69,21 @@ pub fn run(args: &[String]) -> Result<ExitCode> {
             }
         }
     }
-    if !claude_dir.is_dir() && !codex_dir.is_dir() {
-        println!("  neither Claude Code nor Codex is set up on this computer yet");
+    let grok_dir = crate::skill::grok_dir()?;
+    if grok_dir.is_dir() {
+        // Grok Build reads MCP servers from the same TOML shape as Codex.
+        match connect_codex(&grok_dir.join("config.toml"), &ct_mcp) {
+            Ok(msg) => println!("  Grok Build: {msg}"),
+            Err(e) => {
+                println!("  Grok Build: {e:#}");
+                failed = true;
+            }
+        }
     }
-    println!("\nRestart Claude Code and Codex to pick this up.");
+    if !claude_dir.is_dir() && !codex_dir.is_dir() && !grok_dir.is_dir() {
+        println!("  none of Claude Code, Codex or Grok Build is set up on this computer yet");
+    }
+    println!("\nRestart your AI tools to pick this up.");
     Ok(if failed {
         ExitCode::FAILURE
     } else {

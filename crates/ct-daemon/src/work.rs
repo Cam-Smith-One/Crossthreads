@@ -85,7 +85,7 @@ impl Daemon {
         fresh: bool,
     ) -> Result<Response> {
         let Some(tool) = Tool::from_id(tool) else {
-            bail!("continue in claude-code or codex, not `{tool}`");
+            bail!("continue in claude-code, codex or grok-build, not `{tool}`");
         };
         let Some(t) = self.whole_thread(id, device)? else {
             bail!("no thread {id}");
@@ -163,7 +163,7 @@ impl Daemon {
         }
         if let Some(t) = tool {
             if Tool::from_id(t).is_none() {
-                bail!("continue in claude-code or codex, not `{t}`");
+                bail!("continue in claude-code, codex or grok-build, not `{t}`");
             }
         }
         let (_, root) = self.resolve_root(device, id);

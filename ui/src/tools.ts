@@ -11,6 +11,7 @@ const TOOL_META: Record<string, { label: string; icon: string }> = {
   "gemini-cli": { label: "Gemini CLI", icon: "✶" },
   windsurf: { label: "Windsurf", icon: "🌊" },
   antigravity: { label: "Antigravity", icon: "🛰️" },
+  "grok-build": { label: "Grok Build", icon: "𝕏" },
   room: { label: "Rooms", icon: "🤝" },
 };
 

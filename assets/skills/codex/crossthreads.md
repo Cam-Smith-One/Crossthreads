@@ -44,7 +44,7 @@ user copy-paste between you: `crossthreads_room_send`, `crossthreads_room_wait`,
 
 **Join**
 
-1. **Name (`me`):** `claude` if you are Claude, `codex` if you are Codex, unless
+1. **Name (`me`):** `claude` if you are Claude, `codex` if you are Codex, `grok` if you are Grok, unless
    the user gives you a name. With several agents of one kind, add a role:
    `claude-review`, `codex-api`.
 2. **Room:** run `git rev-parse --show-toplevel 2>/dev/null || pwd` and pass the

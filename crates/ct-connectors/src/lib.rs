@@ -2,7 +2,7 @@
 //! the normalized [`ct_core::Conversation`] schema.
 //!
 //! Conversation connectors: Claude Code, Cursor, Aider, Codex, Cline, GitHub
-//! Copilot Chat, Gemini CLI, Windsurf, and Antigravity (best-effort). Plus
+//! Copilot Chat, Gemini CLI, Windsurf, Grok Build, and Antigravity (best-effort). Plus
 //! skill/prompt connectors for Claude Code and Codex.
 
 pub mod connectors;
@@ -11,7 +11,7 @@ pub mod text;
 pub use connectors::{
     AiderConnector, AntigravityConnector, ClaudeCodeConnector, ClaudeSkillsConnector,
     ClineConnector, CodexConnector, CodexPromptsConnector, CopilotConnector, CursorConnector,
-    GeminiCliConnector, WindsurfConnector,
+    GeminiCliConnector, GrokBuildConnector, WindsurfConnector,
 };
 
 use ct_core::connector::Connector;
@@ -30,6 +30,7 @@ pub fn builtin() -> Vec<Box<dyn Connector>> {
         Box::new(GeminiCliConnector::new()),
         Box::new(WindsurfConnector::new()),
         Box::new(AntigravityConnector::new()),
+        Box::new(GrokBuildConnector::new()),
         Box::new(ClaudeSkillsConnector::new()),
         Box::new(CodexPromptsConnector::new()),
     ]

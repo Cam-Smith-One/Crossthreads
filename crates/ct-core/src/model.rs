@@ -22,6 +22,7 @@ pub enum Tool {
     Cline,
     Copilot,
     Antigravity,
+    GrokBuild,
     #[serde(untagged)]
     Other(String),
 }
@@ -39,6 +40,7 @@ impl Tool {
             Tool::Cline => "cline",
             Tool::Copilot => "copilot",
             Tool::Antigravity => "antigravity",
+            Tool::GrokBuild => "grok-build",
             Tool::Other(s) => s,
         }
     }

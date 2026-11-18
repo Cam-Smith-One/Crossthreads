@@ -152,6 +152,10 @@ export interface SetupStatus {
   devices_can_message: number;
   /** Agents get the thread's context when a session starts. */
   agent_context?: boolean;
+  /** Grok Build is on this computer, and connected. */
+  grok_present?: boolean;
+  mcp_grok?: boolean;
+  skill_grok?: boolean;
   /** Your model writes where threads stand. */
   auto_standing?: boolean;
   phone_enabled: boolean;
@@ -911,7 +915,7 @@ export async function editNote(id: string, change: { kind?: NoteKind; removed?: 
 
 // --- Starting, continuing and moving work ------------------------------------
 
-export type ToolId = "claude-code" | "codex";
+export type ToolId = "claude-code" | "codex" | "grok-build";
 
 /** Start a thread: a name, an optional goal, and its folder on this computer. */
 export async function createThread(title: string, cwd: string, goal?: string): Promise<string | null> {

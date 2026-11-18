@@ -1,6 +1,6 @@
 ---
 name: crossthreads
-description: Recall and search past AI coding conversations across every tool (Claude Code, Codex, Cursor, Copilot, Gemini, Windsurf, and more) via the Crossthreads MCP server. Use at the start of a non-trivial task to recall prior decisions, surface unresolved work, and whenever you might be re-solving something you've worked on before. Also use to work with another AI agent (Claude, Codex) through a shared room instead of the user copy-pasting between them: when the user says "/crossthreads listen", "/crossthreads lead", "talk to codex/claude", "hand this to codex/claude", or wants agents to collaborate, hand off or review each other's work.
+description: Recall and search past AI coding conversations across every tool (Claude Code, Codex, Cursor, Copilot, Gemini, Windsurf, and more) via the Crossthreads MCP server. Use at the start of a non-trivial task to recall prior decisions, surface unresolved work, and whenever you might be re-solving something you've worked on before. Also use to work with another AI agent (Claude, Codex, Grok) through a shared room instead of the user copy-pasting between them: when the user says "/crossthreads listen", "/crossthreads lead", "talk to codex/claude/grok", "hand this to codex/claude/grok", or wants agents to collaborate, hand off or review each other's work.
 ---
 
 # Crossthreads — cross-tool conversation memory
@@ -107,7 +107,7 @@ user copy-paste between you: `crossthreads_room_send`, `crossthreads_room_wait`,
 
 **Join**
 
-1. **Name (`me`):** `claude` if you are Claude, `codex` if you are Codex, unless
+1. **Name (`me`):** `claude` if you are Claude, `codex` if you are Codex, `grok` if you are Grok, unless
    the user gives you a name. With several agents of one kind, add a role:
    `claude-review`, `codex-api`.
 2. **Room:** run `git rev-parse --show-toplevel 2>/dev/null || pwd` and pass the
